@@ -1,0 +1,20 @@
+<div class="joueur-container">
+  <div class="joueur-banner">
+    <span style="font-size:1.3em; margin-right:0.5em;">👤</span> ÉCRAN JOUEUR
+    <div class="joueur-message">Vous êtes sur l’interface <b>JOUEUR</b>.</div>
+  </div>
+  <ng-container *ngIf="step === 'lobby'">
+    <h2>Inscription enregistrée !</h2>
+    <p>En attente de validation par l'animateur...</p>
+    <div class="loader"></div>
+  </ng-container>
+  <ng-container *ngIf="step === 'waiting'">
+    <h2>Inscriptions clôturées</h2>
+    <p>Inscriptions clôturées. Veuillez patienter, l'animateur va lancer le quiz…</p>
+    <div class="loader"></div>
+  </ng-container>
+  <ng-container *ngIf="step !== 'lobby' && step !== 'waiting'">
+    <h2>En attente du lancement de la partie...</h2>
+    <div class="loader"></div>
+  </ng-container>
+</div>

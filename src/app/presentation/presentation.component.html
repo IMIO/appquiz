@@ -1,0 +1,121 @@
+<!-- Fallback : état inconnu -->
+<ng-container *ngIf="step !== 'lobby' && step !== 'waiting' && step !== 'question' && step !== 'result' && step !== 'end'">
+  <div style="margin: 3em 0; text-align: center; color: red;">
+    <h2>Erreur d’état du quiz</h2>
+    <p>État inconnu ou non initialisé.<br>Cliquez sur <b>🧹 CLEAR INSCRIPTIONS</b> pour réinitialiser.</p>
+  </div>
+</ng-container>
+  <!-- WAITING : attente du lancement de la première question -->
+  <ng-container *ngIf="step === 'waiting'">
+    <div class="presentation-waiting-block" style="margin: 3em 0; text-align: center;">
+      <h2 class="presentation-waiting-title" style="color: #1976d2;">Bonne chance à tous !</h2>
+      <p class="presentation-waiting-msg" style="font-size: 1.3em; color: #333;">La partie va commencer&nbsp;!</p>
+      <div class="presentation-waiting-participants" style="margin: 2em 0;">
+        <h3 style="color: #333;">Participants inscrits ({{ participants.length }}) :</h3>
+        <ul style="display: flex; flex-wrap: wrap; gap: 1em; justify-content: center; list-style: none; padding: 0;">
+          <li *ngFor="let user of participants" style="background: #e3f2fd; border-radius: 5px; padding: 0.5em 1.2em; font-weight: bold; color: #1976d2; border: 1px solid #90caf9; font-size: 1.1em;">
+            <img *ngIf="user.avatarUrl" [src]="user.avatarUrl" alt="avatar" width="32" height="32" style="vertical-align:middle; border-radius:50%; margin-right:0.5em; border:1.5px solid #1976d2;" />
+            {{ user.name }}
+          </li>
+        </ul>
+        <div style="margin-top: 1em; color: #1976d2; font-size: 1.2em; font-weight: bold;">Total : {{ participants.length }} participant(s)</div>
+      </div>
+      <button class="presentation-start-btn" (click)="startFirstQuestion()" style="margin-top: 2em; font-size: 1.2em; background: #43a047; color: white; border: 2px solid #1976d2; padding: 0.7em 2em; border-radius: 8px;">Commencer le quiz</button>
+      <button class="presentation-reset-btn" (click)="restartGame()" style="margin-left: 1em; background: #f44336; color: yellow; font-size: 1.2em; border: 3px solid black;">🧹 Tout réinitialiser</button>
+    </div>
+  </ng-container>
+<div class="presentation-container" style="background: #fff3e0; min-height: 100vh; border-top: 10px solid #e65100;">
+  <div class="presentation-maitre-banner">
+    <span style="font-size:1.3em; margin-right:0.5em;">🎤</span> ÉCRAN MAÎTRE DU JEU
+    <div style="font-size:1.1em; margin-top:0.5em; background:#fff; color:#e65100; border-radius:6px; display:inline-block; padding:0.2em 1em; font-weight:normal;">ÉTAPE : {{ step | uppercase }}</div>
+    <div class="maitre-message">Vous êtes sur l’interface <b>MAÎTRE DU JEU</b>.</div>
+  </div>
+  <h1 class="presentation-title">Quiz - Écran de présentation</h1>
+
+  <!-- LOBBY : QR code + liste des inscrits + bouton démarrer -->
+  <ng-container *ngIf="step === 'lobby'">
+    <h2 class="presentation-qr-title">Scannez pour rejoindre</h2>
+    <qrcode class="presentation-qr-code" [qrdata]="windowLocation + '/login'" [width]="200"></qrcode>
+    <h3 class="presentation-participants-title">Joueurs inscrits :</h3>
+    <ul class="presentation-participants-list">
+      <li class="presentation-participant-item" *ngFor="let user of participants">{{ user.name }}</li>
+      <li class="presentation-participant-item" *ngFor="let user of participants">
+        <img *ngIf="user.avatarUrl" [src]="user.avatarUrl" alt="avatar" width="32" height="32" style="vertical-align:middle; border-radius:50%; margin-right:0.5em; border:1.5px solid #1976d2;" />
+        {{ user.name }}
+      </li>
+    </ul>
+    <button class="presentation-launch-btn" (click)="launchGame()" [disabled]="participants.length === 0">Clôturer les inscriptions et lancer la partie</button>
+    <button class="presentation-reset-btn" (click)="restartGame()" style="margin-left: 1em; background: #f44336; color: yellow; font-size: 1.2em; border: 3px solid black;">🧹 Tout réinitialiser</button>
+    <div class="presentation-waiting-msg" *ngIf="participants.length === 0" style="color: #888; font-size: 1.1em; background: #ffe082; padding: 0.5em; border-radius: 5px; margin-top: 1em;">En attente de participants...</div>
+  </ng-container>
+
+  <!-- QUESTION : question, réponses, timer -->
+  <ng-container *ngIf="step === 'question' && currentQuestion">
+    <button class="presentation-reset-btn" (click)="restartGame()" style="margin-bottom: 1em; background: #f44336; color: yellow; font-size: 1.2em; border: 3px solid black;">🧹 Tout réinitialiser</button>
+    <h2 class="presentation-question-title">Question</h2>
+    <h3 class="presentation-question-text">{{ currentQuestion.text }}</h3>
+    <div class="presentation-timer">Temps restant : {{ timerValue }}s</div>
+    <ul class="presentation-options-list">
+      <li class="presentation-option-item" *ngFor="let option of currentQuestion.options; let i = index">
+        <span class="presentation-option-label">{{ option }}</span>
+      </li>
+    </ul>
+    <!-- Liste des votants pour la question courante -->
+    <div class="presentation-voters-block" *ngIf="voters && voters.length > 0" style="margin-top: 1.5em;">
+      <h4 class="presentation-voters-title" style="margin-bottom: 0.5em; color: #1976d2;">Ont déjà répondu :</h4>
+      <ul class="presentation-voters-list" style="display: flex; flex-wrap: wrap; gap: 0.7em; list-style: none; padding: 0;">
+        <li class="presentation-voter-item" *ngFor="let voter of voters" style="background: #e3f2fd; border-radius: 5px; padding: 0.3em 0.8em; font-weight: bold; color: #1976d2; border: 1px solid #90caf9;">
+          {{ voter }}
+        </li>
+      </ul>
+      <div class="presentation-voters-count" style="margin-top: 0.5em; color: #555; font-size: 0.95em;">{{ voters.length }} participant(s) ont voté</div>
+    </div>
+  </ng-container>
+
+  <!-- RESULT : bonne réponse, stats, bouton question suivante, bouton reset complet -->
+  <ng-container *ngIf="step === 'result'">
+    <button class="presentation-reset-btn" (click)="restartGame()" style="margin-bottom: 1em; background: #f44336; color: yellow; font-size: 1.2em; border: 3px solid black;">🧹 Tout réinitialiser</button>
+    <div *ngIf="!currentQuestion" style="color: #888; font-size: 1.1em; background: #ffe082; padding: 0.5em; border-radius: 5px; margin-top: 1em;">Aucune question courante.</div>
+    <ng-container *ngIf="currentQuestion">
+      <h2 class="presentation-result-title">Résultat</h2>
+      <h3 class="presentation-result-question">{{ currentQuestion.text }}</h3>
+      <ul class="presentation-result-options-list">
+        <li class="presentation-result-option-item" *ngFor="let option of currentQuestion.options || []; let i = index"
+            [class.correct]="i === currentQuestion.correctIndex">
+          <span class="presentation-result-option-label">{{ option }}</span> — {{ answersCount[i] || 0 }} réponses
+        </li>
+      </ul>
+      <div class="presentation-result-stats">
+        <span class="presentation-result-good">
+          Bonne réponse :
+          <b>
+            {{ (currentQuestion.options && currentQuestion.correctIndex !== undefined && currentQuestion.options[currentQuestion.correctIndex] !== undefined)
+                ? currentQuestion.options[currentQuestion.correctIndex]
+                : '—' }}
+          </b>
+        </span>
+        <br>
+        <span class="presentation-result-total-good">Total bonnes réponses : {{ totalGood }}</span>
+        <br>
+        <span class="presentation-result-total-bad">Total mauvaises réponses : {{ totalBad }}</span>
+      </div>
+      <button class="presentation-next-btn" (click)="nextQuestion()">Question suivante</button>
+    </ng-container>
+  </ng-container>
+
+  <!-- END : classement final -->
+  <ng-container *ngIf="step === 'end'">
+    <button class="presentation-reset-btn" (click)="restartGame()" style="margin-bottom: 1em; background: #f44336; color: yellow; font-size: 1.2em; border: 3px solid black;">🧹 Tout réinitialiser</button>
+    <h2 class="presentation-end-title">Fin du quiz</h2>
+    <h3 class="presentation-end-leaderboard-title">Classement final</h3>
+    <ol class="presentation-end-leaderboard-list">
+      <li class="presentation-end-leaderboard-item" *ngFor="let user of leaderboard">
+        <img *ngIf="user.avatarUrl" [src]="user.avatarUrl" alt="avatar" width="32" height="32" style="vertical-align:middle; border-radius:50%; margin-right:0.5em; border:1.5px solid #1976d2;" />
+        <span class="presentation-end-leaderboard-name">{{ user.name }}</span> — <span class="presentation-end-leaderboard-score">{{ user.score }} pts</span>
+      </li>
+    </ol>
+  </ng-container>
+
+  <!-- DEBUG : bouton pour forcer l'étape 'question' -->
+  <button style="position:fixed;top:10px;right:10px;z-index:9999;background:#1976d2;color:#fff;padding:0.5em 1em;border-radius:6px;font-size:1em;" (click)="quizService.setStep('question')">[DEBUG] Forcer étape QUESTION</button>
+</div>

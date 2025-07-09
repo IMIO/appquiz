@@ -1,0 +1,26 @@
+<div class="joueur-container">
+  <div class="joueur-banner">
+    <span style="font-size:1.3em; margin-right:0.5em;">👤</span> ÉCRAN JOUEUR
+    <div class="joueur-message">Vous êtes sur l’interface <b>JOUEUR</b>.</div>
+  </div>
+  <h2>Entrez votre pseudo ou identifiant GitHub</h2>
+  <input
+    type="text"
+    placeholder="Nom ou pseudo"
+    [(ngModel)]="name"
+    style="margin-bottom:0.5em;"
+  />
+  <div style="margin:0.5em 0;">OU</div>
+  <input
+    type="text"
+    placeholder="Nom d'utilisateur GitHub"
+    [(ngModel)]="github"
+    (input)="avatarUrl=null"
+    style="margin-bottom:0.5em;"
+  />
+  <button (click)="fetchGithubAvatar()" [disabled]="!github.trim() || loadingAvatar || name.trim()" style="margin-bottom:0.5em;">Récupérer l'avatar</button>
+  <div *ngIf="avatarUrl" style="margin-bottom:0.5em;">
+    <img [src]="avatarUrl" alt="avatar" width="60" height="60" style="border-radius:50%;border:2px solid #ccc;" />
+  </div>
+  <button (click)="join()" [disabled]="(!name.trim() && !github.trim()) || (github.trim() && !avatarUrl)">Rejoindre</button>
+</div>
