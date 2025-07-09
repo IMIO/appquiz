@@ -52,5 +52,13 @@
 
 <div *ngIf="quizFinished" class="quiz-finished-container">
   <h2>Quiz terminé !</h2>
-  <div class="joueur-banner-score" style="font-size:1.3em; margin-top:1em;">Score final : <b>{{ totalScore }}</b> point{{ totalScore > 1 ? 's' : '' }}</div>
+  <div class="joueur-banner-score" style="font-size:1.3em; margin-top:1em;">Score final : <b>{{ totalScore }}</b> / {{ totalQuestions }} point{{ totalQuestions > 1 ? 's' : '' }}</div>
+  <h3 style="margin-top:2em;">Classement final</h3>
+  <ol class="joueur-leaderboard-list" style="list-style:none; padding:0; max-width:400px; margin:2em auto 0 auto;">
+    <li *ngFor="let user of leaderboard" class="joueur-leaderboard-item" style="display:flex;align-items:center;gap:1em;margin-bottom:1em;">
+      <img *ngIf="user.avatarUrl" [src]="user.avatarUrl" alt="avatar" width="38" height="38" style="border-radius:50%;border:2px solid #1976d2;" />
+      <span style="font-weight:bold;">{{ user.name }}</span>
+      <span style="margin-left:auto; font-size:1.1em; color:#1976d2; font-weight:bold;">{{ user.score }} / {{ totalQuestions }} pts</span>
+    </li>
+  </ol>
 </div>

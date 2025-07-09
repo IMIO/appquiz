@@ -1,3 +1,4 @@
+import { User } from './models/user.model';
 import { Component, OnInit } from '@angular/core';
 import { Subscription } from 'rxjs';
 import { Question } from './question.model';
@@ -14,6 +15,12 @@ import { TimerService } from './services/timer.service';
   styleUrls: ['./quiz.component.css']
 })
 export class QuizComponent implements OnInit {
+  // ...
+  // Ajout pour accès public dans le template
+  public get totalQuestions(): number {
+    return this.quizService.getQuestions().length;
+  }
+  leaderboard: User[] = [];
   avatarUrl: string | null = null;
   get goodAnswersCount(): number {
     return this.questionResults.filter(r => r.good).length;
@@ -44,6 +51,30 @@ export class QuizComponent implements OnInit {
   constructor(private quizService: QuizService, private router: Router, private timerService: TimerService) { }
 
   ngOnInit(): void {
+    // Classement final : synchro temps réel
+    this.quizService.getParticipants$().subscribe(participants => {
+      // On recalcule dynamiquement le score de chaque participant à partir de ses réponses Firestore
+      this.quizService.getAllAnswers$().subscribe((allAnswersDocs: any[]) => {
+        const nbQuestions = this.totalQuestions;
+        const leaderboard = participants.map(user => {
+          let score = 0;
+          for (let i = 0; i < nbQuestions; i++) {
+            const doc = allAnswersDocs.find((d: any) => String(d.id) === String(i));
+            if (doc && doc.answers) {
+              const answer = doc.answers.find((a: any) => String(a.userId) === String(user.id));
+              if (answer && typeof answer.answerIndex !== 'undefined') {
+                const question = this.quizService.getCurrentQuestion(i);
+                if (question && answer.answerIndex === question.correctIndex) {
+                  score++;
+                }
+              }
+            }
+          }
+          return { ...user, score };
+        });
+        this.leaderboard = leaderboard.sort((a, b) => b.score - a.score);
+      });
+    });
     this.avatarUrl = localStorage.getItem('avatarUrl');
     // Correction AngularFire : initialisation explicite des questions
     this.quizService.initQuestions();
@@ -60,6 +91,9 @@ export class QuizComponent implements OnInit {
       this.step = step;
       if (step === 'lobby') {
         this.router.navigate(['/login']);
+      }
+      if (step === 'end') {
+        this.quizFinished = true;
       }
       if (step === 'result') {
         this.timerActive = false;
