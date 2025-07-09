@@ -1,17 +1,14 @@
 <div *ngIf="!quizFinished && currentQuestion" class="quiz-container">
-  <div class="joueur-banner joueur-banner-question">
-    <span class="joueur-banner-icon">
-      <img *ngIf="avatarUrl" [src]="avatarUrl" alt="avatar" width="38" height="38" style="vertical-align:middle; border-radius:50%; margin-right:0.3em; border:2px solid #fff; background:#fff;" />
-      <span *ngIf="!avatarUrl">👤</span>
-    </span>
-    <span class="joueur-banner-label">ÉCRAN JOUEUR</span>
-    <div class="joueur-banner-step">ÉTAPE : <span class="joueur-banner-step-label">{{ step | uppercase }}</span></div>
-    <div class="joueur-banner-message">Vous êtes sur l’interface <b>JOUEUR</b>.</div>
-    <div class="joueur-banner-score" *ngIf="step === 'result' || quizFinished">
-      Score : <b>{{ totalScore }}</b> point{{ totalScore > 1 ? 's' : '' }}
-      <span style="margin-left:1em; color:#43a047;">✅ {{ goodAnswersCount }}</span>
-      <span style="margin-left:1em; color:#d32f2f;">❌ {{ badAnswersCount }}</span>
-    </div>
+  <div class="participant-score-banner">
+    <img *ngIf="avatarUrl" [src]="avatarUrl" alt="avatar" class="participant-avatar" />
+    <span *ngIf="!avatarUrl" class="participant-avatar">👤</span>
+    <span class="participant-score-label">Mon score</span>
+    <span class="participant-score-value">{{ totalScore }} / {{ totalQuestions }} point{{ totalQuestions > 1 ? 's' : '' }}</span>
+  </div>
+  <div class="participant-score-detail">
+    <span *ngIf="personalScore.good" class="score-good">✅ Bonne réponse !</span>
+    <span *ngIf="personalScore.bad" class="score-bad">❌ Mauvaise réponse</span>
+    <span *ngIf="personalScore.none" class="score-none">⏰ Non répondu</span>
   </div>
   <h2 class="quiz-question-title">{{ currentQuestion.text }}</h2>
   <div class="quiz-timer-container" *ngIf="step === 'question'">
@@ -52,11 +49,22 @@
 
 <div *ngIf="quizFinished" class="quiz-finished-container">
   <h2>Quiz terminé !</h2>
-  <div class="joueur-banner-score" style="font-size:1.3em; margin-top:1em;">Score final : <b>{{ totalScore }}</b> / {{ totalQuestions }} point{{ totalQuestions > 1 ? 's' : '' }}</div>
+  <div class="participant-score-banner">
+    <img *ngIf="avatarUrl" [src]="avatarUrl" alt="avatar" class="participant-avatar" />
+    <span *ngIf="!avatarUrl" class="participant-avatar">👤</span>
+    <span class="participant-score-label">Mon score</span>
+    <span class="participant-score-value">{{ totalScore }} / {{ totalQuestions }} point{{ totalQuestions > 1 ? 's' : '' }}</span>
+  </div>
+  <div class="participant-score-detail">
+    <span *ngIf="personalScore.good" class="score-good">✅ Bonne réponse !</span>
+    <span *ngIf="personalScore.bad" class="score-bad">❌ Mauvaise réponse</span>
+    <span *ngIf="personalScore.none" class="score-none">⏰ Non répondu</span>
+  </div>
   <h3 style="margin-top:2em;">Classement final</h3>
   <ol class="joueur-leaderboard-list" style="list-style:none; padding:0; max-width:400px; margin:2em auto 0 auto;">
-    <li *ngFor="let user of leaderboard" class="joueur-leaderboard-item" style="display:flex;align-items:center;gap:1em;margin-bottom:1em;">
+    <li *ngFor="let user of leaderboard; let i = index" class="joueur-leaderboard-item" style="display:flex;align-items:center;gap:1em;margin-bottom:1em;">
       <img *ngIf="user.avatarUrl" [src]="user.avatarUrl" alt="avatar" width="38" height="38" style="border-radius:50%;border:2px solid #1976d2;" />
+      <span class="joueur-leaderboard-rank" style="font-size:1.2em; font-weight:bold; color:#e65100; min-width:2em; text-align:center;">{{ i + 1 }}</span>
       <span style="font-weight:bold;">{{ user.name }}</span>
       <span style="margin-left:auto; font-size:1.1em; color:#1976d2; font-weight:bold;">{{ user.score }} / {{ totalQuestions }} pts</span>
     </li>

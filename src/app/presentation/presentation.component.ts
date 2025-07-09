@@ -1,3 +1,4 @@
+
 import { Component } from '@angular/core';
 import { TimerService } from '../services/timer.service';
 import { CommonModule } from '@angular/common';
@@ -6,6 +7,7 @@ import { QuizService, QuizStep } from '../services/quiz.service';
 import { Question } from '../models/question.model';
 import { User } from '../models/user.model';
 import { Observable, timer, Subscription } from 'rxjs';
+
 
 @Component({
   selector: 'app-presentation',
@@ -29,6 +31,11 @@ export class PresentationComponent {
   totalGood: number = 0;
   totalBad: number = 0;
   voters: string[] = [];
+
+
+  canShowEndButton(): boolean {
+    return this.currentIndex === (this.quizService.getQuestions().length - 1) && this.step !== 'end';
+  }
 
   constructor(public quizService: QuizService, private timerService: TimerService) {
     // Synchro temps réel de l'étape du quiz
@@ -100,7 +107,7 @@ export class PresentationComponent {
   refresh() {
     // this.participants = ... supprimé, car synchro via Firestore
     this.currentQuestion = this.quizService.getCurrentQuestion(this.currentIndex);
-    this.leaderboard = this.quizService.getLeaderboard();
+    // Ne pas écraser le leaderboard dynamique ici !
     if (this.currentQuestion && this.answersCount) {
       this.totalGood = this.answersCount[this.currentQuestion.correctIndex] || 0;
       this.totalAnswers = this.answersCount.reduce((a, b) => a + b, 0);

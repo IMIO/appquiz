@@ -1,1 +1,11 @@
-<p>participant works!</p>
+<div class="participant-score-banner">
+  <img *ngIf="avatarUrl" [src]="avatarUrl" alt="avatar" class="participant-avatar" />
+  <span *ngIf="!avatarUrl" class="participant-avatar">👤</span>
+  <span class="participant-score-label">Mon score</span>
+  <span class="participant-score-value">{{ totalScore }} / {{ totalQuestions }} point{{ totalQuestions > 1 ? 's' : '' }}</span>
+</div>
+<div class="participant-score-detail">
+  <span *ngIf="personalScore.good" class="score-good">✅ Bonne réponse !</span>
+  <span *ngIf="personalScore.bad" class="score-bad">❌ Mauvaise réponse</span>
+  <span *ngIf="personalScore.none" class="score-none">⏰ Non répondu</span>
+</div>
