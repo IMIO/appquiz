@@ -1,0 +1,83 @@
+<div class="presentation-container">
+  <div class="presentation-maitre-banner">
+    <span style="font-size:1.3em; margin-right:0.5em;">🎤</span> ÉCRAN MAÎTRE DU JEU
+    <div style="font-size:1.1em; margin-top:0.5em; background:#fff; color:#e65100; border-radius:6px; display:inline-block; padding:0.2em 1em; font-weight:normal;">ÉTAPE : {{ step | uppercase }}</div>
+    <div class="maitre-message">Vous êtes sur l’interface <b>MAÎTRE DU JEU</b>.</div>
+  </div>
+  <ng-container *ngIf="step === 'lobby'">
+    <button class="qr-step-restart-btn" (click)="restartGame()" style="margin-bottom:1em; background: #d32f2f; color: white; font-size: 1.1em; border: 2px solid #b71c1c; border-radius: 8px; padding: 0.5em 2em; font-weight: bold; float:right;">🔄 Réinitialiser le quiz</button>
+    <h2 class="qr-step-title">Scannez ce QR code pour rejoindre le quiz</h2>
+    <qrcode class="qr-step-qr-code" [qrdata]="windowLocation + '/login'" [width]="200"></qrcode>
+    <div class="qr-step-url">
+      <b>Ou allez sur :</b><br>
+      <span class="qr-step-url-link">{{ windowLocation + '/login' }}</span>
+    </div>
+    <h3 class="qr-step-participants-title">Joueurs inscrits :</h3>
+    <ul class="qr-step-participants-list">
+      <li class="qr-step-participant-item" *ngFor="let user of participants">{{ user.name }}</li>
+    </ul>
+    <div style="margin: 1em 0; font-weight: bold;">Total participants : {{ participants.length }}</div>
+    <button class="qr-step-launch-btn" (click)="confirmLaunchGame()" [disabled]="participants.length === 0">Clôturer les inscriptions</button>
+    <button class="qr-step-clear-btn" (click)="resetParticipants()" style="margin-left: 1em; background: #f44336; color: yellow; font-size: 1.1em; border: 2px solid black;">🧹 CLEAR INSCRIPTIONS</button>
+    <button class="qr-step-force-lobby-btn" (click)="quizService.setStep('lobby')" style="margin-left: 1em; background: #1976d2; color: white; font-size: 1.1em; border: 2px solid black;">🔄 Revenir au QR code</button>
+    <div class="qr-step-waiting-msg" *ngIf="participants.length === 0" style="color: #888;">En attente de participants...</div>
+    <p class="qr-step-alt-login" style="margin-top:2rem;">Ou <button (click)="goToLogin()">cliquez ici</button> pour continuer sur cet appareil.</p>
+  </ng-container>
+  <ng-container *ngIf="step === 'waiting'">
+    <button class="qr-step-restart-btn" (click)="restartGame()" style="margin-bottom:1em; background: #d32f2f; color: white; font-size: 1.1em; border: 2px solid #b71c1c; border-radius: 8px; padding: 0.5em 2em; font-weight: bold; float:right;">🔄 Réinitialiser le quiz</button>
+    <h2>Inscriptions clôturées</h2>
+    <p>Liste des inscrits :</p>
+    <ul class="qr-step-participants-list">
+      <li class="qr-step-participant-item" *ngFor="let user of participants">{{ user.name }}</li>
+    </ul>
+    <div style="margin: 1em 0; font-weight: bold;">Total participants : {{ participants.length }}</div>
+    <button class="qr-step-start-btn" (click)="quizService.setStep('question')" style="margin-top:2em; font-size: 1.2em; background: #43a047; color: white; border: 2px solid #1976d2; padding: 0.7em 2em; border-radius: 8px;">Commencer le quiz</button>
+    <button class="qr-step-clear-btn" (click)="resetParticipants()" style="margin-left: 1em; background: #f44336; color: yellow; font-size: 1.1em; border: 2px solid black;">🧹 CLEAR INSCRIPTIONS</button>
+    <button class="qr-step-force-lobby-btn" (click)="quizService.setStep('lobby')" style="margin-left: 1em; background: #1976d2; color: white; font-size: 1.1em; border: 2px solid black;">🔄 Revenir au QR code</button>
+  </ng-container>
+  <ng-container *ngIf="step === 'question'">
+    <button class="qr-step-restart-btn" (click)="restartGame()" style="margin-bottom:1em; background: #d32f2f; color: white; font-size: 1.1em; border: 2px solid #b71c1c; border-radius: 8px; padding: 0.5em 2em; font-weight: bold; float:right;">🔄 Réinitialiser le quiz</button>
+    <h2>Question</h2>
+    <ng-container *ngIf="currentQuestion">
+      <h3>{{ currentQuestion.text }}</h3>
+      <ul class="qr-step-options-list">
+        <li *ngFor="let option of currentQuestion.options; let i = index"
+            style="margin:0.5em 0; padding:0.7em 1.2em; border-radius:8px; font-size:1.2em; border:2px solid #1976d2; background:#fff; color:#222; font-weight:bold; box-shadow:0 2px 8px #0001;">
+          {{ option }}
+        </li>
+      </ul>
+      <button class="qr-step-end-votes-btn" (click)="quizService.setStep('result')" style="margin-top:2em; background: #43a047; color: white; font-size: 1.1em; border: 2px solid #1976d2; border-radius: 8px; padding: 0.5em 2em; font-weight: bold;">Terminer les votes et afficher la correction</button>
+      <pre style="text-align:left; background:#eee; color:#b71c1c; font-size:0.9em; padding:0.5em 1em; border-radius:6px;">
+        {{ currentQuestion | json }}
+      </pre>
+    </ng-container>
+    <button class="qr-step-clear-btn" (click)="resetParticipants()" style="margin-top:2em; background: #f44336; color: yellow; font-size: 1.1em; border: 2px solid black;">🧹 CLEAR INSCRIPTIONS</button>
+    <button class="qr-step-force-lobby-btn" (click)="quizService.setStep('lobby')" style="margin-left: 1em; background: #1976d2; color: white; font-size: 1.1em; border: 2px solid black;">🔄 Revenir au QR code</button>
+  </ng-container>
+  <ng-container *ngIf="(step === 'result' || step === 'end') && currentQuestion">
+    <button class="qr-step-restart-btn" (click)="restartGame()" style="margin-bottom:1em; background: #d32f2f; color: white; font-size: 1.1em; border: 2px solid #b71c1c; border-radius: 8px; padding: 0.5em 2em; font-weight: bold; float:right;">🔄 Réinitialiser le quiz</button>
+    <h2>Correction</h2>
+    <h3>{{ currentQuestion.text }}</h3>
+    <ul class="qr-step-options-list">
+      <li *ngFor="let option of currentQuestion.options; let i = index"
+          [ngClass]="{'qr-step-option-correct': i === currentQuestion.correctIndex}"
+          style="margin:0.5em 0; padding:0.7em 1.2em; border-radius:8px; font-size:1.2em; border:2px solid #1976d2; background:#fff; color:#222; font-weight:bold; box-shadow:0 2px 8px #0001;">
+        {{ option }}
+        <span *ngIf="i === currentQuestion.correctIndex" style="color:#43a047; font-size:1.1em; margin-left:1em;">✔️ Bonne réponse</span>
+      </li>
+    </ul>
+    <!-- Bloc pour afficher les scores à compléter -->
+    <div style="margin:2em 0; font-size:1.1em;">
+      <b>Statistiques des réponses :</b><br>
+      <span style="color:#43a047;">✔️ Nombre de bonnes réponses : {{ stats.good }}</span><br>
+      <span style="color:#d32f2f;">❌ Nombre de mauvaises réponses : {{ stats.bad }}</span><br>
+      <span style="color:#888;">⏰ Nombre de non-réponses : {{ stats.none }}</span>
+    </div>
+    <button class="qr-step-clear-btn" (click)="resetParticipants()" style="margin-top:2em; background: #f44336; color: yellow; font-size: 1.1em; border: 2px solid black;">🧹 CLEAR INSCRIPTIONS</button>
+  </ng-container>
+  <!-- Fallback : état inconnu ou non initialisé -->
+  <ng-container *ngIf="!step || (step !== 'lobby' && step !== 'waiting' && step !== 'question' && step !== 'result' && step !== 'end')">
+    <button class="qr-step-restart-btn" (click)="restartGame()" style="margin-bottom:1em; background: #d32f2f; color: white; font-size: 1.1em; border: 2px solid #b71c1c; border-radius: 8px; padding: 0.5em 2em; font-weight: bold; float:right;">🔄 Réinitialiser le quiz</button>
+    <div style="margin:2em 0; color:red; font-weight:bold;">État du quiz inconnu ou non initialisé.<br>Vous pouvez forcer la réinitialisation.</div>
+  </ng-container>
+</div>

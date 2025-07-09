@@ -1,0 +1,56 @@
+<div *ngIf="!quizFinished && currentQuestion" class="quiz-container">
+  <div class="joueur-banner joueur-banner-question">
+    <span class="joueur-banner-icon">
+      <img *ngIf="avatarUrl" [src]="avatarUrl" alt="avatar" width="38" height="38" style="vertical-align:middle; border-radius:50%; margin-right:0.3em; border:2px solid #fff; background:#fff;" />
+      <span *ngIf="!avatarUrl">👤</span>
+    </span>
+    <span class="joueur-banner-label">ÉCRAN JOUEUR</span>
+    <div class="joueur-banner-step">ÉTAPE : <span class="joueur-banner-step-label">{{ step | uppercase }}</span></div>
+    <div class="joueur-banner-message">Vous êtes sur l’interface <b>JOUEUR</b>.</div>
+    <div class="joueur-banner-score" *ngIf="step === 'result' || quizFinished">
+      Score : <b>{{ totalScore }}</b> point{{ totalScore > 1 ? 's' : '' }}
+      <span style="margin-left:1em; color:#43a047;">✅ {{ goodAnswersCount }}</span>
+      <span style="margin-left:1em; color:#d32f2f;">❌ {{ badAnswersCount }}</span>
+    </div>
+  </div>
+  <h2 class="quiz-question-title">{{ currentQuestion.text }}</h2>
+  <div class="quiz-timer-container" *ngIf="step === 'question'">
+    <div class="quiz-timer-bar-bg">
+      <div class="quiz-timer-bar" [style.width]="timerPercent + '%'" [class.quiz-timer-bar-end]="!timerActive"></div>
+    </div>
+    <div class="quiz-timer-count">⏰ {{ timer }} s</div>
+  </div>
+  <div *ngIf="step === 'result'" class="quiz-vote-closed">⏳ Vote clos pour cette question</div>
+  <!-- Score résumé déplacé uniquement dans la bannière -->
+  <ul class="quiz-options-list">
+    <li *ngFor="let option of currentQuestion.options; let i = index">
+      <button
+        class="quiz-option-btn"
+        (click)="selectAnswer(i)"
+        [disabled]="(selectedAnswerIndex !== null && selectedAnswerIndex !== -1) || !timerActive || step === 'result'"
+        [class.quiz-option-correct]="step === 'result' && i === currentQuestion.correctIndex"
+        [class.quiz-option-incorrect]="step === 'result' && selectedAnswerIndex === i && i !== currentQuestion.correctIndex"
+        [class.quiz-option-selected]="selectedAnswerIndex === i && step === 'question'"
+        [class.quiz-option-noanswer]="step === 'result' && selectedAnswerIndex === -1"
+      >
+        <span *ngIf="selectedAnswerIndex === i && step === 'question'" class="quiz-option-selected-icon">👉</span>
+        {{ option }}
+        <span *ngIf="step === 'result' && i === currentQuestion.correctIndex" style="margin-left:1em; color:#43a047;">✔️</span>
+      </button>
+    </li>
+  </ul>
+  <div *ngIf="step === 'result'" class="quiz-personal-score">
+    <span *ngIf="personalScore.good">✅ Bonne réponse !</span>
+    <span *ngIf="personalScore.bad">❌ Mauvaise réponse</span>
+    <span *ngIf="personalScore.none">⏰ Non répondu</span>
+  </div>
+  <div style="color: #d32f2f; font-size: 0.95em; margin-bottom: 1em;">
+    [DEBUG] step: {{ step }} | timerActive: {{ timerActive }} | selectedAnswerIndex: {{ selectedAnswerIndex }}
+  </div>
+  <button class="quiz-next-btn" (click)="nextQuestion()" [disabled]="selectedAnswerIndex === null || step === 'result'">Suivant</button>
+</div>
+
+<div *ngIf="quizFinished" class="quiz-finished-container">
+  <h2>Quiz terminé !</h2>
+  <div class="joueur-banner-score" style="font-size:1.3em; margin-top:1em;">Score final : <b>{{ totalScore }}</b> point{{ totalScore > 1 ? 's' : '' }}</div>
+</div>

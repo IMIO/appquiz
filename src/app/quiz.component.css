@@ -1,0 +1,64 @@
+.quiz-container { padding: 2rem; }
+.quiz-question-title { font-size: 1.5em; margin-bottom: 1.5em; }
+.quiz-timer-container { display: flex; align-items: center; margin-bottom: 1.5em; }
+.quiz-timer-bar-bg { flex: 1; height: 18px; background: #eee; border-radius: 10px; overflow: hidden; margin-right: 1em; }
+.quiz-timer-bar { height: 100%; background: linear-gradient(90deg, #43a047, #1976d2); transition: width 0.3s; }
+.quiz-timer-bar-end { background: #d32f2f !important; }
+.quiz-timer-count { font-size: 1.2em; font-weight: bold; color: #1976d2; min-width: 60px; text-align: right; }
+.quiz-options-list { list-style: none; padding: 0; margin: 0 0 2em 0; }
+.quiz-option-btn { width: 100%; padding: 1em; margin-bottom: 1em; font-size: 1.1em; border-radius: 8px; border: 2px solid #1976d2; background: #fff; color: #222; font-weight: bold; transition: background 0.2s, color 0.2s; cursor: pointer; }
+.quiz-option-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+.quiz-option-correct { background: #43a047 !important; color: #fff !important; border-color: #388e3c !important; }
+.quiz-option-incorrect { background: #d32f2f !important; color: #fff !important; border-color: #b71c1c !important; }
+.quiz-option-selected { background: #1976d2 !important; color: #fff !important; border-color: #0d47a1 !important; box-shadow: 0 0 0 3px #1976d288; }
+.quiz-option-selected-icon { margin-right: 0.7em; font-size: 1.2em; vertical-align: middle; }
+.quiz-next-btn { margin-top: 1em; font-size: 1.1em; background: #1976d2; color: #fff; border: 2px solid #1976d2; border-radius: 8px; padding: 0.7em 2em; font-weight: bold; }
+.quiz-finished-container { text-align: center; margin-top: 3em; }
+.joueur-banner {
+  background: #1976d2;
+  color: #fff;
+  padding: 1.2em 0 1em 0;
+  text-align: center;
+  font-size: 1.3em;
+  font-weight: bold;
+  letter-spacing: 1px;
+  box-shadow: 0 2px 8px #1976d2aa;
+  border-bottom: 4px solid #0d47a1;
+  border-radius: 12px 12px 0 0;
+  z-index: 2;
+  margin-bottom: 2em;
+}
+.joueur-banner-question {
+  background: #1976d2 !important;
+  border-bottom: 4px solid #0d47a1 !important;
+}
+.joueur-banner-icon {
+  font-size: 1.3em;
+  margin-right: 0.5em;
+}
+.joueur-banner-label {
+  font-size: 1.1em;
+  font-weight: bold;
+}
+.joueur-banner-step {
+  font-size: 1.1em;
+  margin-top: 0.5em;
+  background: #fff;
+  color: #1976d2;
+  border-radius: 6px;
+  display: inline-block;
+  padding: 0.2em 1em;
+  font-weight: normal;
+}
+.joueur-banner-step-label {
+  font-weight: bold;
+}
+.joueur-banner-message {
+  font-size: 1em;
+  margin-top: 0.7em;
+  color: #fff;
+  background: rgba(25, 118, 210, 0.15);
+  border-radius: 4px;
+  padding: 0.2em 1em;
+  display: inline-block;
+}
