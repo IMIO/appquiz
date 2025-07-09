@@ -1,4 +1,5 @@
 import { Component } from '@angular/core';
+import { TimerService } from '../services/timer.service';
 import { CommonModule } from '@angular/common';
 import { QRCodeComponent } from 'angularx-qrcode';
 import { QuizService, QuizStep } from '../services/quiz.service';
@@ -29,7 +30,7 @@ export class PresentationComponent {
   totalBad: number = 0;
   voters: string[] = [];
 
-  constructor(public quizService: QuizService) {
+  constructor(public quizService: QuizService, private timerService: TimerService) {
     // Synchro temps réel de l'étape du quiz
     this.quizService.getStep().subscribe(step => {
       if (!step) return;
@@ -56,12 +57,39 @@ export class PresentationComponent {
     // Synchro temps réel des inscrits
     this.quizService.getParticipants$().subscribe(participants => {
       this.participants = participants;
+      // Recalcul dynamique du score de chaque participant pour le classement final
+      this.quizService.getAllAnswers$().subscribe((allAnswersDocs: any[]) => {
+        const nbQuestions = this.quizService.getQuestions().length;
+        const leaderboard = participants.map(user => {
+          let score = 0;
+          for (let i = 0; i < nbQuestions; i++) {
+            const doc = allAnswersDocs.find((d: any) => String(d.id) === String(i));
+            if (doc && doc.answers) {
+              const answer = doc.answers.find((a: any) => String(a.userId) === String(user.id));
+              if (answer && typeof answer.answerIndex !== 'undefined') {
+                const question = this.quizService.getCurrentQuestion(i);
+                if (question && answer.answerIndex === question.correctIndex) {
+                  score++;
+                }
+              }
+            }
+          }
+          return { ...user, score };
+        });
+        this.leaderboard = leaderboard.sort((a, b) => b.score - a.score);
+      });
     });
     // Synchro temps réel des questions Firestore
     this.quizService.questions$.subscribe(() => {
       this.refresh();
     });
     this.refresh();
+  }
+
+  forceEndTimer() {
+    this.timerValue = 0;
+    this.stopTimer();
+    this.showResult();
   }
 
   ngOnInit() {

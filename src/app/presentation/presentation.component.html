@@ -54,7 +54,9 @@
     <button class="presentation-reset-btn" (click)="restartGame()" style="margin-bottom: 1em; background: #f44336; color: yellow; font-size: 1.2em; border: 3px solid black;">🧹 Tout réinitialiser</button>
     <h2 class="presentation-question-title">Question</h2>
     <h3 class="presentation-question-text">{{ currentQuestion.text }}</h3>
-    <div class="presentation-timer">Temps restant : {{ timerValue }}s</div>
+    <div class="presentation-timer">Temps restant : {{ timerValue }}s
+      <button (click)="forceEndTimer()" style="margin-left:1em;font-size:1em;background:#1976d2;color:#fff;padding:0.2em 1em;border-radius:6px;">⏩ Passer la fin du timer</button>
+    </div>
     <ul class="presentation-options-list">
       <li class="presentation-option-item" *ngFor="let option of currentQuestion.options; let i = index">
         <span class="presentation-option-label">{{ option }}</span>
@@ -99,7 +101,8 @@
         <br>
         <span class="presentation-result-total-bad">Total mauvaises réponses : {{ totalBad }}</span>
       </div>
-      <button class="presentation-next-btn" (click)="nextQuestion()">Question suivante</button>
+      <button class="presentation-next-btn" (click)="nextQuestion()" *ngIf="currentIndex < (quizService.getQuestions().length - 1)">Question suivante</button>
+      <button class="presentation-end-btn" (click)="endGame()" *ngIf="currentIndex === (quizService.getQuestions().length - 1)">Clôturer le quiz et afficher le classement final</button>
     </ng-container>
   </ng-container>
 
@@ -111,7 +114,7 @@
     <ol class="presentation-end-leaderboard-list">
       <li class="presentation-end-leaderboard-item" *ngFor="let user of leaderboard">
         <img *ngIf="user.avatarUrl" [src]="user.avatarUrl" alt="avatar" width="32" height="32" style="vertical-align:middle; border-radius:50%; margin-right:0.5em; border:1.5px solid #1976d2;" />
-        <span class="presentation-end-leaderboard-name">{{ user.name }}</span> — <span class="presentation-end-leaderboard-score">{{ user.score }} pts</span>
+        <span class="presentation-end-leaderboard-name">{{ user.name }}</span> — <span class="presentation-end-leaderboard-score">{{ user.score }} / {{ quizService.getQuestions().length }} pts</span>
       </li>
     </ol>
   </ng-container>

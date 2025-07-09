@@ -5,11 +5,21 @@ import { take } from 'rxjs/operators';
 @Injectable({ providedIn: 'root' })
 export class TimerService {
   private countdown$ = new Subject<number>();
+  private lastValue = 15;
 
   start(seconds: number = 15) {
+    this.lastValue = seconds;
     interval(1000).pipe(take(seconds + 1)).subscribe(i => {
-      this.countdown$.next(seconds - i);
+      const value = seconds - i;
+      this.lastValue = value;
+      this.countdown$.next(value);
     });
+  }
+
+  /** Force la fin du timer (envoie 0 immédiatement) */
+  forceEnd() {
+    this.lastValue = 0;
+    this.countdown$.next(0);
   }
 
   getCountdown() {

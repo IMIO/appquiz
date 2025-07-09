@@ -12,6 +12,7 @@ export type QuizStep = 'lobby' | 'waiting' | 'question' | 'result' | 'end';
 
 @Injectable({ providedIn: 'root' })
 export class QuizService {
+  public participants: User[] = [];
   private questions: Question[] = [];
   private questionsSubject = new BehaviorSubject<Question[]>([]);
   public questions$ = this.questionsSubject.asObservable();
@@ -119,6 +120,11 @@ export class QuizService {
     // Observable temps réel Firestore
     return runInInjectionContext(this.injector, () =>
       collectionData(collection(this.firestore, 'participants'), { idField: 'id' }) as Observable<User[]>
+    ).pipe(
+      map((users: User[]) => {
+        this.participants = users;
+        return users;
+      })
     );
   }
 
@@ -155,10 +161,14 @@ export class QuizService {
   async nextQuestion(currentIndex: number) {
     const nextIndex = currentIndex + 1;
     if (nextIndex < this.questions.length) {
+      // Passage à la question suivante
       await runInInjectionContext(this.injector, async () => {
         const quizStateDoc = doc(this.firestore, 'quizState/main');
         await setDoc(quizStateDoc, { currentQuestionIndex: nextIndex }, { merge: true });
       });
+    } else {
+      // Si plus de question, passage à l'étape finale
+      await this.setStep('end');
     }
   }
 
@@ -262,7 +272,12 @@ export class QuizService {
   }
 
   getLeaderboard(): User[] {
-    // À adapter si besoin de classement temps réel
+    // Retourne les participants triés par score décroissant
+    // (on suppose que this.participants est à jour via getParticipants$)
+    // Si non, il faut stocker les participants localement à chaque update
+    if ((this as any).participants && Array.isArray((this as any).participants)) {
+      return [...(this as any).participants].sort((a, b) => b.score - a.score);
+    }
     return [];
   }
 
