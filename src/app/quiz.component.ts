@@ -181,18 +181,24 @@ export class QuizComponent implements OnInit {
         if (this.timerInterval) clearInterval(this.timerInterval);
         if (remaining > 0) {
           this.timerInterval = setInterval(() => {
+            // Empêche toute soumission si le quiz est fini
+            if (this.step === 'end') {
+              clearInterval(this.timerInterval);
+              return;
+            }
             const now2 = Date.now();
             const elapsed2 = Math.floor((now2 - data.questionStartTime) / 1000);
             const rem = Math.max(0, duration - elapsed2);
             this.timer = rem;
             this.timerPercent = (rem / duration) * 100;
             this.timerActive = rem > 0;
-        if (rem === 0) {
-          clearInterval(this.timerInterval);
-          if (!this.answerSubmitted) {
-            this.submitAnswer(-1);
-          }
-        }
+            if (rem === 0) {
+              clearInterval(this.timerInterval);
+              // Correction : on ne soumet pas de non-réponse si le quiz est fini
+              if (!this.answerSubmitted && (this.step === 'question' || this.step === 'result')) {
+                this.submitAnswer(-1);
+              }
+            }
           }, 1000);
         }
       }
