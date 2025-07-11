@@ -1,11 +1,11 @@
 import { User } from './models/user.model';
 import { Component, OnInit } from '@angular/core';
-import { Subscription } from 'rxjs';
+import { Subscription, interval } from 'rxjs';
 import { Question } from './question.model';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import { QuizService, QuizStep } from './services/quiz.service';
-import { TimerService } from './services/timer.service';
+// import { TimerService } from './services/timer.service';
 
 @Component({
   selector: 'app-quiz',
@@ -22,6 +22,8 @@ export class QuizComponent implements OnInit {
   }
   leaderboard: User[] = [];
   avatarUrl: string | null = null;
+  // Stocke le temps de chaque bonne réponse (en secondes)
+  goodAnswersTimes: number[] = [];
   get goodAnswersCount(): number {
     return this.questionResults.filter(r => r.good).length;
   }
@@ -29,15 +31,25 @@ export class QuizComponent implements OnInit {
   get badAnswersCount(): number {
     return this.questionResults.filter(r => r.bad).length;
   }
+  // Retourne le temps total des bonnes réponses
+  getTotalGoodAnswersTime(): number {
+    return this.goodAnswersTimes.reduce((sum, t) => sum + t, 0);
+  }
   private answerSubmitted = false;
   currentIndex: number = 0;
   currentQuestion: Question | null = null;
   selectedAnswerIndex: number | null = null;
   isAnswerCorrect: boolean | null = null;
   quizFinished = false;
-  timer: number = 15;
+  timerValue: number = 15;
+  timerMax: number = 15; // Durée du timer en secondes, pour la barre animée
   timerPercent: number = 100;
   timerActive: boolean = false;
+  waitingForStart: boolean = false;
+  private timerQuestionIndex: number = -1;
+  private questionStartTime: number = 0;
+  private timerCountdownSub?: Subscription;
+  private quizStateUnsub?: () => void;
   userId: string = '';
   userName: string = '';
   step: QuizStep = 'lobby';
@@ -48,7 +60,7 @@ export class QuizComponent implements OnInit {
   answersSub?: Subscription;
   timerInterval?: any;
 
-  constructor(private quizService: QuizService, private router: Router, private timerService: TimerService) { }
+  constructor(private quizService: QuizService, private router: Router) { }
 
   ngOnInit(): void {
     // Classement final : synchro temps réel
@@ -88,15 +100,18 @@ export class QuizComponent implements OnInit {
     });
 
     this.quizService.getStep().subscribe((step: QuizStep) => {
+      console.log('[DEBUG][QUIZ][STEP] step:', step, '| currentIndex:', this.currentIndex);
       this.step = step;
       if (step === 'lobby') {
         this.router.navigate(['/login']);
       }
       if (step === 'end') {
         this.quizFinished = true;
+        this.stopTimer();
       }
       if (step === 'result') {
         this.timerActive = false;
+        this.stopTimer();
         // À l'étape résultat, on force la synchro de l'index sélectionné avec la réponse Firestore
         const currentAnswer = this.questionResults[this.currentIndex]?.good || this.questionResults[this.currentIndex]?.bad
           ? this.quizService.getAllAnswersForUser$(this.userId)
@@ -110,18 +125,23 @@ export class QuizComponent implements OnInit {
               })
           : this.selectedAnswerIndex = null;
       }
-      // Ajout : timer synchrone sur questionStartTime
       if (step === 'question') {
-        this.syncTimerWithFirestore();
+        this.currentQuestion = this.quizService.getCurrentQuestion(this.currentIndex);
+        this.startTimer();
+      } else {
+        this.stopTimer();
       }
     });
     this.userId = localStorage.getItem('userId') || '';
     this.userName = localStorage.getItem('userName') || '';
     this.quizService.getCurrentIndex().subscribe(idx => {
+      console.log('[DEBUG][QUIZ][INDEX] currentIndex reçu:', idx);
       this.currentIndex = idx;
       this.currentQuestion = this.quizService.getCurrentQuestion(idx);
-      this.answerSubmitted = false; // Réinitialise answerSubmitted à chaque nouvelle question
-      this.selectedAnswerIndex = null; // Réinitialise aussi l'index sélectionné
+      this.answerSubmitted = false;
+      this.selectedAnswerIndex = null;
+      this.questionStartTime = 0;
+      this.listenToQuestionStartTime(idx);
     });
     // Nouvelle logique : score réactif sur toutes les réponses du joueur
     if (this.answersSub) this.answersSub.unsubscribe();
@@ -157,72 +177,80 @@ export class QuizComponent implements OnInit {
       if (entry && entry.answer && typeof entry.answer.answerIndex !== 'undefined') {
         this.selectedAnswerIndex = entry.answer.answerIndex;
       } else {
-        this.selectedAnswerIndex = -1;
+        this.selectedAnswerIndex = null;
       }
       // Score total
       this.totalScore = this.questionResults.reduce((sum, r) => sum + (r?.good || 0), 0);
     });
   }
 
-  // Timer synchrone basé sur Firestore
-  async syncTimerWithFirestore() {
+
+  /** Abonnement temps réel au timestamp de début de question dans Firestore */
+  async listenToQuestionStartTime(idx: number) {
+    if (this.quizStateUnsub) this.quizStateUnsub();
     const { doc, onSnapshot } = await import('firebase/firestore');
     const quizStateDoc = doc(this.quizService['firestore'], 'quizState/main');
-    onSnapshot(quizStateDoc, (snap: any) => {
+    this.quizStateUnsub = onSnapshot(quizStateDoc, (snap: any) => {
       const data = snap.data();
-      if (data && data.questionStartTime) {
-        const now = Date.now();
-        const elapsed = Math.floor((now - data.questionStartTime) / 1000);
-        const duration = 15;
-        const remaining = Math.max(0, duration - elapsed);
-        this.timer = remaining;
-        this.timerPercent = (remaining / duration) * 100;
-        this.timerActive = remaining > 0;
-        if (this.timerInterval) clearInterval(this.timerInterval);
-        if (remaining > 0) {
-          this.timerInterval = setInterval(() => {
-            // Empêche toute soumission si le quiz est fini
-            if (this.step === 'end') {
-              clearInterval(this.timerInterval);
-              return;
-            }
-            const now2 = Date.now();
-            const elapsed2 = Math.floor((now2 - data.questionStartTime) / 1000);
-            const rem = Math.max(0, duration - elapsed2);
-            this.timer = rem;
-            this.timerPercent = (rem / duration) * 100;
-            this.timerActive = rem > 0;
-            if (rem === 0) {
-              clearInterval(this.timerInterval);
-              // Correction : on ne soumet pas de non-réponse si le quiz est fini
-              if (!this.answerSubmitted && (this.step === 'question' || this.step === 'result')) {
-                this.submitAnswer(-1);
-              }
-            }
-          }, 1000);
-        }
+      let newStartTime = 0;
+      if (data && data['questionStartTimes']) {
+        newStartTime = data['questionStartTimes'][String(idx)] || 0;
+      } else if (data && typeof data['questionStartTime'] !== 'undefined') {
+        newStartTime = data['questionStartTime'];
       }
+      this.questionStartTime = newStartTime;
+      this.startTimer();
     });
+  }
+
+  private updateTimerValue() {
+    const now = Date.now();
+    if (!this.questionStartTime || this.questionStartTime <= 0) {
+      this.waitingForStart = true;
+      this.timerValue = null as any;
+      console.log('[DEBUG][QUIZ][TIMER] WAITING | currentIndex:', this.currentIndex, '| questionStartTime:', this.questionStartTime, '| now:', now);
+      return;
+    }
+    this.waitingForStart = false;
+    const elapsed = Math.floor((now - this.questionStartTime) / 1000);
+    this.timerValue = Math.max(this.timerMax - elapsed, 0);
+    this.timerPercent = (this.timerValue / this.timerMax) * 100;
+    this.timerActive = this.timerValue > 0;
+    console.log('[DEBUG][QUIZ][TIMER] TICK | currentIndex:', this.currentIndex, '| questionStartTime:', this.questionStartTime, '| now:', now, '| timerValue:', this.timerValue);
+    if (this.timerValue <= 0) {
+      this.timerActive = false;
+      this.stopTimer();
+      if (!this.answerSubmitted && this.step === 'question') {
+        this.submitAnswer(-1);
+      }
+    }
   }
 
   startTimer() {
-    console.log('[DEBUG][QUIZ.COMPONENT] startTimer called');
-    this.timer = 15;
-    this.timerPercent = 100;
-    this.timerActive = true;
-    this.timerService.start(15);
-    this.timerService.getCountdown().subscribe((value) => {
-      this.timer = value;
-      this.timerPercent = (value / 15) * 100;
-      if (value === 0) {
-        this.timerActive = false;
-        this.submitAnswer(-1); // Non-réponse
+    this.stopTimer();
+    this.timerQuestionIndex = this.currentIndex;
+    this.updateTimerValue();
+    this.timerCountdownSub = interval(1000).subscribe(() => {
+      if (this.currentIndex !== this.timerQuestionIndex) {
+        this.timerQuestionIndex = this.currentIndex;
+        this.updateTimerValue();
+      } else {
+        this.updateTimerValue();
       }
     });
   }
 
+  stopTimer() {
+    if (this.timerCountdownSub) {
+      this.timerCountdownSub.unsubscribe();
+      this.timerCountdownSub = undefined;
+    }
+  }
+
+  // Ancienne méthode startTimer supprimée (remplacée par la logique Firestore)
+
   selectAnswer(index: number) {
-    console.log('[DEBUG][selectAnswer] userId:', this.userId, 'index:', index, 'timerActive:', this.timerActive, 'answerSubmitted:', this.answerSubmitted);
+    console.log('[DEBUG][QUIZ][selectAnswer] userId:', this.userId, 'index:', index, 'timerActive:', this.timerActive, 'answerSubmitted:', this.answerSubmitted);
     if (!this.timerActive || this.answerSubmitted) return;
     this.selectedAnswerIndex = index;
     this.isAnswerCorrect = this.currentQuestion?.correctIndex === index;
@@ -230,13 +258,30 @@ export class QuizComponent implements OnInit {
     this.answerSubmitted = true;
     this.submitAnswer(index);
   }
+  ngOnDestroy(): void {
+    if (this.quizStateUnsub) this.quizStateUnsub();
+    this.stopTimer();
+  }
 
   async submitAnswer(answerIndex: number) {
     // answerIndex = -1 si non-réponse
     this.answerSubmitted = true;
     await this.quizService.submitAnswer(this.userId, answerIndex, this.userName, this.currentIndex);
-    // Le score sera mis à jour automatiquement par la souscription réactive
-    // Ne pas remettre answerSubmitted à false ici
+    // Calcul du temps de réponse uniquement si bonne réponse
+    if (
+      this.currentQuestion &&
+      answerIndex === this.currentQuestion.correctIndex &&
+      this.questionStartTime > 0
+    ) {
+      const now = Date.now();
+      const timeTaken = Math.floor((now - this.questionStartTime) / 1000);
+      // On stocke le temps pour cette question (index = currentIndex)
+      this.goodAnswersTimes[this.currentIndex] = timeTaken;
+    } else {
+      // Si mauvaise réponse ou non-réponse, on ne stocke rien
+      this.goodAnswersTimes[this.currentIndex] = undefined as any;
+    }
+    // Le score sera mis à jour automatiquement par la souscription réactive dans ngOnInit
   }
 
   // La méthode loadPersonalScore n'est plus utilisée (remplacée par la souscription réactive)
@@ -247,5 +292,7 @@ export class QuizComponent implements OnInit {
     if (this.currentIndex >= (this.questionResults.length - 1)) {
       this.quizFinished = true;
     }
+    // Optionnel : reset du timer de bonne réponse pour la prochaine question
+    // this.goodAnswersTimes[this.currentIndex + 1] = undefined as any;
   }
 }

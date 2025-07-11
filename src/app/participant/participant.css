@@ -1,20 +1,135 @@
-
-.participant-score-banner {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(90deg, #1976d2 60%, #43a047 100%);
+/* Barre d'animation du timer (joueur, version stylisée) */
+/* Barre d'animation du timer (joueur, version maître du jeu) */
+.timer-bar-container {
+  position: relative;
+  width: 100%;
+  height: 24px;
+  background: #e3e3e3;
+  border-radius: 12px;
+  margin-bottom: 0.5em;
+  box-shadow: 0 2px 8px #1976d288;
+}
+.timer-bar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  background: linear-gradient(90deg, #1976d2 60%, #42a5f5 100%);
+  border-radius: 12px;
+  transition: width 0.8s cubic-bezier(.4,0,.2,1);
+  z-index: 1;
+}
+.timer-bar-label {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
   color: #fff;
+  font-weight: bold;
+  font-size: 1.1em;
+  z-index: 2;
+  text-shadow: 0 2px 8px #1976d2aa;
+}
+.player-timer-end {
+  display: block;
+  text-align: center;
+  color: #d32f2f;
+  font-weight: bold;
+  font-size: 1.1em;
+  margin-top: 0.5em;
+}
+/* Barre d'animation du timer (joueur) */
+.timer-bar-container {
+  position: relative;
+  width: 100%;
+  height: 24px;
+  background: #e3e3e3;
+  border-radius: 12px;
+  margin-bottom: 0.5em;
+  box-shadow: 0 2px 8px #1976d288;
+}
+.timer-bar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  background: linear-gradient(90deg, #1976d2 60%, #42a5f5 100%);
+  border-radius: 12px;
+  transition: width 0.8s cubic-bezier(.4,0,.2,1);
+  z-index: 1;
+}
+.timer-bar-label {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  color: #fff;
+  font-weight: bold;
+  font-size: 1.1em;
+  z-index: 2;
+  text-shadow: 0 2px 8px #1976d2aa;
+}
+.player-step-banner {
+  background: #fffde7;
+  color: #1976d2;
+  padding: 1em 2em;
+  border-radius: 12px;
+  margin-bottom: 1em;
+  text-align: center;
+  box-shadow: 0 2px 16px #1976d222;
+  z-index: 99999;
+  position: relative;
   font-size: 1.3em;
   font-weight: bold;
-  padding: 1em 2em;
-  border-radius: 1.5em;
-  margin: 2em auto 1em auto;
-  box-shadow: 0 2px 12px #1976d255;
-  max-width: 500px;
-  gap: 1em;
 }
-.participant-avatar {
+.player-step-banner.lobby { color: #1976d2; }
+.player-step-banner.waiting { color: #388e3c; }
+.player-step-banner.question { color: #fbc02d; }
+.player-step-banner.result { color: #d32f2f; }
+.player-step-banner.end { color: #e65100; }
+.player-debug {
+  background: #232526;
+  color: #f6d365;
+  padding: 0.5em 1em;
+  border-radius: 8px;
+  margin: 0.5em 0 1em 0;
+  font-size: 1.1em;
+  text-align: center;
+  box-shadow: 0 2px 8px #23252644;
+}
+.player-no-result {
+  background: #d32f2f;
+  color: #fff;
+  font-size: 1.2em;
+  padding: 1em 2em;
+  border-radius: 12px;
+  margin-bottom: 1em;
+  text-align: center;
+  box-shadow: 0 2px 16px #d32f2f88;
+  z-index: 99999;
+  position: relative;
+}
+.player-no-question {
+  color: #888;
+  font-size: 1.1em;
+  background: #ffe082;
+  padding: 0.5em;
+  border-radius: 5px;
+  margin-top: 1em;
+}
+/* Styles classiques restaurés (version simple, sans doublons ni styles modernes) */
+.score-banner {
+  background: #1976d2;
+  color: #fff;
+  font-size: 1.2em;
+  font-weight: bold;
+  padding: 1em 2em;
+  border-radius: 1em;
+  margin: 2em auto 1em auto;
+  max-width: 500px;
+  text-align: center;
+}
+.avatar {
   width: 48px;
   height: 48px;
   border-radius: 50%;
@@ -23,25 +138,20 @@
   object-fit: cover;
   margin-right: 0.7em;
   font-size: 2em;
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
-.participant-score-label {
+.score-label {
   margin-right: 0.7em;
+  font-size: 1em;
+}
+.score-value {
   font-size: 1.1em;
-  letter-spacing: 0.04em;
-}
-.participant-score-value {
-  font-size: 1.2em;
-  color: #ffe082;
+  color: #ff9800;
   margin-left: 0.7em;
-  text-shadow: 1px 1px 2px #0008;
 }
-.participant-score-detail {
+.score-detail {
   text-align: center;
   margin-bottom: 2em;
-  font-size: 1.1em;
+  font-size: 1em;
 }
 .score-good {
   color: #43a047;
@@ -54,4 +164,56 @@
 .score-none {
   color: #757575;
   font-weight: bold;
+}
+.question-block {
+  background: #fff;
+  border-radius: 1em;
+  box-shadow: 0 2px 8px #1976d233;
+  padding: 2em 1.5em 1.5em 1.5em;
+  margin: 2em auto 1.5em auto;
+  max-width: 600px;
+  text-align: center;
+}
+.timer {
+  font-size: 1.1em;
+  font-weight: bold;
+  color: #1976d2;
+  margin-bottom: 1em;
+}
+.options-list {
+  list-style: none;
+  padding: 0;
+  margin: 1.5em 0 0 0;
+}
+.option-item {
+  background: #e3f2fd;
+  border-radius: 8px;
+  padding: 0.7em 1.2em;
+  margin-bottom: 0.7em;
+  font-size: 1.1em;
+  cursor: pointer;
+}
+.option-item.selected {
+  background: #43a047;
+  color: #fff;
+}
+.option-item.bad {
+  background: #d32f2f;
+  color: #fff;
+}
+.wait-msg {
+  margin-top: 1em;
+  color: #1976d2;
+  font-size: 1em;
+}
+
+@media (max-width: 600px) {
+  .score-banner, .question-block {
+    max-width: 98vw;
+    padding: 1em 0.5em;
+  }
+  .timer {
+    font-size: 1em;
+    padding: 0.5em 0.7em;
+  }
 }

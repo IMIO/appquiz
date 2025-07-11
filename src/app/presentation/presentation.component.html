@@ -1,125 +1,190 @@
-<!-- Fallback : état inconnu -->
-<ng-container *ngIf="step !== 'lobby' && step !== 'waiting' && step !== 'question' && step !== 'result' && step !== 'end'">
-  <div style="margin: 3em 0; text-align: center; color: red;">
-    <h2>Erreur d’état du quiz</h2>
-    <p>État inconnu ou non initialisé.<br>Cliquez sur <b>🧹 CLEAR INSCRIPTIONS</b> pour réinitialiser.</p>
-  </div>
-</ng-container>
-  <!-- WAITING : attente du lancement de la première question -->
-  <ng-container *ngIf="step === 'waiting'">
-    <div class="presentation-waiting-block" style="margin: 3em 0; text-align: center;">
-      <h2 class="presentation-waiting-title" style="color: #1976d2;">Bonne chance à tous !</h2>
-      <p class="presentation-waiting-msg" style="font-size: 1.3em; color: #333;">La partie va commencer&nbsp;!</p>
-      <div class="presentation-waiting-participants" style="margin: 2em 0;">
-        <h3 style="color: #333;">Participants inscrits ({{ participants.length }}) :</h3>
-        <ul style="display: flex; flex-wrap: wrap; gap: 1em; justify-content: center; list-style: none; padding: 0;">
-          <li *ngFor="let user of participants" style="background: #e3f2fd; border-radius: 5px; padding: 0.5em 1.2em; font-weight: bold; color: #1976d2; border: 1px solid #90caf9; font-size: 1.1em;">
-            <img *ngIf="user.avatarUrl" [src]="user.avatarUrl" alt="avatar" width="32" height="32" style="vertical-align:middle; border-radius:50%; margin-right:0.5em; border:1.5px solid #1976d2;" />
-            {{ user.name }}
-          </li>
-        </ul>
-        <div style="margin-top: 1em; color: #1976d2; font-size: 1.2em; font-weight: bold;">Total : {{ participants.length }} participant(s)</div>
-      </div>
-      <button class="presentation-start-btn" (click)="startFirstQuestion()" style="margin-top: 2em; font-size: 1.2em; background: #43a047; color: white; border: 2px solid #1976d2; padding: 0.7em 2em; border-radius: 8px;">Commencer le quiz</button>
-      <button class="presentation-reset-btn" (click)="restartGame()" style="margin-left: 1em; background: #f44336; color: yellow; font-size: 1.2em; border: 3px solid black;">🧹 Tout réinitialiser</button>
-    </div>
-  </ng-container>
-<div class="presentation-container" style="background: #fff3e0; min-height: 100vh; border-top: 10px solid #e65100;">
-  <div class="presentation-maitre-banner">
-    <span style="font-size:1.3em; margin-right:0.5em;">🎤</span> ÉCRAN MAÎTRE DU JEU
-    <div style="font-size:1.1em; margin-top:0.5em; background:#fff; color:#e65100; border-radius:6px; display:inline-block; padding:0.2em 1em; font-weight:normal;">ÉTAPE : {{ step | uppercase }}</div>
-    <div class="maitre-message">Vous êtes sur l’interface <b>MAÎTRE DU JEU</b>.</div>
-  </div>
-  <h1 class="presentation-title">Quiz - Écran de présentation</h1>
+<!-- DIAGNOSTIC : Bloc ultra-visible si aucune étape reconnue -->
+<div *ngIf="!step || (step !== 'lobby' && step !== 'waiting' && step !== 'question' && step !== 'result' && step !== 'end')" style="background:#d32f2f;color:#fff;font-size:1.5em;padding:2em 2em;border-radius:16px;margin:2em;text-align:center;box-shadow:0 2px 24px #d32f2f88;z-index:99999;position:relative;">
+  <b>⚠️ Aucun écran d'étape affiché</b><br>
+  <span style="font-size:1.1em;color:#ffe082;">La variable <b>step</b> n'est pas reconnue ou n'est pas initialisée.</span><br>
+  <span style="font-size:1.2em;color:#fff !important;">step = {{step}}</span>
+  <span style="font-size:1.1em;color:#fff !important;">Vérifiez la synchronisation et l'initialisation dans le TypeScript.</span>
+</div>
+<!-- Écran maître du jeu classique -->
 
-  <!-- LOBBY : QR code + liste des inscrits + bouton démarrer -->
-  <ng-container *ngIf="step === 'lobby'">
-    <h2 class="presentation-qr-title">Scannez pour rejoindre</h2>
-    <qrcode class="presentation-qr-code" [qrdata]="windowLocation + '/login'" [width]="200"></qrcode>
-    <h3 class="presentation-participants-title">Joueurs inscrits :</h3>
-    <ul class="presentation-participants-list">
-      <li class="presentation-participant-item" *ngFor="let user of participants">{{ user.name }}</li>
-      <li class="presentation-participant-item" *ngFor="let user of participants">
-        <img *ngIf="user.avatarUrl" [src]="user.avatarUrl" alt="avatar" width="32" height="32" style="vertical-align:middle; border-radius:50%; margin-right:0.5em; border:1.5px solid #1976d2;" />
+<div class="maitre-banner">
+  <div class="maitre-banner-content">
+    <span class="maitre-banner-icon">🎤</span>
+    <span class="maitre-banner-title">ÉCRAN MAÎTRE DU JEU</span>
+  </div>
+  <div class="maitre-message">Vous êtes sur l’interface <b>MAÎTRE DU JEU</b>.</div>
+</div>
+
+<h1 class="presentation-title">Quiz - Écran de présentation</h1>
+
+<div class="presentation-main">
+
+<!-- LOBBY : QR code + liste des inscrits + bouton démarrer -->
+<div *ngIf="step === 'lobby'" class="maitre-step-banner lobby step-block">
+  <div class="step-header">
+    <span class="step-icon">🟢</span>
+    <span class="step-title">[ÉTAPE MAÎTRE] LOBBY</span>
+  </div>
+  <div class="step-desc">QR code, liste des inscrits, bouton démarrer</div>
+  <div class="maitre-debug">step = {{step}}</div>
+  <h2 class="step-h2">Scannez pour rejoindre</h2>
+  <qrcode [qrdata]="windowLocation + '/login'" [width]="200"></qrcode>
+  <h3 class="step-h3">Joueurs inscrits :</h3>
+  <ul class="step-list">
+    <li *ngFor="let user of participants" class="step-list-item">
+      <img *ngIf="user.avatarUrl" [src]="user.avatarUrl" alt="avatar" width="32" height="32" class="step-avatar" />
+      {{ user.name }}
+    </li>
+  </ul>
+  <button class="step-btn" (click)="launchGame()" [disabled]="participants.length === 0">Clôturer les inscriptions et lancer la partie</button>
+  <button class="step-btn" (click)="restartGame()">Tout réinitialiser</button>
+  <div *ngIf="participants.length === 0" class="step-waiting">En attente de participants...</div>
+</div>
+
+<!-- WAITING : attente du lancement de la première question -->
+<div *ngIf="step === 'waiting'" class="maitre-step-banner waiting step-block">
+  <div class="step-header">
+    <span class="step-icon">⏳</span>
+    <span class="step-title">[ÉTAPE MAÎTRE] WAITING</span>
+  </div>
+  <div class="step-desc">Attente du lancement de la première question</div>
+  <div class="maitre-debug">step = {{step}}</div>
+  <h2 class="step-h2">Bonne chance à tous !</h2>
+  <p class="step-p">La partie va commencer&nbsp;!</p>
+  <div>
+    <h3 class="step-h3">Participants inscrits ({{ participants.length }}) :</h3>
+    <ul class="step-list">
+      <li *ngFor="let user of participants" class="step-list-item">
+        <img *ngIf="user.avatarUrl" [src]="user.avatarUrl" alt="avatar" width="32" height="32" class="step-avatar" />
         {{ user.name }}
       </li>
     </ul>
-    <button class="presentation-launch-btn" (click)="launchGame()" [disabled]="participants.length === 0">Clôturer les inscriptions et lancer la partie</button>
-    <button class="presentation-reset-btn" (click)="restartGame()" style="margin-left: 1em; background: #f44336; color: yellow; font-size: 1.2em; border: 3px solid black;">🧹 Tout réinitialiser</button>
-    <div class="presentation-waiting-msg" *ngIf="participants.length === 0" style="color: #888; font-size: 1.1em; background: #ffe082; padding: 0.5em; border-radius: 5px; margin-top: 1em;">En attente de participants...</div>
-  </ng-container>
-
-  <!-- QUESTION : question, réponses, timer -->
-  <ng-container *ngIf="step === 'question' && currentQuestion">
-    <button class="presentation-reset-btn" (click)="restartGame()" style="margin-bottom: 1em; background: #f44336; color: yellow; font-size: 1.2em; border: 3px solid black;">🧹 Tout réinitialiser</button>
-    <h2 class="presentation-question-title">Question</h2>
-    <h3 class="presentation-question-text">{{ currentQuestion.text }}</h3>
-    <div class="presentation-timer">Temps restant : {{ timerValue }}s
-      <button (click)="forceEndTimer()" style="margin-left:1em;font-size:1em;background:#1976d2;color:#fff;padding:0.2em 1em;border-radius:6px;">⏩ Passer la fin du timer</button>
+    <div class="step-total">Total : {{ participants.length }} participant(s)</div>
+  </div>
+  <button class="step-btn" (click)="startFirstQuestion()">Commencer le quiz</button>
+  <button class="step-btn" (click)="restartGame()">Tout réinitialiser</button>
+</div>
+<!-- QUESTION : question, réponses, timer -->
+<div *ngIf="step === 'question' && currentQuestion" class="maitre-step-banner question step-block">
+  <div class="step-header">
+    <span class="step-icon">❓</span>
+    <span class="step-title">[ÉTAPE MAÎTRE] QUESTION</span>
+  </div>
+  <div class="step-desc">Question, réponses, timer</div>
+  <div class="maitre-debug">step = {{step}} | currentQuestion = {{currentQuestion.text}}</div>
+  <button class="step-btn" (click)="restartGame()">Tout réinitialiser</button>
+  <h2 class="step-h2">Question</h2>
+  <h3 class="step-h3">{{ currentQuestion.text }}</h3>
+  <div class="timer step-timer">
+    <div class="timer-bar-container">
+      <div class="timer-bar" [ngStyle]="{width: (timerValue / timerMax * 100) + '%'}"></div>
+      <span class="timer-bar-label">{{ timerValue }}s</span>
     </div>
-    <ul class="presentation-options-list">
-      <li class="presentation-option-item" *ngFor="let option of currentQuestion.options; let i = index">
-        <span class="presentation-option-label">{{ option }}</span>
+    <button class="step-btn" (click)="forceEndTimer()">Passer la fin du timer</button>
+  </div>
+  <ul *ngIf="currentQuestion && currentQuestion.options" class="step-list">
+    <li *ngFor="let option of currentQuestion.options; let i = index" class="step-list-item step-option" style="pointer-events: none; cursor: default;">
+      <span>{{ option }}</span>
+      <span *ngIf="currentQuestion && i === currentQuestion.correctIndex" class="step-correct">✔️</span>
+    </li>
+  </ul>
+  <div *ngIf="voters && voters.length > 0" class="step-voters">
+    <h4 class="step-h4">Ont déjà répondu :</h4>
+    <ul class="step-voters-list">
+      <li *ngFor="let voter of voters" class="step-voter-item">
+        {{ voter }}
       </li>
     </ul>
-    <!-- Liste des votants pour la question courante -->
-    <div class="presentation-voters-block" *ngIf="voters && voters.length > 0" style="margin-top: 1.5em;">
-      <h4 class="presentation-voters-title" style="margin-bottom: 0.5em; color: #1976d2;">Ont déjà répondu :</h4>
-      <ul class="presentation-voters-list" style="display: flex; flex-wrap: wrap; gap: 0.7em; list-style: none; padding: 0;">
-        <li class="presentation-voter-item" *ngFor="let voter of voters" style="background: #e3f2fd; border-radius: 5px; padding: 0.3em 0.8em; font-weight: bold; color: #1976d2; border: 1px solid #90caf9;">
-          {{ voter }}
-        </li>
-      </ul>
-      <div class="presentation-voters-count" style="margin-top: 0.5em; color: #555; font-size: 0.95em;">{{ voters.length }} participant(s) ont voté</div>
-    </div>
-  </ng-container>
+    <div class="step-voters-total">{{ voters.length }} participant(s) ont voté</div>
+  </div>
+</div>
 
-  <!-- RESULT : bonne réponse, stats, bouton question suivante, bouton reset complet -->
-  <ng-container *ngIf="step === 'result'">
-    <button class="presentation-reset-btn" (click)="restartGame()" style="margin-bottom: 1em; background: #f44336; color: yellow; font-size: 1.2em; border: 3px solid black;">🧹 Tout réinitialiser</button>
-    <div *ngIf="!currentQuestion" style="color: #888; font-size: 1.1em; background: #ffe082; padding: 0.5em; border-radius: 5px; margin-top: 1em;">Aucune question courante.</div>
-    <ng-container *ngIf="currentQuestion">
-      <h2 class="presentation-result-title">Résultat</h2>
-      <h3 class="presentation-result-question">{{ currentQuestion.text }}</h3>
-      <ul class="presentation-result-options-list">
-        <li class="presentation-result-option-item" *ngFor="let option of currentQuestion.options || []; let i = index"
-            [class.correct]="i === currentQuestion.correctIndex">
-          <span class="presentation-result-option-label">{{ option }}</span> — {{ answersCount[i] || 0 }} réponses
+<!-- RESULT : bonne réponse, stats, bouton question suivante, bouton reset complet -->
+<div *ngIf="step === 'result'" class="maitre-step-banner result step-block">
+  <div class="step-header">
+    <span class="step-icon">🏁</span>
+    <span class="step-title">[ÉTAPE MAÎTRE] RESULT</span>
+  </div>
+  <div class="step-desc">Bonne réponse, statistiques, classement provisoire, bouton suivant</div>
+  <div class="maitre-debug">step = {{step}} | currentQuestion = {{currentQuestion?.text}}</div>
+  <div *ngIf="answersCount.length === 0 || totalAnswers === 0" class="maitre-no-result step-no-result">
+    <b>⚠️ Aucun résultat à afficher pour cette question</b><br>
+    <span>Aucune réponse enregistrée dans Firestore.<br>Vérifiez que les participants ont bien répondu.</span>
+    <br>
+    <span>answersCount = {{answersCount}}</span>
+    <span>totalAnswers = {{totalAnswers}}</span>
+  </div>
+  <button class="step-btn" (click)="restartGame()">🧹 Tout réinitialiser</button>
+  <div *ngIf="!currentQuestion" class="maitre-no-question step-no-question">Aucune question courante.</div>
+  <ng-container *ngIf="currentQuestion">
+    <h2 class="step-h2">Résultat</h2>
+    <h3 class="step-h3">{{ currentQuestion.text }}</h3>
+    <ul class="step-list" *ngIf="currentQuestion && currentQuestion.options">
+      <li class="step-list-item step-option" *ngFor="let option of currentQuestion.options; let i = index"
+          [class.correct]="i === currentQuestion.correctIndex">
+        <span class="step-option-label">{{ option }}</span> — {{ answersCount[i] || 0 }} réponses
+        <div class="result-bar step-result-bar">
+          <div [ngStyle]="{width: (totalAnswers > 0 ? (answersCount[i] / totalAnswers * 100) : 0) + '%', height: '100%', background: '#1976d2', borderRadius: '8px', transition: 'width 0.5s'}"></div>
+        </div>
+      </li>
+    </ul>
+    <div class="step-stats">
+      <span class="step-good">
+        Bonne réponse :
+        <b>
+          {{ (currentQuestion.options && currentQuestion.correctIndex !== undefined && currentQuestion.options[currentQuestion.correctIndex] !== undefined)
+              ? currentQuestion.options[currentQuestion.correctIndex]
+              : '—' }}
+        </b>
+      </span>
+      <br>
+      <span class="step-total-good">Total bonnes réponses : {{ totalGood }}</span>
+      <br>
+      <span class="step-total-bad">Total mauvaises réponses : {{ totalBad }}</span>
+    </div>
+
+    <!-- CLASSEMENT PROVISOIRE -->
+    <div class="step-leaderboard-block">
+      <h3 class="step-leaderboard-title">Classement provisoire</h3>
+      <ol class="step-leaderboard-list">
+        <li class="step-leaderboard-item" *ngFor="let user of leaderboard; let i = index">
+          <span class="step-leaderboard-rank">{{ i + 1 }}</span>
+          <img *ngIf="user.avatarUrl" [src]="user.avatarUrl" alt="avatar" width="28" height="28" class="step-avatar" />
+          <span class="step-leaderboard-name">{{ user.name }}</span>
+          <span class="step-leaderboard-score">{{ user.score }} / {{ quizService.getQuestions().length }} pts</span>
+          <span *ngIf="user.totalTime > 0" class="step-leaderboard-time">⏱️ {{ formatTime(getTotalGoodAnswersTime(user.id)) }} (bonnes réponses)</span>
         </li>
-      </ul>
-      <div class="presentation-result-stats">
-        <span class="presentation-result-good">
-          Bonne réponse :
-          <b>
-            {{ (currentQuestion.options && currentQuestion.correctIndex !== undefined && currentQuestion.options[currentQuestion.correctIndex] !== undefined)
-                ? currentQuestion.options[currentQuestion.correctIndex]
-                : '—' }}
-          </b>
-        </span>
-        <br>
-        <span class="presentation-result-total-good">Total bonnes réponses : {{ totalGood }}</span>
-        <br>
-        <span class="presentation-result-total-bad">Total mauvaises réponses : {{ totalBad }}</span>
-      </div>
-      <button class="presentation-next-btn" (click)="nextQuestion()" *ngIf="currentIndex < (quizService.getQuestions().length - 1)">Question suivante</button>
-      <button class="presentation-end-btn" (click)="endGame()" *ngIf="canShowEndButton()">Clôturer le quiz et afficher le classement final</button>
-    </ng-container>
+      </ol>
+    </div>
+
+    <button class="step-btn step-next-btn" (click)="nextQuestion()" *ngIf="currentIndex < (quizService.getQuestions().length - 1)">Question suivante</button>
+    <button class="step-btn step-end-btn" (click)="endGame()" *ngIf="canShowEndButton()">Clôturer le quiz et afficher le classement final</button>
   </ng-container>
+</div>
+...existing code...
 
   <!-- END : classement final -->
-  <ng-container *ngIf="step === 'end'">
-    <button class="presentation-reset-btn" (click)="restartGame()" style="margin-bottom: 1em; background: #f44336; color: yellow; font-size: 1.2em; border: 3px solid black;">🧹 Tout réinitialiser</button>
-    <h2 class="presentation-end-title">Fin du quiz</h2>
-    <h3 class="presentation-end-leaderboard-title">Classement final</h3>
-    <ol class="presentation-end-leaderboard-list">
-      <li class="presentation-end-leaderboard-item" *ngFor="let user of leaderboard; let i = index">
-        <span class="presentation-end-leaderboard-rank" style="font-size:1.2em; font-weight:bold; color:#e65100; min-width:2em; text-align:center;">{{ i + 1 }}</span>
-        <img *ngIf="user.avatarUrl" [src]="user.avatarUrl" alt="avatar" width="32" height="32" style="vertical-align:middle; border-radius:50%; margin-right:0.5em; border:1.5px solid #1976d2;" />
-        <span class="presentation-end-leaderboard-name">{{ user.name }}</span> — <span class="presentation-end-leaderboard-score">{{ user.score }} / {{ quizService.getQuestions().length }} pts</span>
+  <div *ngIf="step === 'end'" class="maitre-step-banner end step-block">
+    <div class="step-header">
+      <span class="step-icon">🏆</span>
+      <span class="step-title">[ÉTAPE MAÎTRE] END</span>
+    </div>
+    <div class="step-desc">Classement final</div>
+    <div class="maitre-debug">step = {{step}}</div>
+    <button class="step-btn" (click)="restartGame()">🧹 Tout réinitialiser</button>
+    <h2 class="step-h2">Fin du quiz</h2>
+    <h3 class="step-h3">Classement final</h3>
+    <ol class="step-leaderboard-list">
+      <li class="step-leaderboard-item" *ngFor="let user of leaderboard; let i = index">
+        <span class="step-leaderboard-rank">{{ i + 1 }}</span>
+        <img *ngIf="user.avatarUrl" [src]="user.avatarUrl" alt="avatar" width="32" height="32" class="step-avatar" />
+        <span class="step-leaderboard-name">{{ user.name }}</span> — <span class="step-leaderboard-score">{{ user.score }} / {{ quizService.getQuestions().length }} pts</span>
+        <span *ngIf="user.totalTime > 0" class="step-leaderboard-time">⏱️ {{ formatTime(getTotalGoodAnswersTime(user.id)) }} (bonnes réponses)</span>
       </li>
     </ol>
-  </ng-container>
+  </div>
 
-  <!-- DEBUG : bouton pour forcer l'étape 'question' -->
-  <button style="position:fixed;top:10px;right:10px;z-index:9999;background:#1976d2;color:#fff;padding:0.5em 1em;border-radius:6px;font-size:1em;" (click)="quizService.setStep('question')">[DEBUG] Forcer étape QUESTION</button>
 </div>
+<!-- DEBUG : bouton pour forcer l’étape 'question' -->
+<button style="position:fixed;top:10px;right:10px;z-index:9999;background:#1976d2;color:#fff;padding:0.5em 1em;border-radius:6px;font-size:1em;" (click)="quizService.setStep('question')">[DEBUG] Forcer étape QUESTION</button>
+
