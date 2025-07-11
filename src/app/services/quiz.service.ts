@@ -184,15 +184,15 @@ export class QuizService {
    */
   async submitAnswer(userId: string, answerIndex: number, userName: string, questionIndex: number) {
     console.log('[DEBUG][submitAnswer] userId:', String(userId).trim(), 'answerIndex:', answerIndex, 'userName:', userName, 'questionIndex:', questionIndex);
-    // Ajoute la réponse dans le document answers/{questionIndex} via une transaction AngularFire
-    // Ajout atomique de la réponse du joueur sans transaction (évite failed-precondition)
+    // Ajoute la réponse dans le document answers/{questionIndex} avec un timestamp
+    const timestamp = Date.now();
     await runInInjectionContext(this.injector, async () => {
       const answerDoc = doc(this.firestore, 'answers', String(questionIndex));
       const { getDoc, setDoc } = await import('firebase/firestore');
       const snap = await getDoc(answerDoc);
       if (!snap.exists()) {
         // Création du document avec la première réponse
-        await setDoc(answerDoc, { answers: [{ userId, userName, answerIndex }] });
+        await setDoc(answerDoc, { answers: [{ userId, userName, answerIndex, timestamp }] });
         return;
       }
       // Sinon, suppression des anciennes réponses du user puis ajout de la nouvelle
@@ -202,7 +202,7 @@ export class QuizService {
           await updateDoc(answerDoc, { answers: arrayRemove(a) });
         }
       }
-      await updateDoc(answerDoc, { answers: arrayUnion({ userId, userName, answerIndex }) });
+      await updateDoc(answerDoc, { answers: arrayUnion({ userId, userName, answerIndex, timestamp }) });
     });
   }
 

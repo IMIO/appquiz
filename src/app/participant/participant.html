@@ -1,11 +1,73 @@
-<div class="participant-score-banner">
-  <img *ngIf="avatarUrl" [src]="avatarUrl" alt="avatar" class="participant-avatar" />
-  <span *ngIf="!avatarUrl" class="participant-avatar">👤</span>
-  <span class="participant-score-label">Mon score</span>
-  <span class="participant-score-value">{{ totalScore }} / {{ totalQuestions }} point{{ totalQuestions > 1 ? 's' : '' }}</span>
+
+<!-- Encadré ultra-visible pour chaque étape côté joueur -->
+<div *ngIf="step === 'lobby'" class="player-step-banner lobby">
+  <b>[ÉTAPE JOUEUR] LOBBY</b><br>
+  <span>Inscription, attente validation animateur</span>
 </div>
-<div class="participant-score-detail">
-  <span *ngIf="personalScore.good" class="score-good">✅ Bonne réponse !</span>
-  <span *ngIf="personalScore.bad" class="score-bad">❌ Mauvaise réponse</span>
-  <span *ngIf="personalScore.none" class="score-none">⏰ Non répondu</span>
+<div *ngIf="step === 'waiting'" class="player-step-banner waiting">
+  <b>[ÉTAPE JOUEUR] WAITING</b><br>
+  <span>Inscriptions clôturées, attente lancement animateur</span>
+</div>
+
+<!-- Score et résultat personnel, harmonisé -->
+<div class="score-banner">
+  <img *ngIf="avatarUrl" [src]="avatarUrl" alt="avatar" class="avatar" />
+  <span *ngIf="!avatarUrl" class="avatar">👤</span>
+  <span class="score-label">Mon score</span>
+  <span class="score-value">{{ totalScore }} / {{ totalQuestions }} point{{ totalQuestions > 1 ? 's' : '' }}</span>
+</div>
+<div class="score-detail">
+  <span *ngIf="personalScore.good">Bonne réponse !</span>
+  <span *ngIf="personalScore.bad">Mauvaise réponse</span>
+  <span *ngIf="personalScore.none">Non répondu</span>
+</div>
+
+<!-- Bloc question et options -->
+<div *ngIf="step === 'question' && currentQuestion" class="question-block">
+  <div class="player-step-banner question">
+    <b>[ÉTAPE JOUEUR] QUESTION</b><br>
+    <span>Question, réponses, timer</span>
+  </div>
+  <div class="timer">
+    <ng-container *ngIf="!waitingForStart; else attenteStart">
+      <div class="timer-bar-container" *ngIf="timerValue > 0 && timerMax > 0">
+        <div class="timer-bar" [ngStyle]="{width: (timerValue / timerMax * 100) + '%'}"></div>
+        <span class="timer-bar-label">{{ timerValue }}s</span>
+      </div>
+      <span *ngIf="timerValue <= 0" class="player-timer-end">Temps écoulé</span>
+    </ng-container>
+    <ng-template #attenteStart>
+      <span>En attente du lancement…</span>
+    </ng-template>
+  </div>
+  <h2 class="question-title">{{ currentQuestion.text }}</h2>
+  <ul class="options-list">
+    <li *ngFor="let option of currentQuestion.options; let i = index"
+        class="option-item"
+        [class.answered]="hasAnswered"
+        (click)="selectAnswer(i)"
+        [class.selected]="hasAnswered && personalScore.good && currentQuestion.correctIndex === i"
+        [class.bad]="hasAnswered && personalScore.bad && !personalScore.good && i === currentQuestion.correctIndex">
+      {{ option }}
+    </li>
+  </ul>
+  <div *ngIf="hasAnswered" class="wait-msg">Réponse enregistrée. En attente de la correction…</div>
+</div>
+
+<!-- Bloc résultat ultra-visible -->
+<div *ngIf="step === 'result'">
+  <div class="player-step-banner result">
+    <b>[ÉTAPE JOUEUR] RESULT</b><br>
+    <span>Attente correction animateur</span>
+  </div>
+  <div *ngIf="personalScore === undefined || (!personalScore.good && !personalScore.bad && !personalScore.none)" style="background:#d32f2f;color:#fff;font-size:1.3em;padding:1em 2em;border-radius:12px;margin-bottom:1em;text-align:center;box-shadow:0 2px 16px #d32f2f88;z-index:99999;position:relative;">
+    <b>⚠️ Aucun résultat personnel à afficher</b><br>
+    <span style="font-size:1.1em;color:#ffe082;">Vous n'avez pas répondu à cette question ou aucune correction n'est disponible.</span>
+    <br>
+    <span style="font-size:1em;color:#ffe082;">step = {{step}}</span>
+    <span style="font-size:1em;color:#ffe082;">personalScore = {{personalScore | json}}</span>
+  </div>
+  <div *ngIf="personalScore.good" class="score-good">Bonne réponse !</div>
+  <div *ngIf="personalScore.bad" class="score-bad">Mauvaise réponse</div>
+  <div *ngIf="personalScore.none" class="score-none">Non répondu</div>
 </div>

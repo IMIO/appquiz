@@ -1,65 +1,87 @@
+
+<!-- Encadré ultra-visible pour chaque étape côté joueur -->
+<div *ngIf="step === 'lobby'" class="player-step-banner lobby">
+  <b>[ÉTAPE JOUEUR] LOBBY</b><br>
+  <span>Inscription, attente validation animateur</span>
+</div>
+<div *ngIf="step === 'waiting'" class="player-step-banner waiting">
+  <b>[ÉTAPE JOUEUR] WAITING</b><br>
+  <span>Inscriptions clôturées, attente lancement animateur</span>
+</div>
+
 <div *ngIf="!quizFinished && currentQuestion" class="quiz-container">
-  <div class="participant-score-banner">
-    <img *ngIf="avatarUrl" [src]="avatarUrl" alt="avatar" class="participant-avatar" />
-    <span *ngIf="!avatarUrl" class="participant-avatar">👤</span>
-    <span class="participant-score-label">Mon score</span>
-    <span class="participant-score-value">{{ totalScore }} / {{ totalQuestions }} point{{ totalQuestions > 1 ? 's' : '' }}</span>
+  <div class="score-banner">
+    <img *ngIf="avatarUrl" [src]="avatarUrl" alt="avatar" class="avatar" />
+    <span *ngIf="!avatarUrl" class="avatar">👤</span>
+    <span class="score-label">Mon score</span>
+    <span class="score-value">{{ totalScore }} / {{ totalQuestions }} point{{ totalQuestions > 1 ? 's' : '' }}</span>
   </div>
-  <div class="participant-score-detail">
-    <span *ngIf="personalScore.good" class="score-good">✅ Bonne réponse !</span>
-    <span *ngIf="personalScore.bad" class="score-bad">❌ Mauvaise réponse</span>
-    <span *ngIf="personalScore.none" class="score-none">⏰ Non répondu</span>
+  <div class="score-detail">
+    <span *ngIf="personalScore.good" class="score-good">Bonne réponse !</span>
+    <span *ngIf="personalScore.bad" class="score-bad">Mauvaise réponse</span>
+    <span *ngIf="personalScore.none" class="score-none">Non répondu</span>
   </div>
-  <h2 class="quiz-question-title">{{ currentQuestion.text }}</h2>
-  <div class="quiz-timer-container" *ngIf="step === 'question'">
-    <div class="quiz-timer-bar-bg">
-      <div class="quiz-timer-bar" [style.width]="timerPercent + '%'" [class.quiz-timer-bar-end]="!timerActive"></div>
-    </div>
-    <div class="quiz-timer-count">⏰ {{ timer }} s</div>
+  <div class="player-step-banner question">
+    <b>[ÉTAPE JOUEUR] QUESTION</b><br>
+    <span>Question, réponses, timer</span>
   </div>
-  <div *ngIf="step === 'result'" class="quiz-vote-closed">⏳ Vote clos pour cette question</div>
-  <!-- Score résumé déplacé uniquement dans la bannière -->
-  <ul class="quiz-options-list">
+  <h2 class="question-title">{{ currentQuestion.text }}</h2>
+  <div class="timer" *ngIf="step === 'question'">
+    <div *ngIf="waitingForStart" class="timer-waiting">En attente du lancement…</div>
+    <ng-container *ngIf="!waitingForStart">
+      <div class="timer-bar-container" *ngIf="timerValue > 0 && timerMax > 0">
+        <div class="timer-bar" [ngStyle]="{width: (timerValue / timerMax * 100) + '%'}"></div>
+        <span class="timer-bar-label">{{ timerValue }}s</span>
+      </div>
+      <span *ngIf="timerValue <= 0" class="player-timer-end">Temps écoulé</span>
+    </ng-container>
+  </div>
+  <ul class="options-list">
     <li *ngFor="let option of currentQuestion.options; let i = index">
       <button
-        class="quiz-option-btn"
+        class="option-btn"
         (click)="selectAnswer(i)"
         [disabled]="(selectedAnswerIndex !== null && selectedAnswerIndex !== -1) || !timerActive || step === 'result'"
-        [class.quiz-option-correct]="step === 'result' && i === currentQuestion.correctIndex"
-        [class.quiz-option-incorrect]="step === 'result' && selectedAnswerIndex === i && i !== currentQuestion.correctIndex"
-        [class.quiz-option-selected]="selectedAnswerIndex === i && step === 'question'"
-        [class.quiz-option-noanswer]="step === 'result' && selectedAnswerIndex === -1"
+        [class.option-correct]="step === 'result' && i === currentQuestion.correctIndex"
+        [class.option-incorrect]="step === 'result' && selectedAnswerIndex === i && i !== currentQuestion.correctIndex"
+        [class.option-selected]="selectedAnswerIndex === i && step === 'question'"
+        [class.option-noanswer]="step === 'result' && selectedAnswerIndex === -1"
       >
-        <span *ngIf="selectedAnswerIndex === i && step === 'question'" class="quiz-option-selected-icon">👉</span>
+        <span *ngIf="selectedAnswerIndex === i && step === 'question'" class="option-selected-icon">👉</span>
         {{ option }}
         <span *ngIf="step === 'result' && i === currentQuestion.correctIndex" style="margin-left:1em; color:#43a047;">✔️</span>
       </button>
     </li>
   </ul>
-  <div *ngIf="step === 'result'" class="quiz-personal-score">
-    <span *ngIf="personalScore.good">✅ Bonne réponse !</span>
-    <span *ngIf="personalScore.bad">❌ Mauvaise réponse</span>
-    <span *ngIf="personalScore.none">⏰ Non répondu</span>
+  <!-- Bloc résultat ultra-visible -->
+  <div *ngIf="step === 'result'">
+    <div class="player-step-banner result">
+      <b>[ÉTAPE JOUEUR] RESULT</b><br>
+      <span>Attente correction animateur</span>
+    </div>
+    <div *ngIf="personalScore === undefined || (!personalScore.good && !personalScore.bad && !personalScore.none)" style="background:#d32f2f;color:#fff;font-size:1.3em;padding:1em 2em;border-radius:12px;margin-bottom:1em;text-align:center;box-shadow:0 2px 16px #d32f2f88;z-index:99999;position:relative;">
+      <b>⚠️ Aucun résultat personnel à afficher</b><br>
+      <span style="font-size:1.1em;color:#ffe082;">Vous n'avez pas répondu à cette question ou aucune correction n'est disponible.</span>
+      <br>
+      <span style="font-size:1em;color:#ffe082;">step = {{step}}</span>
+      <span style="font-size:1em;color:#ffe082;">personalScore = {{personalScore | json}}</span>
+    </div>
+    <div *ngIf="personalScore.good" class="score-good">Bonne réponse !</div>
+    <div *ngIf="personalScore.bad" class="score-bad">Mauvaise réponse</div>
+    <div *ngIf="personalScore.none" class="score-none">Non répondu</div>
   </div>
-  <div style="color: #d32f2f; font-size: 0.95em; margin-bottom: 1em;">
-    [DEBUG] step: {{ step }} | timerActive: {{ timerActive }} | selectedAnswerIndex: {{ selectedAnswerIndex }}
-  </div>
-  <button class="quiz-next-btn" (click)="nextQuestion()" [disabled]="selectedAnswerIndex === null || step === 'result'">Suivant</button>
+  <button class="next-btn" (click)="nextQuestion()" [disabled]="selectedAnswerIndex === null || step === 'result'">Suivant</button>
 </div>
 
 <div *ngIf="quizFinished" class="quiz-finished-container">
   <h2>Quiz terminé !</h2>
-  <div class="participant-score-banner">
-    <img *ngIf="avatarUrl" [src]="avatarUrl" alt="avatar" class="participant-avatar" />
-    <span *ngIf="!avatarUrl" class="participant-avatar">👤</span>
-    <span class="participant-score-label">Mon score</span>
-    <span class="participant-score-value">{{ totalScore }} / {{ totalQuestions }} point{{ totalQuestions > 1 ? 's' : '' }}</span>
+  <div class="score-banner">
+    <img *ngIf="avatarUrl" [src]="avatarUrl" alt="avatar" class="avatar" />
+    <span *ngIf="!avatarUrl" class="avatar">👤</span>
+    <span class="score-label">Mon score</span>
+    <span class="score-value">{{ totalScore }} / {{ totalQuestions }} point{{ totalQuestions > 1 ? 's' : '' }}</span>
   </div>
-  <div class="participant-score-detail">
-    <span *ngIf="personalScore.good" class="score-good">✅ Bonne réponse !</span>
-    <span *ngIf="personalScore.bad" class="score-bad">❌ Mauvaise réponse</span>
-    <span *ngIf="personalScore.none" class="score-none">⏰ Non répondu</span>
-  </div>
+  <!-- On ne montre plus le détail bonne/mauvaise réponse à la fin du quiz -->
   <h3 style="margin-top:2em;">Classement final</h3>
   <ol class="joueur-leaderboard-list" style="list-style:none; padding:0; max-width:400px; margin:2em auto 0 auto;">
     <li *ngFor="let user of leaderboard; let i = index" class="joueur-leaderboard-item" style="display:flex;align-items:center;gap:1em;margin-bottom:1em;">

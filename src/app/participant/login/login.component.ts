@@ -35,25 +35,33 @@ export class LoginComponent {
     }
   }
 
-  join() {
+  async join() {
     let userName = this.name.trim();
     let avatar = this.avatarUrl;
     if (this.github.trim()) {
       userName = this.github.trim();
       avatar = this.avatarUrl;
+    } else if (!avatar && userName) {
+      // Génère un avatar DiceBear si pseudo uniquement
+      avatar = `https://api.dicebear.com/7.x/identicon/svg?seed=${encodeURIComponent(userName)}`;
     }
     if (!userName) return;
     const user: User = {
       id: crypto.randomUUID(),
       name: userName,
       score: 0,
-      answers: [],
-      avatarUrl: avatar || undefined,
+      answers: []
     };
-    this.quizService.addParticipant(user);
-    localStorage.setItem('userId', user.id);
-    localStorage.setItem('userName', user.name);
-    if (avatar) localStorage.setItem('avatarUrl', avatar);
-    this.router.navigate(['/waiting']);
+    if (avatar) user.avatarUrl = avatar;
+    try {
+      await this.quizService.addParticipant(user);
+      localStorage.setItem('userId', user.id);
+      localStorage.setItem('userName', user.name);
+      if (avatar) localStorage.setItem('avatarUrl', avatar);
+      this.router.navigate(['/waiting']);
+    } catch (e) {
+      alert('Erreur lors de l\'inscription, veuillez réessayer.');
+      console.error('[LOGIN] Erreur ajout participant', e);
+    }
   }
 }
