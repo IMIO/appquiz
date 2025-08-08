@@ -237,16 +237,16 @@ export class PresentationComponent {
 
   startTimer() {
     // ...
-    this.timerValue = 15;
-    this.timerMax = 15;
+    this.timerValue = 60;
+    this.timerMax = 60;
     this.stopTimer();
     if (this.timerSub) {
       // ...
       this.timerSub.unsubscribe();
     }
     this.timerSub = timer(0, 1000).subscribe(val => {
-      this.timerValue = 15 - val;
-      this.timerMax = 15;
+      this.timerValue = 60 - val;
+      this.timerMax = 60;
       if (this.timerValue <= 0) {
         this.showResult();
       }

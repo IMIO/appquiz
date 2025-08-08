@@ -41,8 +41,8 @@ export class QuizComponent implements OnInit {
   selectedAnswerIndex: number | null = null;
   isAnswerCorrect: boolean | null = null;
   quizFinished = false;
-  timerValue: number = 15;
-  timerMax: number = 15; // Durée du timer en secondes, pour la barre animée
+  timerValue: number = 60;
+  timerMax: number = 60; // Durée du timer en secondes, pour la barre animée
   timerPercent: number = 100;
   timerActive: boolean = false;
   waitingForStart: boolean = false;
