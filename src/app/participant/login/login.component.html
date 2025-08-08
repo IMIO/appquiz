@@ -18,9 +18,9 @@
     (input)="avatarUrl=null"
     style="margin-bottom:0.5em;"
   />
-  <button (click)="fetchGithubAvatar()" [disabled]="!github.trim() || loadingAvatar || name.trim()" style="margin-bottom:0.5em;">Récupérer l'avatar</button>
+  <button (click)="fetchGithubAvatar()" [disabled]="!github.trim() || loadingAvatar" style="margin-bottom:0.5em;">Récupérer l'avatar</button>
   <div *ngIf="avatarUrl" style="margin-bottom:0.5em;">
     <img [src]="avatarUrl" alt="avatar" width="60" height="60" style="border-radius:50%;border:2px solid #ccc;" />
   </div>
-  <button (click)="join()" [disabled]="(!name.trim() && !github.trim()) || (github.trim() && !avatarUrl && !name.trim())">Rejoindre</button>
+  <button (click)="join()" [disabled]="(!name.trim() && (!github.trim() || !avatarUrl))">Rejoindre</button>
 </div>

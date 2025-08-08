@@ -127,6 +127,7 @@ export class QuizComponent implements OnInit {
       }
       if (step === 'question') {
         this.currentQuestion = this.quizService.getCurrentQuestion(this.currentIndex);
+        this.answerSubmitted = false; // Correction : autorise la soumission à chaque nouvelle question
         this.startTimer();
       } else {
         this.stopTimer();
