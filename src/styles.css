@@ -1,15 +1,4 @@
 /* =============================== */
-/*  STYLES GLOBAUX                */
-/* =============================== */
-
-body {
-  font-family: 'Inter', Arial, sans-serif;
-  background: #f7f7fa;
-  margin: 0;
-  color: #222;
-}
-
-/* =============================== */
 /*  IMPORTS DES STYLES PAR ETAPE   */
 /* =============================== */
 @import './styles/lobby-maitre.css';
@@ -22,3 +11,14 @@ body {
 @import './styles/result-joueur.css';
 @import './styles/end-maitre.css';
 @import './styles/end-joueur.css';
+
+/* =============================== */
+/*  STYLES GLOBAUX                */
+/* =============================== */
+
+body {
+  font-family: 'Inter', Arial, sans-serif;
+  background: #f7f7fa;
+  margin: 0;
+  color: #222;
+}
