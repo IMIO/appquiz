@@ -74,7 +74,9 @@
   <div class="maitre-debug">step = {{step}} | currentQuestion = {{currentQuestion.text}}</div>
   <button class="step-btn" (click)="restartGame()">Tout réinitialiser</button>
   <h2 class="step-h2">Question</h2>
-  <div class="question-illustration"></div>
+  <div class="question-illustration">
+    <img *ngIf="currentQuestion?.imageUrl" [src]="currentQuestion.imageUrl" alt="Illustration question" style="width:100%;height:100%;object-fit:cover;border-radius:18px;" />
+  </div>
   <h3 class="step-h3">{{ currentQuestion.text }}</h3>
   <div class="timer step-timer">
     <div class="timer-bar-container">
@@ -119,6 +121,9 @@
   <div *ngIf="!currentQuestion" class="maitre-no-question step-no-question">Aucune question courante.</div>
   <ng-container *ngIf="currentQuestion">
     <h2 class="step-h2">Résultat</h2>
+    <div class="question-illustration">
+      <img *ngIf="currentQuestion?.imageUrlResult" [src]="currentQuestion.imageUrlResult" alt="Illustration résultat" style="width:100%;height:100%;object-fit:cover;border-radius:18px;" />
+    </div>
     <h3 class="step-h3">{{ currentQuestion.text }}</h3>
     <ul class="step-list" *ngIf="currentQuestion && currentQuestion.options">
       <li class="step-list-item step-option" *ngFor="let option of currentQuestion.options; let i = index"
@@ -166,6 +171,9 @@
 
   <!-- END : classement final -->
   <div *ngIf="step === 'end'" class="maitre-step-banner end step-block">
+    <div class="question-illustration">
+      <img *ngIf="currentQuestion && currentQuestion.imageUrlEnd" [src]="currentQuestion.imageUrlEnd" alt="Illustration fin" style="width:100%;height:100%;object-fit:cover;border-radius:18px;" />
+    </div>
     <div class="step-header">
       <span class="step-icon">🏆</span>
       <span class="step-title">[ÉTAPE MAÎTRE] END</span>
