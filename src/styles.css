@@ -1,1 +1,24 @@
-/* You can add global styles to this file, and also import other style files */
+/* =============================== */
+/*  STYLES GLOBAUX                */
+/* =============================== */
+
+body {
+  font-family: 'Inter', Arial, sans-serif;
+  background: #f7f7fa;
+  margin: 0;
+  color: #222;
+}
+
+/* =============================== */
+/*  IMPORTS DES STYLES PAR ETAPE   */
+/* =============================== */
+@import './styles/lobby-maitre.css';
+@import './styles/lobby-joueur.css';
+@import './styles/waiting-maitre.css';
+@import './styles/waiting-joueur.css';
+@import './styles/question-maitre.css';
+@import './styles/question-joueur.css';
+@import './styles/result-maitre.css';
+@import './styles/result-joueur.css';
+@import './styles/end-maitre.css';
+@import './styles/end-joueur.css';
