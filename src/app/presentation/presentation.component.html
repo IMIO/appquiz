@@ -21,14 +21,16 @@
 
 <!-- LOBBY : QR code + liste des inscrits + bouton démarrer -->
 <div *ngIf="step === 'lobby'" class="maitre-step-banner lobby step-block">
-  <div class="step-header">
-    <span class="step-icon">🟢</span>
-    <span class="step-title">[ÉTAPE MAÎTRE] LOBBY</span>
+  <div class="banner-img"><div class="step-header">
+    <!-- <span class="step-icon">🟢</span> -->
+    <span class="step-title">&nbsp;</span>
   </div>
   <!-- <div class="step-desc">QR code, liste des inscrits, bouton démarrer</div>
   <div class="maitre-debug">step = {{step}}</div> -->
   <h2 class="step-h2">Scan to join the game</h2>
   <qrcode [qrdata]="windowLocation + '/login'" [width]="200"></qrcode>
+</div>
+<div class="container-question">
   <h3 class="step-h3">Registered players</h3>
   <ul class="step-list">
     <li *ngFor="let user of participants" class="step-list-item">
@@ -39,6 +41,7 @@
   <button class="step-btn" (click)="launchGame()" [disabled]="participants.length === 0">Close registration</button>
   <button class="step-btn" (click)="restartGame()">Reset</button>
   <div *ngIf="participants.length === 0" class="step-waiting">Waiting for players...</div>
+</div>
 </div>
 
 <!-- WAITING : attente du lancement de la première question -->
@@ -194,6 +197,6 @@
   </div>
 
 </div>
-<!-- DEBUG : bouton pour forcer l’étape 'question' -->
+<!-- DEBUG : bouton pour forcer l’étape 'question' 
 <button style="position:fixed;top:10px;right:10px;z-index:9999;background:#1976d2;color:#fff;padding:0.5em 1em;border-radius:6px;font-size:1em;" (click)="quizService.setStep('question')">[DEBUG] Forcer étape QUESTION</button>
-
+-->
