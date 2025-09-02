@@ -169,7 +169,7 @@ body, .presentation-root {
   border-radius: 8px;
   padding: 0.5em 1em;
   font-weight: 500;
-  color: #1976d2;
+  color: red;
   display: flex;
   align-items: center;
 }
