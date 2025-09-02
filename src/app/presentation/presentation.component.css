@@ -30,9 +30,8 @@
   text-shadow: 0 2px 8px #1976d2aa;
 }
 .maitre-step-banner {
-  background: url('assets/bg-ville.jpg');
-  color: #1976d2;
-  padding: 1em 2em;
+  background: #fff;
+  color: #000;
   border-radius: 12px;
   margin-bottom: 1em;
   text-align: center;
@@ -56,6 +55,9 @@
   font-size: 1.1em;
   text-align: center;
   box-shadow: 0 2px 8px #23252644;
+}
+.container-question {
+  padding: 1em 2em;
 }
 .maitre-no-result {
   background: #d32f2f;
@@ -126,6 +128,10 @@ body, .presentation-root {
   font-weight: 500;
   text-align: center;
 }
+.banner-img {
+  background: url(../../assets/img/bg-ville.jpg) top center no-repeat #122852;
+  background-size: cover;
+}
 .step-header {
   display: flex;
   align-items: center;
@@ -140,22 +146,35 @@ body, .presentation-root {
   filter: drop-shadow(0 2px 2px #23252644);
 }
 .step-title {
-  color: #1976d2;
-  text-shadow: 0 2px 8px #23252644;
+  color: #000;
   font-size: 1.2em;
   font-weight: bold;
   letter-spacing: 2px;
+  background: url(../../assets/img/logo-csi.svg) top center no-repeat;
+  background-size: contain;
+  content: ''!important;
+  width: 700px;
+  height: 140px;
+  margin : 180px 20px 0;
+
 }
 .step-desc {
   font-size: 1.1em;
   color: #555;
   margin-bottom: 1em;
 }
-.step-h2, .step-h3, .step-h4 {
-  color: #1976d2;
+.step-h2 {
+  color: #DAE72A;
   margin: 0.7em 0 0.3em 0;
   font-weight: 600;
 }
+
+.step-h3, .step-h4 {
+  color: #000;
+  margin: 0.7em 0 0.3em 0;
+  font-weight: 600;
+}
+
 .step-list {
   width: 100%;
   padding: 0;
@@ -165,11 +184,11 @@ body, .presentation-root {
 .step-list-item {
   margin: 0.5em 0;
   text-align: left;
-  background: #e3f2fd;
+  background: #F1F1F1;
   border-radius: 8px;
   padding: 0.5em 1em;
   font-weight: 500;
-  color: red;
+  color: #000;
   display: flex;
   align-items: center;
 }
@@ -180,21 +199,27 @@ body, .presentation-root {
   border: 2px solid #1976d2;
 }
 .step-btn {
-  background: #1976d2;
-  color: #fff;
+  background: #DAE72A;
+  color: #000;
   border: none;
   border-radius: 8px;
   padding: 0.7em 1.5em;
   margin: 0.5em 0.5em 0.5em 0;
-  font-size: 1em;
-  font-weight: 600;
+  font-size: 0.9em;
+  font-weight: 500;
   cursor: pointer;
-  box-shadow: 0 2px 8px #23252644;
+  box-shadow: none!important;
   transition: background 0.2s;
 }
+
+.step-btn:hover {
+  background: #000;
+  color:#fff;
+}
+
 .step-btn:disabled {
-  background: #e0e0e0;
-  color: #232526;
+  background: #f1f1f1;
+  color: #000;
   cursor: not-allowed;
 }
 .step-waiting {
@@ -203,7 +228,7 @@ body, .presentation-root {
   margin-top: 1em;
 }
 .step-timer {
-  background: #e3f2fd;
+  background: #F1F1F1;
   color: #1976d2;
   border-radius: 8px;
   padding: 0.7em 1em;
@@ -215,7 +240,7 @@ body, .presentation-root {
 }
 .step-option {
   background: #fff;
-  border: 1px solid #e3f2fd;
+  border: 1px solid #F1F1F1;
   border-radius: 8px;
   padding: 0.5em 1em;
   margin-bottom: 0.5em;
@@ -239,7 +264,7 @@ body, .presentation-root {
   margin: 0.5em 0;
 }
 .step-voter-item {
-  background: #e3f2fd;
+  background: #F1F1F1;
   border-radius: 5px;
   padding: 0.3em 0.8em;
   font-weight: bold;
@@ -253,7 +278,7 @@ body, .presentation-root {
 }
 .step-result-bar {
   height: 18px;
-  background: #e3f2fd;
+  background: #F1F1F1;
   border-radius: 8px;
   margin: 0.5em 0;
   overflow: hidden;
@@ -292,7 +317,7 @@ body, .presentation-root {
   display: flex;
   align-items: center;
   gap: 0.7em;
-  background: #e3f2fd;
+  background: #F1F1F1;
   border-radius: 8px;
   padding: 0.5em 1em;
   margin-bottom: 0.5em;
