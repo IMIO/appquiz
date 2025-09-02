@@ -1,11 +1,11 @@
-<!-- DIAGNOSTIC : Bloc ultra-visible si aucune étape reconnue -->
+<!-- DIAGNOSTIC : Bloc ultra-visible si aucune étape reconnue 
 <div *ngIf="!step || (step !== 'lobby' && step !== 'waiting' && step !== 'question' && step !== 'result' && step !== 'end')" style="background:#d32f2f;color:#fff;font-size:1.5em;padding:2em 2em;border-radius:16px;margin:2em;text-align:center;box-shadow:0 2px 24px #d32f2f88;z-index:99999;position:relative;">
   <b>⚠️ Aucun écran d'étape affiché</b><br>
   <span style="font-size:1.1em;color:#ffe082;">La variable <b>step</b> n'est pas reconnue ou n'est pas initialisée.</span><br>
   <span style="font-size:1.2em;color:#fff !important;">step = {{step}}</span>
   <span style="font-size:1.1em;color:#fff !important;">Vérifiez la synchronisation et l'initialisation dans le TypeScript.</span>
-</div>
-<!-- Écran maître du jeu classique -->
+</div>-->
+<!-- Écran maître du jeu classique 
 
 <div class="maitre-banner">
   <div class="maitre-banner-content">
@@ -15,7 +15,7 @@
   <div class="maitre-message">Vous êtes sur l’interface <b>MAÎTRE DU JEU</b>.</div>
 </div>
 
-<h1 class="presentation-title">Quiz - Écran de présentation</h1>
+<h1 class="presentation-title">Quiz - Écran de présentation</h1>-->
 
 <div class="presentation-main">
 
@@ -25,27 +25,27 @@
     <span class="step-icon">🟢</span>
     <span class="step-title">[ÉTAPE MAÎTRE] LOBBY</span>
   </div>
-  <div class="step-desc">QR code, liste des inscrits, bouton démarrer</div>
-  <div class="maitre-debug">step = {{step}}</div>
-  <h2 class="step-h2">Scannez pour rejoindre</h2>
+  <!-- <div class="step-desc">QR code, liste des inscrits, bouton démarrer</div>
+  <div class="maitre-debug">step = {{step}}</div> -->
+  <h2 class="step-h2">Scan to join the game</h2>
   <qrcode [qrdata]="windowLocation + '/login'" [width]="200"></qrcode>
-  <h3 class="step-h3">Joueurs inscrits :</h3>
+  <h3 class="step-h3">Registered players</h3>
   <ul class="step-list">
     <li *ngFor="let user of participants" class="step-list-item">
       <img *ngIf="user.avatarUrl" [src]="user.avatarUrl" alt="avatar" width="32" height="32" class="step-avatar" />
       {{ user.name }}
     </li>
   </ul>
-  <button class="step-btn" (click)="launchGame()" [disabled]="participants.length === 0">Clôturer les inscriptions et lancer la partie</button>
-  <button class="step-btn" (click)="restartGame()">Tout réinitialiser</button>
-  <div *ngIf="participants.length === 0" class="step-waiting">En attente de participants...</div>
+  <button class="step-btn" (click)="launchGame()" [disabled]="participants.length === 0">Close registration</button>
+  <button class="step-btn" (click)="restartGame()">Reset</button>
+  <div *ngIf="participants.length === 0" class="step-waiting">Waiting for players...</div>
 </div>
 
 <!-- WAITING : attente du lancement de la première question -->
 <div *ngIf="step === 'waiting'" class="maitre-step-banner waiting step-block">
   <div class="step-header">
     <span class="step-icon">⏳</span>
-    <span class="step-title">[ÉTAPE MAÎTRE] WAITING</span>
+    <span class="step-title">Cricri bug</span>
   </div>
   <div class="step-desc">Attente du lancement de la première question</div>
   <div class="maitre-debug">step = {{step}}</div>
