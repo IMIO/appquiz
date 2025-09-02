@@ -35,5 +35,12 @@
   display: inline-block;
 }
 
-qrcode { display: block; margin: 2rem auto; }
+qrcode { 
+      background: white;
+    width: max-content;
+    margin: auto;
+    border-radius: 20px;
+    overflow: hidden;
+}
+
 button { margin-top: 1rem; }

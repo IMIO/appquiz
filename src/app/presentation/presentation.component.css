@@ -30,7 +30,7 @@
   text-shadow: 0 2px 8px #1976d2aa;
 }
 .maitre-step-banner {
-  background: #fffde7;
+  background: url('assets/bg-ville.jpg');
   color: #1976d2;
   padding: 1em 2em;
   border-radius: 12px;
