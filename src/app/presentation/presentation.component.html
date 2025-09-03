@@ -28,7 +28,7 @@
   <!-- <div class="step-desc">QR code, liste des inscrits, bouton démarrer</div>
   <div class="maitre-debug">step = {{step}}</div> -->
   <h2 class="step-h2">Scan to join the game</h2>
-  <qrcode [qrdata]="windowLocation + '/login'" [width]="200"></qrcode>
+  <qrcode class="radius-qr" [qrdata]="windowLocation + '/login'" [width]="200"></qrcode>
 </div>
 <div class="container-question">
   <h3 class="step-h3">Registered players</h3>
@@ -48,7 +48,7 @@
 <div *ngIf="step === 'waiting'" class="maitre-step-banner waiting step-block">
   <div class="step-header">
     <span class="step-icon">⏳</span>
-    <span class="step-title">Cricri bug</span>
+    <span class="step-title">Attente</span>
   </div>
   <div class="step-desc">Attente du lancement de la première question</div>
   <div class="maitre-debug">step = {{step}}</div>
