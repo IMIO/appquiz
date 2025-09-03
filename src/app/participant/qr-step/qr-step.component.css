@@ -36,11 +36,15 @@
 }
 
 .radius-qr { 
-    background: white;
+    background: white !important;
     width: max-content;
     margin: auto;
     border-radius: 20px;
     overflow: hidden;
+}
+
+.bg-qr {
+  margin: 2rem 0;
 }
 
 button { margin-top: 1rem; }

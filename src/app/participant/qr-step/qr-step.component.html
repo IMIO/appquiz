@@ -7,7 +7,7 @@
   <ng-container *ngIf="step === 'lobby'">
     <button class="qr-step-restart-btn" (click)="restartGame()" style="margin-bottom:1em; background: #d32f2f; color: white; font-size: 1.1em; border: 2px solid #b71c1c; border-radius: 8px; padding: 0.5em 2em; font-weight: bold; float:right;">🔄 Réinitialiser le quiz</button>
     <h2 class="qr-step-title">Scannez ce QR code pour rejoindre le quiz</h2>
-    <qrcode class="qr-step-qr-code" [qrdata]="windowLocation + '/login'" [width]="200"></qrcode>
+    <qrcode class="qr-step-qr-code radius-qr" [qrdata]="windowLocation + '/login'" [width]="200"></qrcode>
     <div class="qr-step-url">
       <b>Ou allez sur :</b><br>
       <span class="qr-step-url-link">{{ windowLocation + '/login' }}</span>

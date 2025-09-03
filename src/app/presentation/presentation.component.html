@@ -28,8 +28,12 @@
   <!-- <div class="step-desc">QR code, liste des inscrits, bouton démarrer</div>
   <div class="maitre-debug">step = {{step}}</div> -->
   <h2 class="step-h2">Scan to join the game</h2>
-  <qrcode class="radius-qr" [qrdata]="windowLocation + '/login'" [width]="200"></qrcode>
-</div>
+  </div>
+  <div class="bg-qr">
+    <qrcode class="radius-qr" [qrdata]="windowLocation + '/login'" [width]="200"></qrcode>
+  </div>
+  
+
 <div class="container-question">
   <h3 class="step-h3">Registered players</h3>
   <ul class="step-list">
