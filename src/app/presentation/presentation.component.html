@@ -30,7 +30,7 @@
   <h2 class="step-h2">Scan to join the game</h2>
   </div>
   <div class="bg-qr">
-    <qrcode class="radius-qr" [qrdata]="windowLocation + '/login'" [width]="200"></qrcode>
+    <qrcode [qrdata]="windowLocation + '/login'" [width]="200"></qrcode>
   </div>
   
 
@@ -50,47 +50,49 @@
 
 <!-- WAITING : attente du lancement de la première question -->
 <div *ngIf="step === 'waiting'" class="maitre-step-banner waiting step-block">
-  <div class="step-header">
-    <span class="step-icon">⏳</span>
-    <span class="step-title">Attente</span>
+  <div class="banner-img"><div class="step-header">
+    <!-- <span class="step-icon">🟢</span> -->
+    <span class="step-title">&nbsp;</span>
   </div>
-  <div class="step-desc">Attente du lancement de la première question</div>
-  <div class="maitre-debug">step = {{step}}</div>
-  <h2 class="step-h2">Bonne chance à tous !</h2>
-  <p class="step-p">La partie va commencer&nbsp;!</p>
+  <h2 class="step-h2">Game starting !</h2>
+  </div>
   <div>
-    <h3 class="step-h3">Participants inscrits ({{ participants.length }}) :</h3>
+    <div class="container-question">
+    <h3 class="step-h3">Registered players ({{ participants.length }}) :</h3>
     <ul class="step-list">
       <li *ngFor="let user of participants" class="step-list-item">
         <img *ngIf="user.avatarUrl" [src]="user.avatarUrl" alt="avatar" width="32" height="32" class="step-avatar" />
         {{ user.name }}
       </li>
     </ul>
-    <div class="step-total">Total : {{ participants.length }} participant(s)</div>
+    </div>
+    <div class="step-total">Total : {{ participants.length }} player(s)</div>
   </div>
-  <button class="step-btn" (click)="startFirstQuestion()">Commencer le quiz</button>
-  <button class="step-btn" (click)="restartGame()">Tout réinitialiser</button>
+  <button class="step-btn" (click)="startFirstQuestion()">Start the quiz</button>
+  <button class="step-btn" (click)="restartGame()">Reset</button>
 </div>
 <!-- QUESTION : question, réponses, timer -->
 <div *ngIf="step === 'question' && currentQuestion" class="maitre-step-banner question step-block">
   <div class="step-header">
-    <span class="step-icon">❓</span>
-    <span class="step-title">[ÉTAPE MAÎTRE] QUESTION</span>
+    <!-- <span class="step-icon">❓</span>
+    <span class="step-title">[ÉTAPE MAÎTRE] QUESTION</span> -->
   </div>
-  <div class="step-desc">Question, réponses, timer</div>
+  <!-- <div class="step-desc">Question, réponses, timer</div>
   <div class="maitre-debug">step = {{step}} | currentQuestion = {{currentQuestion.text}}</div>
   <button class="step-btn" (click)="restartGame()">Tout réinitialiser</button>
-  <h2 class="step-h2">Question</h2>
+  <h2 class="step-h2">Question</h2>-->
   <div class="question-illustration">
     <img *ngIf="currentQuestion?.imageUrl" [src]="currentQuestion.imageUrl" alt="Illustration question" style="width:100%;height:100%;object-fit:cover;border-radius:18px;" />
   </div>
   <h3 class="step-h3">{{ currentQuestion.text }}</h3>
+  <div class="container-question">
   <div class="timer step-timer">
     <div class="timer-bar-container">
       <div class="timer-bar" [ngStyle]="{width: (timerValue / timerMax * 100) + '%'}"></div>
       <span class="timer-bar-label">{{ timerValue }}s</span>
     </div>
-    <button class="step-btn" (click)="forceEndTimer()">Passer la fin du timer</button>
+    <button class="step-btn" (click)="forceEndTimer()">Skip</button>
+  </div>
   </div>
   <ul *ngIf="currentQuestion && currentQuestion.options" class="step-list">
     <li *ngFor="let option of currentQuestion.options; let i = index" class="step-list-item step-option" style="pointer-events: none; cursor: default;">
@@ -98,6 +100,7 @@
       <span *ngIf="currentQuestion && i === currentQuestion.correctIndex" class="step-correct">✔️</span>
     </li>
   </ul>
+  </div>
   <div *ngIf="voters && voters.length > 0" class="step-voters">
     <h4 class="step-h4">Ont déjà répondu :</h4>
     <ul class="step-voters-list">
@@ -108,6 +111,9 @@
     <div class="step-voters-total">{{ voters.length }} participant(s) ont voté</div>
   </div>
 </div>
+
+</div>
+
 
 <!-- RESULT : bonne réponse, stats, bouton question suivante, bouton reset complet -->
 <div *ngIf="step === 'result'" class="maitre-step-banner result step-block">
