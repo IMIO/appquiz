@@ -15,6 +15,7 @@ import { QuizService, QuizStep } from './services/quiz.service';
   styleUrls: ['./quiz.component.css']
 })
 export class QuizComponent implements OnInit {
+  private justSubmitted = false;
   // ...
   // Ajout pour accès public dans le template
   public get totalQuestions(): number {
@@ -41,8 +42,8 @@ export class QuizComponent implements OnInit {
   selectedAnswerIndex: number | null = null;
   isAnswerCorrect: boolean | null = null;
   quizFinished = false;
-  timerValue: number = 1800;
-  timerMax: number = 1800; // Durée du timer en secondes, pour la barre animée
+  timerValue: number = 15;
+  timerMax: number = 15; // Durée du timer en secondes, pour la barre animée
   timerPercent: number = 100;
   timerActive: boolean = false;
   waitingForStart: boolean = false;
@@ -143,6 +144,8 @@ export class QuizComponent implements OnInit {
       this.selectedAnswerIndex = null;
       this.questionStartTime = 0;
       this.listenToQuestionStartTime(idx);
+    // Correction : recalcul du score total à chaque changement d'index
+    this.totalScore = this.questionResults.reduce((sum, r) => sum + (r?.good || 0), 0);
     });
     // Nouvelle logique : score réactif sur toutes les réponses du joueur
     if (this.answersSub) this.answersSub.unsubscribe();
@@ -153,6 +156,10 @@ export class QuizComponent implements OnInit {
       if (!this.quizService['questions'] || this.quizService['questions'].length === 0) {
         return;
       }
+        if (this.justSubmitted) {
+          this.justSubmitted = false;
+          return;
+        }
       this.questionResults = allAnswers.map((entry, i) => {
         const currentQ = this.quizService.getCurrentQuestion(i);
         const myAnswer = entry.answer;
@@ -172,16 +179,17 @@ export class QuizComponent implements OnInit {
         return result;
       });
       // Score de la question courante
-      this.personalScore = this.questionResults[this.currentIndex] || { good: 0, bad: 0, none: 0 };
-      // Met à jour l'index sélectionné à partir de la réponse Firestore (jamais du clic local)
-      const entry = allAnswers[this.currentIndex];
-      if (entry && entry.answer && typeof entry.answer.answerIndex !== 'undefined') {
-        this.selectedAnswerIndex = entry.answer.answerIndex;
-      } else {
-        this.selectedAnswerIndex = null;
-      }
-      // Score total
-      this.totalScore = this.questionResults.reduce((sum, r) => sum + (r?.good || 0), 0);
+        // Score total : incrémentation à chaque bonne réponse
+        this.totalScore = this.questionResults.reduce((sum, r) => sum + (r.good || 0), 0);
+        // Score individuel pour affichage (optionnel)
+        this.personalScore = this.questionResults[this.currentIndex] || { good: 0, bad: 0, none: 0 };
+        // Met à jour l'index sélectionné à partir de la réponse Firestore
+        const entry = allAnswers[this.currentIndex];
+        if (entry && entry.answer && typeof entry.answer.answerIndex !== 'undefined') {
+          this.selectedAnswerIndex = entry.answer.answerIndex;
+        } else {
+          this.selectedAnswerIndex = null;
+        }
     });
   }
 
@@ -265,6 +273,7 @@ export class QuizComponent implements OnInit {
   }
 
   async submitAnswer(answerIndex: number) {
+  this.justSubmitted = true;
     // answerIndex = -1 si non-réponse
     this.answerSubmitted = true;
     await this.quizService.submitAnswer(this.userId, answerIndex, this.userName, this.currentIndex);
@@ -282,7 +291,23 @@ export class QuizComponent implements OnInit {
       // Si mauvaise réponse ou non-réponse, on ne stocke rien
       this.goodAnswersTimes[this.currentIndex] = undefined as any;
     }
-    // Le score sera mis à jour automatiquement par la souscription réactive dans ngOnInit
+    // Correction : mise à jour locale du tableau questionResults sans écraser les précédentes réponses
+    if (this.currentQuestion) {
+      let result;
+      if (answerIndex === this.currentQuestion.correctIndex) {
+        result = { good: 1, bad: 0, none: 0 };
+      } else if (answerIndex === -1) {
+        result = { good: 0, bad: 0, none: 1 };
+      } else {
+        result = { good: 0, bad: 1, none: 0 };
+      }
+      // On copie le tableau existant pour ne pas perdre les réponses précédentes
+      const updatedResults = [...this.questionResults];
+      updatedResults[this.currentIndex] = result;
+      this.questionResults = updatedResults;
+      this.totalScore = this.questionResults.reduce((sum, r) => sum + (r?.good || 0), 0);
+      this.personalScore = result;
+    }
   }
 
   // La méthode loadPersonalScore n'est plus utilisée (remplacée par la souscription réactive)
