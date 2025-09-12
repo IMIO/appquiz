@@ -64,12 +64,12 @@
         <img *ngIf="user.avatarUrl" [src]="user.avatarUrl" alt="avatar" width="32" height="32" class="step-avatar" />
         {{ user.name }}
       </li>
-    </ul>
-    </div>
-    <div class="step-total">Total : {{ participants.length }} player(s)</div>
-  </div>
+    </ul> 
+  <div class="step-total">Total : {{ participants.length }} player(s)</div>
   <button class="step-btn" (click)="startFirstQuestion()">Start the quiz</button>
   <button class="step-btn" (click)="restartGame()">Reset</button>
+  </div>
+  </div>
 </div>
 <!-- QUESTION : question, réponses, timer -->
 <div *ngIf="step === 'question' && currentQuestion" class="maitre-step-banner question step-block">
@@ -93,51 +93,48 @@
     </div>
     <button class="step-btn" (click)="forceEndTimer()">Skip</button>
   </div>
-  </div>
-  <ul *ngIf="currentQuestion && currentQuestion.options" class="step-list">
+   <ul *ngIf="currentQuestion && currentQuestion.options" class="step-list">
     <li *ngFor="let option of currentQuestion.options; let i = index" class="step-list-item step-option" style="pointer-events: none; cursor: default;">
       <span>{{ option }}</span>
-      <span *ngIf="currentQuestion && i === currentQuestion.correctIndex" class="step-correct">✔️</span>
+      <span *ngIf="currentQuestion && i === currentQuestion.correctIndex" class="step-correct">&nbsp;</span>
     </li>
   </ul>
   </div>
+ 
   <div *ngIf="voters && voters.length > 0" class="step-voters">
-    <h4 class="step-h4">Ont déjà répondu :</h4>
+    <h4 class="step-h4">Already answered :</h4>
     <ul class="step-voters-list">
       <li *ngFor="let voter of voters" class="step-voter-item">
         {{ voter }}
       </li>
     </ul>
-    <div class="step-voters-total">{{ voters.length }} participant(s) ont voté</div>
+    <div class="step-voters-total">{{ voters.length }} player(s) have voted</div>
   </div>
-</div>
-
 </div>
 
 
 <!-- RESULT : bonne réponse, stats, bouton question suivante, bouton reset complet -->
 <div *ngIf="step === 'result'" class="maitre-step-banner result step-block">
   <div class="step-header">
-    <span class="step-icon">🏁</span>
-    <span class="step-title">[ÉTAPE MAÎTRE] RESULT</span>
+    <!--  <span class="step-icon">🏁</span>
+    <span class="step-title">[ÉTAPE MAÎTRE] RESULT</span> -->
   </div>
-  <div class="step-desc">Bonne réponse, statistiques, classement provisoire, bouton suivant</div>
-  <div class="maitre-debug">step = {{step}} | currentQuestion = {{currentQuestion?.text}}</div>
-  <div *ngIf="answersCount.length === 0 || totalAnswers === 0" class="maitre-no-result step-no-result">
+  <!-- <div *ngIf="answersCount.length === 0 || totalAnswers === 0" class="maitre-no-result step-no-result">
     <b>⚠️ Aucun résultat à afficher pour cette question</b><br>
     <span>Aucune réponse enregistrée dans Firestore.<br>Vérifiez que les participants ont bien répondu.</span>
     <br>
     <span>answersCount = {{answersCount}}</span>
     <span>totalAnswers = {{totalAnswers}}</span>
-  </div>
-  <button class="step-btn" (click)="restartGame()">🧹 Tout réinitialiser</button>
+  </div> 
+  <button class="step-btn" (click)="restartGame()">🧹 Tout réinitialiser</button> -->
   <div *ngIf="!currentQuestion" class="maitre-no-question step-no-question">Aucune question courante.</div>
   <ng-container *ngIf="currentQuestion">
-    <h2 class="step-h2">Résultat</h2>
+    <!--  <h2 class="step-h2">Résultat</h2> -->
     <div class="question-illustration">
       <img *ngIf="currentQuestion?.imageUrlResult" [src]="currentQuestion.imageUrlResult" alt="Illustration résultat" style="width:100%;height:100%;object-fit:cover;border-radius:18px;" />
     </div>
     <h3 class="step-h3">{{ currentQuestion.text }}</h3>
+    <div class="container-question">
     <ul class="step-list" *ngIf="currentQuestion && currentQuestion.options">
       <li class="step-list-item step-option" *ngFor="let option of currentQuestion.options; let i = index"
           [class.correct]="i === currentQuestion.correctIndex">
@@ -149,7 +146,7 @@
     </ul>
     <div class="step-stats">
       <span class="step-good">
-        Bonne réponse :
+        Correct answer :
         <b>
           {{ (currentQuestion.options && currentQuestion.correctIndex !== undefined && currentQuestion.options[currentQuestion.correctIndex] !== undefined)
               ? currentQuestion.options[currentQuestion.correctIndex]
@@ -157,14 +154,14 @@
         </b>
       </span>
       <br>
-      <span class="step-total-good">Total bonnes réponses : {{ totalGood }}</span>
+      <span class="step-total-good">Number of correct answers : {{ totalGood }}</span>
       <br>
-      <span class="step-total-bad">Total mauvaises réponses : {{ totalBad }}</span>
+      <span class="step-total-bad">Number of wrong answers : {{ totalBad }}</span>
     </div>
 
     <!-- CLASSEMENT PROVISOIRE -->
     <div class="step-leaderboard-block">
-      <h3 class="step-leaderboard-title">Classement provisoire</h3>
+      <h3 class="step-leaderboard-title">Ranking</h3>
       <ol class="step-leaderboard-list">
         <li class="step-leaderboard-item" *ngFor="let user of leaderboard; let i = index">
           <span class="step-leaderboard-rank">{{ i + 1 }}</span>
@@ -176,11 +173,12 @@
       </ol>
     </div>
 
-    <button class="step-btn step-next-btn" (click)="nextQuestion()" *ngIf="currentIndex < (quizService.getQuestions().length - 1)">Question suivante</button>
-    <button class="step-btn step-end-btn" (click)="endGame()" *ngIf="canShowEndButton()">Clôturer le quiz et afficher le classement final</button>
+    <button class="step-btn step-next-btn" (click)="nextQuestion()" *ngIf="currentIndex < (quizService.getQuestions().length - 1)">Next question</button>
+    <button class="step-btn step-end-btn" (click)="endGame()" *ngIf="canShowEndButton()">Close quiz & show ranking</button>
+  </div>
   </ng-container>
+  
 </div>
-...existing code...
 
   <!-- END : classement final -->
   <div *ngIf="step === 'end'" class="maitre-step-banner end step-block">

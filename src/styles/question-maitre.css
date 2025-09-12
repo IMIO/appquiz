@@ -4,14 +4,13 @@
 }
 
 .question-illustration {
-  width: 100%;
-  max-width: 420px;
-  height: 220px;
+  width: calc(100% - 40px);
+  max-width: 900px;
   margin: 1.5em auto 1em auto;
-  background: #1976d2;
-  border-radius: 18px;
+  padding: 20px;
+  background: #fff;
+  border-radius: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 2px 16px #1976d244;
 }
