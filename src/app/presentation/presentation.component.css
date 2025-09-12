@@ -34,7 +34,8 @@
 .step-timer .step-btn {
   border: 1px solid #000 !important;
   margin: 0 0 0 20px !important;
-  background: #fff !important;
+  background: #000 !important;
+  color: #fff !important;
 }
 
 .step-timer .step-btn:hover {
@@ -261,7 +262,7 @@ body, .presentation-root {
 }
 .step-option {
   background: #fff;
-  border: 1px solid #F1F1F1;
+  border: 1px solid #000;
   border-radius: 8px;
   padding: 0.5em 1em;
   margin-bottom: 0.5em;
@@ -349,12 +350,14 @@ body, .presentation-root {
   margin-bottom: 0.5em;
   font-weight: 500;
   color: #000;
+  position: relative;
 }
 .step-leaderboard-rank {
   font-size: 1.1em;
   font-weight: bold;
   color: #000;
   margin-right: 0.5em;
+  display: none;
 }
 .step-leaderboard-name {
   font-weight: 500;
@@ -633,4 +636,45 @@ ol { margin-top: 2rem; }
 
 .step-leaderboard-list .step-leaderboard-item:nth-child(n+10) {
     display: none;
+}
+
+.step-leaderboard-list .step-leaderboard-item:nth-child(1)::after {
+    content: '🥇';
+    position: absolute;
+    right: 10px;
+    top: 0px;
+    font-size: 2em;
+    height: 52px;
+}
+
+.step-leaderboard-list .step-leaderboard-item:nth-child(2)::after {
+    content: '🥈';
+    position: absolute;
+    right: 10px;
+    top: 0px;
+    font-size: 2em;
+    height: 52px;
+}
+
+.step-leaderboard-list .step-leaderboard-item:nth-child(3)::after {
+    content: '🥉';
+    position: absolute;
+    right: 10px;
+    top: 0px;
+    font-size: 2em;
+    height: 52px;
+}
+
+
+
+
+
+.result .container-question {
+    padding: 0 10px 100px;
+}
+
+.result .step-next-btn {
+    position: absolute;
+    top: 55px;
+    left: 30px;
 }
