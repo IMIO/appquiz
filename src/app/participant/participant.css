@@ -83,7 +83,7 @@
   font-weight: bold;
 }
 .player-step-banner.lobby { color: #1976d2; }
-.player-step-banner.waiting { color: #388e3c; }
+.player-step-banner.waiting { color: #DAE72A; }
 .player-step-banner.question { color: #fbc02d; }
 .player-step-banner.result { color: #d32f2f; }
 .player-step-banner.end { color: #e65100; }
