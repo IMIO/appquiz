@@ -103,6 +103,48 @@ export class PresentationComponent {
         this.answersCount = counts;
         this.refresh();
       });
+        // Correction : recalcul du leaderboard à chaque changement d'index
+        this.quizService.getParticipants$().subscribe(participants => {
+          this.quizService.getAllAnswers$().subscribe((allAnswersDocs: any[]) => {
+            const nbQuestions = this.quizService.getQuestions().length;
+            const leaderboard: LeaderboardEntry[] = participants.map(user => {
+              let score = 0;
+              let totalTime = 0;
+              let goodTimes: number[] = [];
+              for (let i = 0; i < nbQuestions; i++) {
+                const docAns = allAnswersDocs.find((d: any) => String(d.id) === String(i));
+                if (docAns && docAns.answers) {
+                  const answers = docAns.answers.filter((a: any) => String(a.userId) === String(user.id));
+                  if (answers.length > 0) {
+                    const answer = answers[answers.length - 1];
+                    const question = this.quizService.getCurrentQuestion(i);
+                    if (question && typeof answer.answerIndex !== 'undefined' && Number(answer.answerIndex) === Number(question.correctIndex)) {
+                      score++;
+                      const qStart = this.questionStartTimes[i] ?? this.questionStartTimes[String(i)];
+                      if (answer.timestamp && qStart && answer.timestamp >= qStart) {
+                        const timeTaken = Math.min(answer.timestamp - qStart, 15000);
+                        goodTimes[i] = timeTaken;
+                        totalTime += timeTaken;
+                      }
+                    } else {
+                      goodTimes[i] = undefined as any;
+                    }
+                  } else {
+                    goodTimes[i] = undefined as any;
+                  }
+                } else {
+                  goodTimes[i] = undefined as any;
+                }
+              }
+              this.goodAnswersTimesByUser[user.id] = goodTimes;
+              return { id: user.id, name: user.name, avatarUrl: user.avatarUrl, score, totalTime };
+            });
+            this.leaderboard = leaderboard.sort((a, b) => {
+              if (b.score !== a.score) return b.score - a.score;
+              return a.totalTime - b.totalTime;
+            });
+          });
+        });
     });
     // Synchro temps réel des inscrits
     this.quizService.getParticipants$().subscribe(participants => {
@@ -237,16 +279,16 @@ export class PresentationComponent {
 
   startTimer() {
     // ...
-    this.timerValue = 1800;
-    this.timerMax = 1800;
+  this.timerValue = 15;
+  this.timerMax = 15;
     this.stopTimer();
     if (this.timerSub) {
       // ...
       this.timerSub.unsubscribe();
     }
     this.timerSub = timer(0, 1000).subscribe(val => {
-      this.timerValue = 1800 - val;
-      this.timerMax = 1800;
+      this.timerValue = 15 - val;
+      this.timerMax = 15;
       if (this.timerValue <= 0) {
         this.showResult();
       }
