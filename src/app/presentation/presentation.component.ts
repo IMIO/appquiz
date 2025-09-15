@@ -86,6 +86,10 @@ export class PresentationComponent {
       this.cdr.detectChanges(); // Forcer la synchro immédiate
       if (step === 'question') this.startTimer();
       else this.stopTimer();
+      // Réinitialisation des réponses Firestore lors du retour à l'étape lobby
+      if (step === 'lobby') {
+        this.quizService.resetAllAnswers();
+      }
       // NE PAS appeler showResult ici pour éviter la boucle infinie
     });
     // Synchro temps réel de l'index de la question
@@ -106,25 +110,60 @@ export class PresentationComponent {
         // Correction : recalcul du leaderboard à chaque changement d'index
         this.quizService.getParticipants$().subscribe(participants => {
           this.quizService.getAllAnswers$().subscribe((allAnswersDocs: any[]) => {
+            // Recalcul du leaderboard à chaque mise à jour des réponses Firestore
             const nbQuestions = this.quizService.getQuestions().length;
-            const leaderboard: LeaderboardEntry[] = participants.map(user => {
-              let score = 0;
-              let totalTime = 0;
-              let goodTimes: number[] = [];
-              for (let i = 0; i < nbQuestions; i++) {
-                const docAns = allAnswersDocs.find((d: any) => String(d.id) === String(i));
-                if (docAns && docAns.answers) {
-                  const answers = docAns.answers.filter((a: any) => String(a.userId) === String(user.id));
-                  if (answers.length > 0) {
-                    const answer = answers[answers.length - 1];
-                    const question = this.quizService.getCurrentQuestion(i);
-                    if (question && typeof answer.answerIndex !== 'undefined' && Number(answer.answerIndex) === Number(question.correctIndex)) {
-                      score++;
-                      const qStart = this.questionStartTimes[i] ?? this.questionStartTimes[String(i)];
-                      if (answer.timestamp && qStart && answer.timestamp >= qStart) {
-                        const timeTaken = Math.min(answer.timestamp - qStart, 15000);
-                        goodTimes[i] = timeTaken;
-                        totalTime += timeTaken;
+            this.quizService.getParticipants$().subscribe(participants => {
+              // Vérifie qu'au moins une réponse valide (≠ -1) existe pour chaque participant
+              const hasValidAnswer = participants.every(user => {
+                for (let i = 0; i < nbQuestions; i++) {
+                  const docAns = allAnswersDocs.find((d: any) => String(d.id) === String(i));
+                  if (docAns && docAns.answers) {
+                    const answers = docAns.answers.filter((a: any) => String(a.userId) === String(user.id));
+                    if (answers.length > 0) {
+                      const answer = answers[answers.length - 1];
+                      if (typeof answer.answerIndex !== 'undefined' && Number(answer.answerIndex) !== -1) {
+                        return true;
+                      }
+                    }
+                  }
+                }
+                return false;
+              });
+              if (!hasValidAnswer) {
+                this.leaderboard = [];
+                console.log('[DEBUG][LEADERBOARD][SKIP] Pas de réponse valide, leaderboard masqué.');
+                return;
+              }
+              const leaderboard: LeaderboardEntry[] = participants.map(user => {
+                let score = 0;
+                let totalTime = 0;
+                let goodTimes: number[] = [];
+                for (let i = 0; i < nbQuestions; i++) {
+                  const docAns = allAnswersDocs.find((d: any) => String(d.id) === String(i));
+                  if (docAns && docAns.answers) {
+                    // Prend toujours la dernière réponse Firestore du joueur pour la question
+                    const answers = docAns.answers.filter((a: any) => String(a.userId) === String(user.id));
+                    if (answers.length > 0) {
+                      const answer = answers[answers.length - 1];
+                      const question = this.quizService.getCurrentQuestion(i);
+                      console.log(`[DEBUG][LEADERBOARD][USER]`, user.name, '| Q', i, '| answer:', answer?.answerIndex, '| correct:', question?.correctIndex);
+                      if (question && typeof answer.answerIndex !== 'undefined') {
+                        if (Number(answer.answerIndex) === Number(question.correctIndex)) {
+                          score++;
+                          console.log(`[DEBUG][LEADERBOARD][INCREMENT]`, user.name, '| Q', i, '| answer:', answer.answerIndex, '| correct:', question.correctIndex, '| score++');
+                          const qStart = this.questionStartTimes[i] ?? this.questionStartTimes[String(i)];
+                          if (answer.timestamp && qStart && answer.timestamp >= qStart) {
+                            const timeTaken = Math.min(answer.timestamp - qStart, 15000);
+                            goodTimes[i] = timeTaken;
+                            totalTime += timeTaken;
+                          }
+                        } else {
+                          goodTimes[i] = undefined as any;
+                          // Log explicite si la réponse correcte n'est pas comptée
+                          if (Number(answer.answerIndex) === Number(question.correctIndex)) {
+                            console.warn(`[DEBUG][LEADERBOARD][NON-INCREMENT]`, user.name, '| Q', i, '| answer:', answer.answerIndex, '| correct:', question.correctIndex, '| MAIS score non incrémenté !');
+                          }
+                        }
                       }
                     } else {
                       goodTimes[i] = undefined as any;
@@ -132,17 +171,17 @@ export class PresentationComponent {
                   } else {
                     goodTimes[i] = undefined as any;
                   }
-                } else {
-                  goodTimes[i] = undefined as any;
                 }
-              }
-              this.goodAnswersTimesByUser[user.id] = goodTimes;
-              return { id: user.id, name: user.name, avatarUrl: user.avatarUrl, score, totalTime };
-            });
-            this.leaderboard = leaderboard.sort((a, b) => {
-              if (b.score !== a.score) return b.score - a.score;
-              return a.totalTime - b.totalTime;
-            });
+                this.goodAnswersTimesByUser[user.id] = goodTimes;
+                return { id: user.id, name: user.name, avatarUrl: user.avatarUrl, score, totalTime };
+              });
+              this.leaderboard = leaderboard.sort((a, b) => {
+                if (b.score !== a.score) return b.score - a.score;
+                return a.totalTime - b.totalTime;
+              });
+                console.log('[DEBUG][LEADERBOARD]', this.leaderboard);
+              });
+            console.log('[DEBUG][LEADERBOARD]', this.leaderboard);
           });
         });
     });
@@ -378,6 +417,9 @@ export class PresentationComponent {
       for (const docu of answersSnap.docs) {
         await deleteDoc(docu.ref);
       }
+      // Vérification que la collection answers est bien vide
+      const answersSnapAfter = await getDocs(answersCol);
+      console.log('[DEBUG][RESET] Réponses restantes après suppression:', answersSnapAfter.docs.length);
     });
     alert('Quiz réinitialisé. Tous les participants et réponses ont été supprimés.');
     // Réinitialisation locale de l'état du composant
@@ -389,5 +431,12 @@ export class PresentationComponent {
     this.timerValue = 15;
     this.voters = [];
     this.refresh();
+    // Rafraîchit explicitement le leaderboard après reset
+    setTimeout(() => {
+      this.quizService.getAllAnswers$().subscribe((allAnswersDocs: any[]) => {
+        console.log('[DEBUG][RESET][LEADERBOARD] Réponses Firestore après reset:', allAnswersDocs);
+        this.leaderboard = [];
+      });
+    }, 500);
   }
 }
