@@ -105,6 +105,14 @@ export class QuizComponent implements OnInit {
       this.step = step;
       if (step === 'lobby') {
         this.router.navigate(['/login']);
+        // Réinitialisation des scores et réponses
+        this.totalScore = 0;
+        this.questionResults = [];
+        this.personalScore = { good: 0, bad: 0, none: 0 };
+        this.goodAnswersTimes = [];
+        this.selectedAnswerIndex = null;
+        this.answerSubmitted = false;
+        this.quizFinished = false;
       }
       if (step === 'end') {
         this.quizFinished = true;
@@ -160,12 +168,13 @@ export class QuizComponent implements OnInit {
           this.justSubmitted = false;
           return;
         }
-      this.questionResults = allAnswers.map((entry, i) => {
+      // Fusionne la logique locale et Firestore pour ne jamais perdre les bonnes réponses
+      const mergedResults = [...this.questionResults];
+      allAnswers.forEach((entry, i) => {
         const currentQ = this.quizService.getCurrentQuestion(i);
         const myAnswer = entry.answer;
         let result = { good: 0, bad: 0, none: 0 };
         if (myAnswer && currentQ) {
-          console.log('[DEBUG][SCORE] i:', i, 'answerIndex:', myAnswer.answerIndex, 'correctIndex:', currentQ.correctIndex, 'userId:', this.userId);
           if (Number(myAnswer.answerIndex) === Number(currentQ.correctIndex)) {
             result = { good: 1, bad: 0, none: 0 };
           } else if (Number(myAnswer.answerIndex) === -1) {
@@ -176,8 +185,16 @@ export class QuizComponent implements OnInit {
         } else {
           result = { good: 0, bad: 0, none: 1 };
         }
-        return result;
+        // Si une réponse locale existe (good), on la garde
+        if (mergedResults[i] && mergedResults[i].good === 1) {
+          // On ne touche pas
+        } else {
+          mergedResults[i] = result;
+        }
       });
+      this.questionResults = mergedResults;
+      console.log('[DEBUG][SYNC] questionResults:', this.questionResults);
+      console.log('[DEBUG][SYNC] questionResults:', this.questionResults);
       // Score de la question courante
         // Score total : incrémentation à chaque bonne réponse
         this.totalScore = this.questionResults.reduce((sum, r) => sum + (r.good || 0), 0);
@@ -259,8 +276,12 @@ export class QuizComponent implements OnInit {
   // Ancienne méthode startTimer supprimée (remplacée par la logique Firestore)
 
   selectAnswer(index: number) {
-    console.log('[DEBUG][QUIZ][selectAnswer] userId:', this.userId, 'index:', index, 'timerActive:', this.timerActive, 'answerSubmitted:', this.answerSubmitted);
-    if (!this.timerActive || this.answerSubmitted) return;
+    console.log('[DEBUG][QUIZ][selectAnswer] userId:', this.userId, 'index:', index, 'timerActive:', this.timerActive, 'answerSubmitted:', this.answerSubmitted, 'questionStartTime:', this.questionStartTime);
+    // Empêche la soumission si le timer n'est pas actif ou si le timestamp de début de question n'est pas défini
+    if (!this.timerActive || this.answerSubmitted || !this.questionStartTime || this.questionStartTime <= 0) {
+      console.warn('[DEBUG][QUIZ][BLOCKED] Soumission bloquée : timerActive=', this.timerActive, '| answerSubmitted=', this.answerSubmitted, '| questionStartTime=', this.questionStartTime);
+      return;
+    }
     this.selectedAnswerIndex = index;
     this.isAnswerCorrect = this.currentQuestion?.correctIndex === index;
     this.timerActive = false;
@@ -273,10 +294,15 @@ export class QuizComponent implements OnInit {
   }
 
   async submitAnswer(answerIndex: number) {
-  this.justSubmitted = true;
+    this.justSubmitted = true;
     // answerIndex = -1 si non-réponse
     this.answerSubmitted = true;
     await this.quizService.submitAnswer(this.userId, answerIndex, this.userName, this.currentIndex);
+    // Log Firestore après soumission
+    this.quizService.getAnswers$(this.currentIndex).subscribe(answers => {
+      const myAnswer = answers.find(a => String(a.userId) === String(this.userId));
+      console.log('[DEBUG][POST-SUBMIT][FIRESTORE] userId:', this.userId, '| questionIndex:', this.currentIndex, '| answer enregistré Firestore:', myAnswer);
+    });
     // Calcul du temps de réponse uniquement si bonne réponse
     if (
       this.currentQuestion &&
@@ -305,6 +331,7 @@ export class QuizComponent implements OnInit {
       const updatedResults = [...this.questionResults];
       updatedResults[this.currentIndex] = result;
       this.questionResults = updatedResults;
+      console.log('[DEBUG][SUBMIT] questionResults:', this.questionResults);
       this.totalScore = this.questionResults.reduce((sum, r) => sum + (r?.good || 0), 0);
       this.personalScore = result;
     }
