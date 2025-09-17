@@ -12,6 +12,19 @@ export type QuizStep = 'lobby' | 'waiting' | 'question' | 'result' | 'end';
 
 @Injectable({ providedIn: 'root' })
 export class QuizService {
+  /**
+   * Supprime toutes les réponses Firestore (collection 'answers') pour réinitialiser les scores
+   */
+  async resetAllAnswers() {
+    await runInInjectionContext(this.injector, async () => {
+      const { getDocs, collection, deleteDoc } = await import('firebase/firestore');
+      const answersCol = collection(this.firestore, 'answers');
+      const docsSnap = await getDocs(answersCol);
+      for (const doc of docsSnap.docs) {
+        await deleteDoc(doc.ref);
+      }
+    });
+  }
   public participants: User[] = [];
   private questions: Question[] = [];
   private questionsSubject = new BehaviorSubject<Question[]>([]);
