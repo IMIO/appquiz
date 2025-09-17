@@ -22,8 +22,9 @@ jobs:
             echo EOF
           } >> $GITHUB_ENV
       - name: Build push and notify
-        uses: IMIO/gha/build-push-notify@v3.9.3
+        uses: IMIO/gha/build-push-notify@v5
         with:
+          DOCKERFILE: Dockerfile.prod
           IMAGE_NAME: ${{ env.IMAGE_NAME }}
           IMAGE_TAGS: ${{ env.IMAGE_TAGS }}
           REGISTRY_URL: ${{ env.REGISTRY_URL}}
