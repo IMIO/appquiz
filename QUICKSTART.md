@@ -1,61 +1,71 @@
-# 🚀 Guide de Démarrage Rapide - Quiz App
+# 🎯 Quiz App - Guide de Démarrage Rapide
 
-## Installation et lancement en 3 étapes
+## ⚡ Installation Express (1 minute)
 
-### 1. Préparer l'environnement
 ```bash
-cd quiz-app
+# 1. Cloner le projet
+git clone https://github.com/IMIO/appquiz.git
+cd appquiz
+
+# 2. Installer les dépendances
 npm install
+
+# 3. Lancer l'application (MÉTHODE SIMPLIFIÉE)
+npm run dev
 ```
 
-### 2. Démarrer le backend
-```bash
-node server.js &
-```
-✅ Serveur SQLite sur http://localhost:3000
+## 🌐 Accès aux interfaces
 
-### 3. Démarrer le frontend
-```bash
-ng serve --port 4201
-```
-✅ Application sur http://localhost:4201
+Une fois l'application démarrée :
 
-## 🎯 Utilisation immédiate
+- **🎯 Interface Maître** : http://localhost:4200/presentation
+- **📱 Interface Joueurs** : http://localhost:4200/login  
+- **⚙️ Interface Admin** : http://localhost:4200/admin
+- **🔧 API Backend** : http://localhost:3000
 
-### Maître du jeu
-1. Ouvrir : http://localhost:4201
-2. Cliquer "Reset Quiz" pour nettoyer
-3. Attendre les participants
+## 🎮 Test rapide
 
-### Joueurs
-1. Ouvrir : http://localhost:4201/login
-2. Saisir un nom
-3. Cliquer "Rejoindre"
-
-### Démarrer le quiz
-1. Maître : Cliquer "Démarrer Quiz"
-2. Joueurs : Répondre aux questions
-3. Maître : Gérer les transitions
+1. **Ouvrir l'interface maître** en grand écran
+2. **Scanner le QR Code** avec votre téléphone
+3. **S'inscrire** comme joueur
+4. **Démarrer le quiz** depuis l'interface maître
 
 ## 🔧 Commandes utiles
 
 ```bash
-# Vérifier l'API
-curl http://localhost:3000/health
+# Lancement simplifié (recommandé)
+npm run dev              # Lance Angular + Backend ensemble
+npm run dev:open         # + ouvre automatiquement le navigateur
 
-# Voir les participants
-curl http://localhost:3000/api/participants
+# Lancement séparé (si nécessaire)
+npm run server           # Backend seul
+npm start               # Frontend seul
 
-# Reset manuel
-curl -X POST http://localhost:3000/api/quiz/reset
-
-# Logs serveur
-tail -f server.log
+# Vérifications
+curl http://localhost:3000/health        # Santé API
+curl http://localhost:3000/api/participants  # Liste joueurs
 ```
 
-## 📱 URLs essentielles
+## 🐛 En cas de problème
 
-- **Maître du jeu** : http://localhost:4201
-- **Inscription joueurs** : http://localhost:4201/login
-- **API Health** : http://localhost:3000/health
-- **Documentation complète** : Voir README.md
+```bash
+# Nettoyer et réinstaller
+rm -rf node_modules package-lock.json
+npm install --legacy-peer-deps
+
+# Changer de port si occupé
+ng serve --port 4201
+
+# Reset base de données
+rm quiz.db
+npm run server
+```
+
+## 📚 Documentation complète
+
+➡️ **[Guide d'installation détaillé](INSTALLATION.md)**  
+➡️ **[README complet](README.md)**
+
+---
+
+*C'est parti pour le quiz ! 🚀*

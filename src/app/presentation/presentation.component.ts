@@ -345,7 +345,7 @@ export class PresentationComponent implements OnInit, OnDestroy {
   // ngOnInit fusionné ci-dessus
 
   refresh() {
-    // this.participants = ... supprimé, car synchro via Firestore
+    // this.participants = ... supprimé, car synchro via API SQLite
     const previousQuestion = this.currentQuestion;
     this.currentQuestion = this.quizService.getCurrentQuestion(this.currentIndex);
     
@@ -528,7 +528,7 @@ export class PresentationComponent implements OnInit, OnDestroy {
     // Rafraîchit explicitement le leaderboard après reset
     setTimeout(() => {
       this.quizService.getAllAnswers$().subscribe((allAnswersDocs: any[]) => {
-        console.log('[DEBUG][RESET][LEADERBOARD] Réponses Firestore après reset:', allAnswersDocs);
+        console.log('[DEBUG][RESET][LEADERBOARD] Réponses SQLite après reset:', allAnswersDocs);
         this.leaderboard = [];
       });
     }, 500);
