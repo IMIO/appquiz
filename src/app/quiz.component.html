@@ -1,94 +1,101 @@
 
-<!-- Encadré ultra-visible pour chaque étape côté joueur -->
+<!-- Interface joueur harmonisée avec le style maître du jeu -->
+
+<!-- Étapes simplifiées -->
 <div *ngIf="step === 'lobby'" class="player-step-banner lobby">
-  <b>[ÉTAPE JOUEUR] LOBBY</b><br>
-  <span>Inscription, attente validation animateur</span>
+  <b>🎮 WAITING FOR GAME</b><br>
+  <span>Registration and waiting for host validation</span>
 </div>
+
 <div *ngIf="step === 'waiting'" class="player-step-banner waiting">
-  <b>[ÉTAPE JOUEUR] WAITING</b><br>
-  <span>Inscriptions clôturées, attente lancement animateur</span>
+  <b>⏳ READY TO START</b><br>
+  <span>Registration closed, waiting for host to start</span>
 </div>
 
 <div *ngIf="!quizFinished && currentQuestion" class="quiz-container">
+  <!-- Score banner harmonisé -->
   <div class="score-banner">
     <img *ngIf="avatarUrl" [src]="avatarUrl" alt="avatar" class="avatar" />
     <span *ngIf="!avatarUrl" class="avatar">👤</span>
-    <span class="score-label">Mon score</span>
-    <span class="score-value">{{ totalScore }} / {{ totalQuestions }} point{{ totalQuestions > 1 ? 's' : '' }}</span>
+    <span class="score-label">My Score:</span>
+    <span class="score-value">{{ totalScore }} / {{ totalQuestions }} pts</span>
   </div>
-  <div class="score-detail">
-    <span *ngIf="personalScore.good" class="score-good">Bonne réponse !</span>
-    <span *ngIf="personalScore.bad" class="score-bad">Mauvaise réponse</span>
-    <span *ngIf="personalScore.none" class="score-none">Non répondu</span>
+
+  <!-- Feedback de la dernière réponse -->
+  <div class="score-detail" *ngIf="personalScore">
+    <span *ngIf="personalScore.good" class="score-good">✅ Correct answer!</span>
+    <span *ngIf="personalScore.bad" class="score-bad">❌ Wrong answer</span>
+    <span *ngIf="personalScore.none" class="score-none">⏱️ No answer</span>
   </div>
-  <div class="player-step-banner question">
-    <b>[ÉTAPE JOUEUR] QUESTION</b><br>
-    <span>Question, réponses, timer</span>
-  </div>
+
+  <!-- Bannière d'étape question masquée -->
+  <!-- <div *ngIf="step === 'question'" class="player-step-banner question">
+    <b>❓ QUESTION</b><br>
+    <span>Answer before time runs out!</span>
+  </div> -->
+
+  <!-- Titre de la question -->
   <h2 class="question-title">{{ currentQuestion.text }}</h2>
+
+  <!-- Timer (style maître du jeu) -->
   <div class="timer" *ngIf="step === 'question'">
-    <div *ngIf="waitingForStart" class="timer-waiting">En attente du lancement…</div>
+    <div *ngIf="waitingForStart" class="timer-waiting">Waiting for start...</div>
     <ng-container *ngIf="!waitingForStart">
       <div class="timer-bar-container" *ngIf="timerValue > 0 && timerMax > 0">
         <div class="timer-bar" [ngStyle]="{width: (timerValue / timerMax * 100) + '%'}"></div>
         <span class="timer-bar-label">{{ timerValue }}s</span>
       </div>
-      <span *ngIf="timerValue <= 0" class="player-timer-end">Temps écoulé</span>
+      <div *ngIf="timerValue <= 0" class="player-timer-end">⏰ Time's up!</div>
     </ng-container>
   </div>
+
+  <!-- Options de réponse (style maître du jeu) -->
   <ul class="options-list">
     <li *ngFor="let option of currentQuestion.options; let i = index">
       <button
         class="option-btn"
         (click)="selectAnswer(i)"
-        [disabled]="(selectedAnswerIndex !== null && selectedAnswerIndex !== -1) || !timerActive || step === 'result'"
+        [disabled]="!timerActive || answerSubmitted || step === 'result'"
         [class.option-correct]="step === 'result' && i === currentQuestion.correctIndex"
         [class.option-incorrect]="step === 'result' && selectedAnswerIndex === i && i !== currentQuestion.correctIndex"
-        [class.option-selected]="selectedAnswerIndex === i && step === 'question'"
-        [class.option-noanswer]="step === 'result' && selectedAnswerIndex === -1"
+        [class.option-selected]="selectedAnswerIndex === i && (step === 'question' || answerSubmitted)"
       >
-        <span *ngIf="selectedAnswerIndex === i && step === 'question'" class="option-selected-icon">👉</span>
+        <span *ngIf="selectedAnswerIndex === i && (step === 'question' || answerSubmitted)" class="option-selected-icon">👉</span>
         {{ option }}
-        <span *ngIf="step === 'result' && i === currentQuestion.correctIndex" style="margin-left:1em; color:#43a047;">✔️</span>
+        <span *ngIf="step === 'result' && i === currentQuestion.correctIndex" style="margin-left: auto; color: #43a047; font-weight: bold;">✓</span>
       </button>
     </li>
   </ul>
-  <!-- Bloc résultat ultra-visible -->
+
+  <!-- Résultat -->
   <div *ngIf="step === 'result'">
     <div class="player-step-banner result">
-      <b>[ÉTAPE JOUEUR] RESULT</b><br>
-      <span>Attente correction animateur</span>
+      <b>📊 RESULT</b><br>
+      <span>Waiting for next question...</span>
     </div>
-    <div *ngIf="personalScore === undefined || (!personalScore.good && !personalScore.bad && !personalScore.none)" style="background:#d32f2f;color:#fff;font-size:1.3em;padding:1em 2em;border-radius:12px;margin-bottom:1em;text-align:center;box-shadow:0 2px 16px #d32f2f88;z-index:99999;position:relative;">
-      <b>⚠️ Aucun résultat personnel à afficher</b><br>
-      <span style="font-size:1.1em;color:#ffe082;">Vous n'avez pas répondu à cette question ou aucune correction n'est disponible.</span>
-      <br>
-      <span style="font-size:1em;color:#ffe082;">step = {{step}}</span>
-      <span style="font-size:1em;color:#ffe082;">personalScore = {{personalScore | json}}</span>
-    </div>
-    <div *ngIf="personalScore.good" class="score-good">Bonne réponse !</div>
-    <div *ngIf="personalScore.bad" class="score-bad">Mauvaise réponse</div>
-    <div *ngIf="personalScore.none" class="score-none">Non répondu</div>
   </div>
-  <button class="next-btn" (click)="nextQuestion()" [disabled]="selectedAnswerIndex === null || step === 'result'">Suivant</button>
 </div>
 
+<!-- Quiz terminé (style harmonisé) -->
 <div *ngIf="quizFinished" class="quiz-finished-container">
-  <h2>Quiz terminé !</h2>
+  <h2>🏁 Quiz Completed!</h2>
+  
+  <!-- Score final -->
   <div class="score-banner">
     <img *ngIf="avatarUrl" [src]="avatarUrl" alt="avatar" class="avatar" />
     <span *ngIf="!avatarUrl" class="avatar">👤</span>
-    <span class="score-label">Mon score</span>
-    <span class="score-value">{{ totalScore }} / {{ totalQuestions }} point{{ totalQuestions > 1 ? 's' : '' }}</span>
+    <span class="score-label">Final Score:</span>
+    <span class="score-value">{{ totalScore }} / {{ totalQuestions }} pts</span>
   </div>
-  <!-- On ne montre plus le détail bonne/mauvaise réponse à la fin du quiz -->
-  <h3 style="margin-top:2em;">Classement final</h3>
-  <ol class="joueur-leaderboard-list" style="list-style:none; padding:0; max-width:400px; margin:2em auto 0 auto;">
-    <li *ngFor="let user of leaderboard; let i = index" class="joueur-leaderboard-item" style="display:flex;align-items:center;gap:1em;margin-bottom:1em;">
-      <img *ngIf="user.avatarUrl" [src]="user.avatarUrl" alt="avatar" width="38" height="38" style="border-radius:50%;border:2px solid #1976d2;" />
-      <span class="joueur-leaderboard-rank" style="font-size:1.2em; font-weight:bold; color:#e65100; min-width:2em; text-align:center;">{{ i + 1 }}</span>
-      <span style="font-weight:bold;">{{ user.name }}</span>
-      <span style="margin-left:auto; font-size:1.1em; color:#1976d2; font-weight:bold;">{{ user.score }} / {{ totalQuestions }} pts</span>
+
+  <!-- Leaderboard final -->
+  <h3 style="margin-top: 2em; color: #232526;">🏆 Final Ranking</h3>
+  <ol class="joueur-leaderboard-list">
+    <li *ngFor="let user of leaderboard; let i = index" class="joueur-leaderboard-item">
+      <span class="joueur-leaderboard-rank">{{ i + 1 }}</span>
+      <img *ngIf="user.avatarUrl" [src]="user.avatarUrl" alt="avatar" width="32" height="32" style="border-radius: 50%; border: 2px solid #1976d2;" />
+      <span style="font-weight: bold;">{{ user.name }}</span>
+      <span style="margin-left: auto; font-weight: bold; color: #232526;">{{ user.score }} / {{ totalQuestions }} pts</span>
     </li>
   </ol>
 </div>

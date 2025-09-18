@@ -1,6 +1,6 @@
 import { Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { QuizService, QuizStep } from '../../services/quiz.service';
+import { QuizService, QuizStep } from '../../services/quiz-secure.service';
 import { Router } from '@angular/router';
 import { User } from '../../models/user.model';
 

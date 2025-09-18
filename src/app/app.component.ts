@@ -1,5 +1,6 @@
-import { Component } from '@angular/core';
+import { Component, OnInit } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
+import { QuizService } from './services/quiz-secure.service';
 
 @Component({
   selector: 'app-root',
@@ -8,6 +9,13 @@ import { RouterOutlet } from '@angular/router';
   templateUrl: './app.component.html',
   styleUrls: ['./app.component.css']
 })
-export class AppComponent {
+export class AppComponent implements OnInit {
   title = 'QuizApp';
+
+  constructor(private quizService: QuizService) {}
+
+  ngOnInit() {
+    // Initialiser les questions depuis Firestore
+    this.quizService.initQuestions();
+  }
 }

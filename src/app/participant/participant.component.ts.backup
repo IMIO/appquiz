@@ -52,11 +52,7 @@ export class Participant implements OnInit {
       if (step === 'question') {
         this.currentQuestion = this.quizService.getCurrentQuestion(this.currentIndex);
         console.log('[DEBUG][PARTICIPANT][STEP] startTimer() called');
-        // Synchronisation forcée du timestamp à chaque passage à l'étape question
-        this.fetchQuestionStartTime(this.currentIndex).then(() => {
-          console.log('[DEBUG][PARTICIPANT][STEP] questionStartTime après fetch:', this.questionStartTime);
-          this.startTimer();
-        });
+        this.startTimer();
         this.hasAnswered = false;
       } else {
         this.stopTimer();
@@ -68,13 +64,7 @@ export class Participant implements OnInit {
       this.currentQuestion = this.quizService.getCurrentQuestion(idx);
       this.hasAnswered = false; // Réinitialise la possibilité de répondre à chaque nouvelle question
       this.questionStartTime = 0; // Force la réinitialisation du timer
-      // Synchronisation forcée du timestamp à chaque changement d'index si on est sur une question
-      if (this.step === 'question') {
-        this.fetchQuestionStartTime(idx).then(() => {
-          console.log('[DEBUG][PARTICIPANT][INDEX] questionStartTime après fetch:', this.questionStartTime);
-          this.startTimer();
-        });
-      }
+      this.listenToQuestionStartTime(idx); // On écoute le timestamp Firestore, pas de restart forcé
     });
     if (this.answersSub) this.answersSub.unsubscribe();
     this.answersSub = this.quizService.getAllAnswersForUser$(this.userId).subscribe(allAnswers => {
@@ -122,18 +112,21 @@ export class Participant implements OnInit {
   }
 
   /** Abonnement temps réel au timestamp de début de question dans Firestore */
-  async listenToQuestionStartTime(idx: number) {
+  listenToQuestionStartTime(idx: number) {
     if (this.quizStateUnsub) this.quizStateUnsub();
-    
-    console.log('[INFO] Listening to question start time for index:', idx);
-    console.log('[DEBUG][LISTEN] FINAL FIX - Appel fetchQuestionStartTime...');
-    // Appel immédiat pour récupérer le timestamp
-    try {
-      await this.fetchQuestionStartTime(idx);
-      console.log('[DEBUG][LISTEN] fetchQuestionStartTime terminé avec succès');
-    } catch (e) {
-      console.error('[ERROR][LISTEN] Échec fetchQuestionStartTime:', e);
-    }
+    const quizStateDoc = doc(this.quizService['firestore'], 'quizState/main');
+    this.quizStateUnsub = onSnapshot(quizStateDoc, (snap: any) => {
+      const data = snap.data();
+      let newStartTime = 0;
+      if (data && data['questionStartTimes']) {
+        newStartTime = data['questionStartTimes'][String(idx)] || 0;
+      } else if (data && typeof data['questionStartTime'] !== 'undefined') {
+        newStartTime = data['questionStartTime'];
+      }
+      // Toujours redémarrer le timer à chaque changement d'index ou de timestamp
+      this.questionStartTime = newStartTime;
+      this.startTimer();
+    });
   }
 
   private updateTimerValue() {
@@ -148,44 +141,30 @@ export class Participant implements OnInit {
     const elapsed = Math.floor((now - this.questionStartTime) / 1000);
     this.timerValue = Math.max(15 - elapsed, 0);
     this.timerMax = 15;
-    console.log('[DEBUG][PARTICIPANT][TIMER] TICK | currentIndex:', this.currentIndex, '| questionStartTime:', this.questionStartTime, '| now:', now, '| timerValue:', this.timerValue, '| waitingForStart:', this.waitingForStart);
+    console.log('[DEBUG][PARTICIPANT][TIMER] TICK | currentIndex:', this.currentIndex, '| questionStartTime:', this.questionStartTime, '| now:', now, '| timerValue:', this.timerValue);
     if (this.timerValue <= 0) {
       this.hasAnswered = true;
       this.stopTimer();
     }
   }
 
-  /** Récupère le timestamp de début de la question courante via l'API */
+  /** Récupère le timestamp de début de la question courante depuis Firestore */
   async fetchQuestionStartTime(idx: number) {
-    console.log('[DEBUG][FETCH] Début fetchQuestionStartTime pour index:', idx);
     try {
-      // Récupération du timestamp via l'API HTTP
-      console.log('[DEBUG][FETCH] Appel API http://localhost:3000/api/quiz-state pour index:', idx);
-      const response = await fetch('http://localhost:3000/api/quiz-state');
-      console.log('[DEBUG][FETCH] Réponse reçue, status:', response.status);
-      const data = await response.json();
-      console.log('[DEBUG][FETCH] Data parsée:', data);
-      if (data && typeof data.questionStartTime !== 'undefined') {
-        console.log('[DEBUG][PARTICIPANT][API] questionStartTime reçu du serveur:', data.questionStartTime);
-        if (data.questionStartTime > 0) {
-          this.questionStartTime = data.questionStartTime;
-          console.log('[DEBUG][PARTICIPANT][API] questionStartTime utilisé:', this.questionStartTime, '- Now:', Date.now());
+      const quizStateDoc = doc(this.quizService['firestore'], 'quizState/main');
+      const snap = await getDoc(quizStateDoc);
+      if (snap.exists()) {
+        const data = snap.data();
+        if (data['questionStartTimes']) {
+          this.questionStartTime = data['questionStartTimes'][String(idx)] || 0;
+        } else if (typeof data['questionStartTime'] !== 'undefined') {
+          this.questionStartTime = data['questionStartTime'];
         } else {
-          this.questionStartTime = Date.now();
-          console.log('[DEBUG][PARTICIPANT][API] Pas de timestamp serveur (>0), utilisation de maintenant:', this.questionStartTime);
+          this.questionStartTime = 0;
         }
-        this.updateTimerValue();
-      } else {
-        // Si pas de timestamp, utiliser le timestamp actuel
-        this.questionStartTime = Date.now();
-        console.log('[DEBUG][PARTICIPANT][API] Pas de champ questionStartTime, utilisation de maintenant:', this.questionStartTime);
-        this.updateTimerValue();
       }
     } catch (e) {
-      console.error('[ERROR][FETCH] Erreur récupération questionStartTime:', e);
-      // En cas d'erreur, utiliser le timestamp actuel pour débloquer
-      this.questionStartTime = Date.now();
-      this.updateTimerValue();
+      this.questionStartTime = 0;
     }
   }
 
