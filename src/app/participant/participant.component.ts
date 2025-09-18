@@ -1,12 +1,10 @@
 
-import { Component, OnInit } from '@angular/core';
-import { QuizService, QuizStep } from '../services/quiz.service';
+import { Component, OnInit, ChangeDetectionStrategy, ChangeDetectorRef, OnDestroy } from '@angular/core';
+import { Router } from '@angular/router';
+import { QuizService, QuizStep } from '../services/quiz-secure.service';
 import { User } from '../models/user.model';
-import { Subscription, interval } from 'rxjs';
-import { doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { TimerService } from '../services/timer.service';
-
-
+import { Subscription, interval } from 'rxjs';
 import { CommonModule } from '@angular/common';
 
 @Component({
@@ -121,7 +119,7 @@ export class Participant implements OnInit {
     });
   }
 
-  /** Abonnement temps réel au timestamp de début de question dans Firestore */
+  /** Abonnement temps réel au timestamp de début de question via API SQLite */
   async listenToQuestionStartTime(idx: number) {
     if (this.quizStateUnsub) this.quizStateUnsub();
     

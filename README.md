@@ -1,51 +1,57 @@
-# 📚 Quiz App - SQLite
+# Quiz App 🎯
 
-Une application de quiz interactif en temps réel utilisant Angular et Node.js avec SQLite.
+Application de quiz interactive en temps réel avec interface maître et joueurs.
 
-## 🚀 Démarrage rapide
-
-### Prérequis
-- Node.js (v16+)
-- npm
-- Git
-
-### Installation et lancement
+## 🚀 Installation rapide
 
 ```bash
-# Cloner le projet
-git clone <repository-url>
-cd quiz-app
-
-# Installer les dépendances
+git clone https://github.com/IMIO/appquiz.git
+cd appquiz
 npm install
-
-# 🎯 NOUVELLE MÉTHODE SIMPLIFIÉE (recommandée)
 npm run dev
-# Lance automatiquement Angular + Node.js en parallèle
-
-# Alternative avec ouverture automatique du navigateur
-npm run dev:open
 ```
 
-**Scripts disponibles :**
-- `npm run dev` - Lance Angular + serveur backend en parallèle
-- `npm run dev:open` - Idem + ouvre automatiquement le navigateur
-- `npm run server` - Lance uniquement le serveur backend
-- `npm start` - Lance uniquement Angular
+➡️ **[Guide d'installation détaillé](INSTALLATION.md)**
 
-### Méthode manuelle (ancienne)
+## ✨ Fonctionnalités
 
-```bash
-# Terminal 1 : Serveur backend (SQLite)
-node server.js
+- **Quiz en temps réel** avec timer synchronisé
+- **Interface maître** pour contrôler le quiz  
+- **QR Code** pour connexion rapide des joueurs
+- **Classement en direct** avec scores et temps
+- **Capture d'écran** des résultats
+- **Photo de groupe** avec overlay "Promotion 2025"
+- **Design responsive** et accessible (WCAG AA)
 
-# Terminal 2 : Serveur frontend (Angular)
-npm start
-```
+## 🌐 Interfaces
 
-L'application sera accessible sur :
-- **Frontend** : http://localhost:4201
-- **API Backend** : http://localhost:3000
+| Interface | URL | Description |
+|-----------|-----|-------------|
+| **Maître** | http://localhost:4200/presentation | Contrôle du quiz, affichage questions |
+| **Joueurs** | http://localhost:4200/login | Connexion et participation |
+| **Admin** | http://localhost:4200/admin | Configuration des questions |
+
+## 🛠️ Technologies
+
+- **Frontend** : Angular 20, TypeScript, CSS3
+- **Backend** : Node.js, Express, SQLite
+- **Temps réel** : Polling HTTP
+- **PWA** : Service Worker, Manifest
+- **Libs** : html2canvas, angularx-qrcode, MediaStream API
+
+## 📱 Utilisation
+
+1. **Démarrer** l'application avec `npm run dev`
+2. **Ouvrir** l'interface maître sur grand écran
+3. **Faire scanner** le QR code par les joueurs
+4. **Lancer** le quiz et suivre le classement en direct
+5. **Capturer** les résultats et prendre une photo de groupe
+
+## 🎯 Pour démarrer
+
+Consultez le **[Guide d'installation complet](INSTALLATION.md)** pour une installation pas à pas.
+
+---
 
 ## 📱 Utilisation de l'application
 

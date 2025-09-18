@@ -15,7 +15,7 @@ export class AppComponent implements OnInit {
   constructor(private quizService: QuizService) {}
 
   ngOnInit() {
-    // Initialiser les questions depuis Firestore
+    // Initialiser les questions depuis SQLite
     this.quizService.initQuestions();
   }
 }

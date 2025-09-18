@@ -9,7 +9,7 @@ import { QuizService } from '../services/quiz-secure.service';
   template: `
     <div class="presentation-container">
       <h2>Résultats du Quiz</h2>
-      <p>Cette version simplifiée affiche les résultats sans accès direct à Firestore.</p>
+      <p>Cette version simplifiée affiche les résultats sans accès direct à SQLite.</p>
       <div *ngFor="let participant of participants">
         <p>{{ participant.name }} - Score: {{ participant.score || 0 }}</p>
       </div>
