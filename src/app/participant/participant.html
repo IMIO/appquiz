@@ -3,10 +3,12 @@
 <div *ngIf="step === 'lobby'" class="player-step-banner lobby">
   <b>[ÉTAPE JOUEUR] LOBBY</b><br>
   <span>Inscription, attente validation animateur</span>
+  <button onclick="window.location.reload()" style="margin-top:0.5em; background:#2196f3; color:white; border:none; padding:0.3em 1em; border-radius:4px; cursor:pointer;">🔄 Actualiser</button>
 </div>
 <div *ngIf="step === 'waiting'" class="player-step-banner waiting">
   <b>[ÉTAPE JOUEUR] WAITING</b><br>
   <span>Inscriptions clôturées, attente lancement animateur</span>
+  <button onclick="window.location.reload()" style="margin-top:0.5em; background:#2196f3; color:white; border:none; padding:0.3em 1em; border-radius:4px; cursor:pointer;">🔄 Actualiser</button>
 </div>
 
 <!-- Score et résultat personnel, harmonisé -->

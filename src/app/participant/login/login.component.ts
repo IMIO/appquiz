@@ -2,7 +2,7 @@ import { Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
-import { QuizService } from '../../services/quiz.service';
+import { QuizService } from '../../services/quiz-secure.service';
 import { User } from '../../models/user.model';
 
 @Component({

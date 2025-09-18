@@ -1,38 +1,125 @@
 
 
+/* Animations reprises du thème presentation */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideInFromLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
 /* Réutilisation du style joueur global */
 .joueur-container {
-  border-top: 10px solid #1976d2 !important;
+  border-top: 10px solid #232526 !important;
   background: #F1F1F1 !important;
   min-height: 100vh;
   max-width: 700px;
   margin: 2rem auto;
   text-align: center;
-  box-shadow: 0 0 24px #1976d233;
+  box-shadow: 0 0 24px rgba(35, 37, 38, 0.2);
   border-radius: 12px;
   position: relative;
+  animation: fadeInUp 0.8s ease-out;
 }
 .joueur-banner {
-  background: #1976d2 !important;
-  color: #fff !important;
+  background: linear-gradient(135deg, #232526 0%, #414345 100%) !important;
+  color: #f6d365 !important;
   padding: 1.5em 0 1em 0;
   text-align: center;
   font-size: 2em;
   font-weight: bold;
   letter-spacing: 1px;
-  box-shadow: 0 2px 8px #1976d2aa;
-  border-bottom: 4px solid #0d47a1;
+  box-shadow: 0 2px 8px rgba(35, 37, 38, 0.3);
+  border-bottom: 4px solid #1a1b1c;
   border-radius: 12px 12px 0 0;
   z-index: 2;
+  animation: fadeInUp 0.6s ease-out;
 }
 .joueur-banner .joueur-message {
   font-size: 1em;
   margin-top: 0.7em;
-  color: #fff;
-  background: rgba(25,118,210,0.15);
+  color: #f6d365;
+  background: rgba(246, 211, 101, 0.15);
   border-radius: 4px;
   padding: 0.2em 1em;
   display: inline-block;
 }
-input { margin: 1rem 0; padding: 0.5rem; }
-button { margin-top: 1rem; }
+input { 
+  margin: 1rem 0; 
+  padding: 0.8rem 1rem;
+  border: 2px solid #ddd;
+  border-radius: 8px;
+  font-size: 1em;
+  background: #fff;
+  color: #232526;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  width: 280px;
+  max-width: 90%;
+}
+
+input:focus {
+  outline: none;
+  border-color: #f6d365;
+  box-shadow: 0 0 0 3px rgba(246, 211, 101, 0.1);
+}
+
+input::placeholder {
+  color: #888;
+}
+button { 
+  background: #232526;
+  color: #f6d365;
+  border: none;
+  border-radius: 8px;
+  padding: 0.7em 1.5em;
+  margin: 0.5em 0;
+  font-size: 1em;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(35, 37, 38, 0.3);
+  transition: background 0.2s, transform 0.1s;
+}
+
+button:hover {
+  background: #2a2d2e;
+  transform: translateY(-1px);
+}
+
+button:disabled {
+  background: #e0e0e0;
+  color: #888;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Animation pour les éléments du formulaire */
+h2, input, button, div {
+  animation: slideInFromLeft 0.6s ease-out;
+}
+
+h2 { 
+  color: #232526; 
+  margin: 2rem 0 1rem 0;
+}
+
+/* Amélioration de l'avatar */
+img {
+  border-radius: 50%;
+  border: 3px solid #f6d365 !important;
+  animation: fadeInUp 0.4s ease-out;
+}

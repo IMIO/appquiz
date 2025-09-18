@@ -1,0 +1,30 @@
+.admin-controls {
+  margin: 20px 0;
+}
+
+.admin-controls p {
+  font-size: 1.2em;
+  margin-bottom: 15px;
+  font-weight: bold;
+}
+
+.admin-controls button {
+  margin: 10px;
+  padding: 12px 20px;
+  font-size: 1.1em;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  background-color: #007bff;
+  color: white;
+  transition: background-color 0.3s;
+}
+
+.admin-controls button:hover:not(:disabled) {
+  background-color: #0056b3;
+}
+
+.admin-controls button:disabled {
+  background-color: #ccc;
+  cursor: not-allowed;
+}

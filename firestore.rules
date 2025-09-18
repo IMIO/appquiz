@@ -1,0 +1,69 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Collection des questions - accès restreint aux utilisateurs authentifiés via Admin SDK
+    match /questions/{questionId} {
+      allow read: if isAuthorizedAdmin();
+      allow write: if isAuthorizedAdmin();
+    }
+    
+    // Collection des participants du quiz - accès Admin SDK uniquement
+    match /participants/{participantId} {
+      allow read: if isAuthorizedAdmin();
+      allow create: if isAuthorizedAdmin() &&
+                    request.resource.data.keys().hasAll(['id', 'name', 'score', 'answers']) &&
+                    request.resource.data.id is string &&
+                    request.resource.data.name is string &&
+                    request.resource.data.score is number &&
+                    request.resource.data.answers is list &&
+                    request.resource.data.name.size() > 0 &&
+                    request.resource.data.name.size() <= 50;
+      allow update: if isAuthorizedAdmin();
+      allow delete: if isAuthorizedAdmin();
+    }
+    
+    // Collection des réponses par question - accès Admin SDK uniquement
+    match /answers/{questionIndex} {
+      allow read: if isAuthorizedAdmin();
+      allow create, update: if isAuthorizedAdmin() &&
+                            request.resource.data.keys().hasAll(['answers']) &&
+                            request.resource.data.answers is list;
+      allow delete: if isAuthorizedAdmin();
+    }
+    
+    // État global du quiz - accès Admin SDK uniquement
+    match /quizState/{stateId} {
+      allow read: if isAuthorizedAdmin();
+      allow write: if isAuthorizedAdmin() &&
+                   stateId == 'main';
+    }
+    
+    // Configuration générale - accès Admin SDK uniquement
+    match /config/{configId} {
+      allow read: if isAuthorizedAdmin();
+      allow write: if isAuthorizedAdmin();
+    }
+    
+    // Règle par défaut - bloquer tout accès non autorisé
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+  
+  // Fonction de validation pour l'accès Admin SDK
+  function isAuthorizedAdmin() {
+    // Cette fonction vérifie que la requête provient du Firebase Admin SDK
+    // Le Admin SDK bypasse les règles de sécurité par défaut,
+    // mais on peut vérifier certains indicateurs
+    return request.auth != null && 
+           (
+             // Vérification que l'utilisateur est authentifié via Admin SDK
+             request.auth.token.firebase.sign_in_provider == 'custom' ||
+             // Ou vérification d'un claim personnalisé
+             request.auth.token.admin == true ||
+             // Ou autoriser uniquement si l'UID correspond à un admin prédéfini
+             request.auth.uid in ['admin-service-account']
+           );
+  }
+}
