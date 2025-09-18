@@ -60,7 +60,7 @@
     <h3>{{ currentQuestion.text }}</h3>
     <ul class="qr-step-options-list">
       <li *ngFor="let option of currentQuestion.options; let i = index"
-          [ngClass]="{'qr-step-option-correct': i === currentQuestion.correctIndex}"
+          [class.qr-step-option-correct]="i === currentQuestion.correctIndex"
           style="margin:0.5em 0; padding:0.7em 1.2em; border-radius:8px; font-size:1.2em; border:2px solid #1976d2; background:#fff; color:#222; font-weight:bold; box-shadow:0 2px 8px #0001;">
         {{ option }}
         <span *ngIf="i === currentQuestion.correctIndex" style="color:#43a047; font-size:1.1em; margin-left:1em;">✔️ Bonne réponse</span>
