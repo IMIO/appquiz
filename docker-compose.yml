@@ -1,0 +1,15 @@
+services:
+  instance:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    develop:
+      watch:
+        - action: sync
+          path: ./src
+          target: /app/src
+    ports:
+      - "4200:4200"
+      - "3000:3000"
+    stdin_open: true
+    tty: true

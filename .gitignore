@@ -57,12 +57,6 @@ migrateQuestions.js
 update-questions-*.js
 server-firebase-backup.js
 
-# Docker (removed)
-Dockerfile*
-docker-compose*.yml
-Makefile
-nginx.conf
-
 # Archives and temporary files
 src.zip
 *.tmp
