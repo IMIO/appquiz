@@ -1,2 +1,23 @@
 <h2>Administration</h2>
-<!-- Interface d'administration -->
+
+<div class="admin-controls">
+  <p>Question courante: {{ currentQuestionIndex + 1 }} / {{ totalQuestions }}</p>
+  
+  <div class="debug-info">
+    <p>Debug: currentQuestionIndex = {{ currentQuestionIndex }}</p>
+    <p>Debug: totalQuestions = {{ totalQuestions }}</p>
+    <p>Debug: bouton désactivé = {{ currentQuestionIndex >= totalQuestions - 1 }}</p>
+  </div>
+  
+  <button (click)="forceEndTimer()">⏩ Passer la fin du timer</button>
+  
+  <button 
+    (click)="nextQuestion()" 
+    [disabled]="currentQuestionIndex >= totalQuestions - 1">
+    ➡️ Question suivante
+  </button>
+  
+  <button (click)="nextQuestion()" style="background: red; color: white;">
+    🔴 TEST Question suivante
+  </button>
+</div>
