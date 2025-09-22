@@ -5,6 +5,7 @@ import { Question } from './models/question.model';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import { QuizService, QuizStep } from './services/quiz-secure.service';
+import { environment } from '../environments/environment';
 
 @Component({
   selector: 'app-quiz',
@@ -24,13 +25,13 @@ export class QuizComponent implements OnInit {
       this.timerValue--;
       this.timerPercent = Math.round((this.timerValue / this.timerMax) * 100);
       this.timerActive = this.timerValue > 0;
-      
+
       // Reduced timer logging to prevent spam
       if (this.timerValue % 5 === 0 || this.timerValue <= 3) { // Log every 5 seconds or last 3 seconds
-        console.log('[TIMER] Décrémentation:', { 
-          timerValue: this.timerValue, 
+        console.log('[TIMER] Décrémentation:', {
+          timerValue: this.timerValue,
           timerPercent: this.timerPercent,
-          timerActive: this.timerActive 
+          timerActive: this.timerActive
         });
       }
     } else {
@@ -94,7 +95,7 @@ export class QuizComponent implements OnInit {
       if (this.step === step) {
         return;
       }
-      
+
       console.log('[STEP] Changement d\'étape de', this.step, 'vers', step);
       this.step = step;
       if (step === 'lobby') {
@@ -118,17 +119,17 @@ export class QuizComponent implements OnInit {
       }
       if (step === 'question') {
         this.currentQuestion = this.quizService.getCurrentQuestion(this.currentIndex);
-        
+
         // FORCER la réinitialisation si on vient de result (question suivante)
         const comingFromResult = this.lastStep === 'result';
-        
+
         // Une nouvelle question = changement d'index OU transition depuis result/waiting/lobby vers question
-        const isNewQuestion = this.lastQuestionIndex !== this.currentIndex || 
+        const isNewQuestion = this.lastQuestionIndex !== this.currentIndex ||
                              comingFromResult ||
-                             this.lastStep === 'waiting' || 
+                             this.lastStep === 'waiting' ||
                              this.lastStep === 'lobby' ||
                              this.lastStep === null;
-        
+
         if (isNewQuestion || comingFromResult) {
           // Nouvelle question : toujours réinitialiser
           this.answerSubmitted = false;
@@ -136,7 +137,7 @@ export class QuizComponent implements OnInit {
           this.selectedAnswerIndex = null;
           this.isAnswerCorrect = null;
           this.lastQuestionIndex = this.currentIndex;
-          
+
           console.log('[QUESTION] NOUVELLE question détectée - Réinitialisation:', {
             currentIndex: this.currentIndex,
             lastQuestionIndex: this.lastQuestionIndex,
@@ -148,24 +149,24 @@ export class QuizComponent implements OnInit {
         } else {
           // Même question : préserver l'état si réponse soumise
           const shouldPreserveState = this.answerSubmitted && this.selectedAnswerIndex !== null;
-          
+
           if (!shouldPreserveState) {
             this.answerSubmitted = false;
             this.justSubmitted = false;
             this.selectedAnswerIndex = null;
             this.isAnswerCorrect = null;
           }
-          
+
           console.log('[QUESTION] Même question - État préservé:', {
             currentIndex: this.currentIndex,
             answerSubmitted: this.answerSubmitted,
             selectedAnswerIndex: this.selectedAnswerIndex
           });
         }
-        
+
         // Mettre à jour lastStep
         this.lastStep = step;
-        
+
         // Démarrer le timer seulement si pas déjà actif
         if (!this.timerActive || this.timerQuestionIndex !== this.currentIndex) {
           this.startTimer();
@@ -187,17 +188,17 @@ export class QuizComponent implements OnInit {
         }
         return;
       }
-      
+
       console.log('[INDEX] Changement vers nouvelle question - Réinitialisation complète:', {
         oldIndex: this.currentIndex,
         newIndex: idx,
         oldAnswerSubmitted: this.answerSubmitted,
         oldSelectedAnswer: this.selectedAnswerIndex
       });
-      
+
       this.currentIndex = idx;
       this.currentQuestion = this.quizService.getCurrentQuestion(idx);
-      
+
       console.log('[INDEX] Question récupérée pour index', idx, ':', {
         question: this.currentQuestion ? {
           id: this.currentQuestion.id,
@@ -205,22 +206,22 @@ export class QuizComponent implements OnInit {
         } : 'NULL',
         totalQuestions: this.quizService.getQuestions().length
       });
-      
+
       // Forcer la détection de changement pour l'affichage
       this.cdr.detectChanges();
-      
+
       // TOUJOURS réinitialiser pour une nouvelle question (changement d'index)
       this.answerSubmitted = false;
       this.justSubmitted = false;
       this.selectedAnswerIndex = null;
       this.isAnswerCorrect = null;
-      
+
       console.log('[INDEX] Après réinitialisation pour nouvelle question:', {
         currentIndex: this.currentIndex,
         answerSubmitted: this.answerSubmitted,
         selectedAnswerIndex: this.selectedAnswerIndex
       });
-      
+
       // Si on est dans l'étape question, redémarrer le timer
       if (this.step === 'question') {
         this.startTimer();
@@ -238,27 +239,27 @@ export class QuizComponent implements OnInit {
 
   startTimer() {
     console.log('[TIMER] Démarrage du timer pour question', this.currentIndex);
-    
+
     // Éviter de redémarrer si déjà actif pour la même question
     if (this.timerActive && this.timerQuestionIndex === this.currentIndex && this.timerCountdownSub) {
       console.log('[TIMER] Timer déjà actif pour cette question, ignorer');
       return;
     }
-    
+
     this.stopTimer();
-    
+
     // Initialiser le timer à sa valeur maximale
     this.timerValue = this.timerMax;
     this.timerPercent = 100;
     this.timerActive = true;
     this.timerQuestionIndex = this.currentIndex;
-    
-    console.log('[TIMER] Timer initialisé:', { 
-      timerValue: this.timerValue, 
+
+    console.log('[TIMER] Timer initialisé:', {
+      timerValue: this.timerValue,
       timerMax: this.timerMax,
-      timerActive: this.timerActive 
+      timerActive: this.timerActive
     });
-    
+
     // Démarrer l'intervalle de décrémentation
     this.timerCountdownSub = interval(1000).subscribe(() => {
       if (this.currentIndex !== this.timerQuestionIndex) {
@@ -266,12 +267,12 @@ export class QuizComponent implements OnInit {
         this.stopTimer();
         return;
       }
-      
+
       if (this.timerActive) {
         this.updateTimerValue();
       }
     });
-    
+
     console.log('[TIMER] Timer démarré avec interval de 1000ms');
   }
 
@@ -290,16 +291,16 @@ export class QuizComponent implements OnInit {
       currentIndex: this.currentIndex,
       step: this.step
     });
-    
+
     if (!this.timerActive || this.answerSubmitted) {
       console.log('[SELECT] Sélection bloquée - timerActive:', this.timerActive, 'answerSubmitted:', this.answerSubmitted);
       return;
     }
-    
+
     console.log('[SELECT] Sélection de la réponse:', index);
     this.selectedAnswerIndex = index;
     this.isAnswerCorrect = this.currentQuestion?.correctIndex === index;
-    
+
     // Laisser la réponse visuellement sélectionnée avant de soumettre
     setTimeout(() => {
       this.submitAnswer(index);
@@ -316,11 +317,11 @@ export class QuizComponent implements OnInit {
       console.log('[DEBUG] Tentative de soumission multiple bloquée');
       return; // Empêche les soumissions multiples
     }
-    
+
     console.log('[DEBUG] Soumission de la réponse', answerIndex);
     this.answerSubmitted = true;
     this.justSubmitted = true;
-    
+
     try {
       await this.quizService.submitAnswer(this.userId, answerIndex, this.userName, this.currentIndex);
       console.log('[DEBUG] Réponse soumise avec succès - selectedAnswerIndex conservé:', this.selectedAnswerIndex);
@@ -330,9 +331,9 @@ export class QuizComponent implements OnInit {
       this.answerSubmitted = false;
       return;
     }
-    
+
     // Removed redundant getAnswers$ subscription that was causing console spam
-    
+
     if (
       this.currentQuestion &&
       answerIndex === this.currentQuestion.correctIndex &&
@@ -340,7 +341,7 @@ export class QuizComponent implements OnInit {
     ) {
       // ... logique de calcul du temps ...
     }
-    
+
     if (this.currentQuestion) {
       let result;
       if (answerIndex === this.currentQuestion.correctIndex) {
@@ -366,12 +367,12 @@ export class QuizComponent implements OnInit {
 
   fetchQuestionStartTime(idx: number): Promise<void> {
     console.log('[SYNC] Début fetchQuestionStartTime pour question', idx);
-    return fetch('http://localhost:3000/api/quiz-state')
+    return fetch(`${environment.apiUrl.replace('/api', '')}/api/quiz-state`)
       .then((response) => response.json())
       .then((data) => {
         console.log('[SYNC] fetchQuestionStartTime - Réponse serveur:', data);
         const now = Date.now();
-        
+
         // Synchronisation stricte : récupération du timerMax si disponible
         if (data && typeof data.timerMax !== 'undefined' && data.timerMax > 0) {
           this.timerMax = data.timerMax;
@@ -380,12 +381,12 @@ export class QuizComponent implements OnInit {
           this.timerMax = 15;
           console.log('[SYNC] timerMax par défaut utilisé:', this.timerMax);
         }
-        
+
         if (data && typeof data.questionStartTime !== 'undefined') {
           if (data.questionStartTime > 0) {
             this.questionStartTime = data.questionStartTime;
             console.log('[SYNC] Timestamp serveur utilisé:', this.questionStartTime);
-            
+
             // Compensation : si le timer démarre avec >2s de retard, on recale à timerMax
             const elapsed = Math.floor((now - this.questionStartTime) / 1000);
             if (elapsed > 2) {
@@ -401,7 +402,7 @@ export class QuizComponent implements OnInit {
           this.questionStartTime = now;
           console.log('[SYNC] Timestamp local utilisé (pas de questionStartTime):', this.questionStartTime);
         }
-        
+
         // Mise à jour immédiate du timer après synchronisation
         this.updateTimerValue();
         console.log('[SYNC] Synchronisation terminée, timer mis à jour');
