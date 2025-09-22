@@ -10,9 +10,7 @@ const PORT = process.env.PORT || 3000;
 app.use(cors({
   origin: process.env.NODE_ENV === 'production'
     ? [
-        'http://localhost',
-        'http://localhost:80',
-        'https://your-domain.com'
+        'https://frontendurl'
       ]
     : true, // En développement, autoriser toutes les origines
   credentials: true
@@ -21,7 +19,7 @@ app.use(cors({
 app.use(express.json());
 
 // Configuration SQLite
-const dbPath = path.join(__dirname, 'quiz.db');
+const dbPath = path.join('/db', 'quiz.db');
 const db = new sqlite3.Database(dbPath, (err) => {
   if (err) {
     console.error('❌ Erreur ouverture base SQLite:', err);
@@ -397,9 +395,9 @@ async function startServer() {
     await initDatabase();
 
     app.listen(PORT, () => {
-      console.log(`🚀 Serveur SQLite démarré sur le port ${PORT}`);
+      console.log(`🚀 Serveur SQLite démarré`);
       console.log(`📊 Base de données: ${dbPath}`);
-      console.log(`🌐 API disponible sur: http://localhost:${PORT}`);
+      console.log(`🌐 API disponible sur: https://backendurl`);
     });
   } catch (error) {
     console.error('❌ Erreur démarrage serveur:', error);
