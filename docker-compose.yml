@@ -1,15 +1,24 @@
 services:
-  instance:
+  backend:
     build:
       context: .
-      dockerfile: Dockerfile
-    develop:
-      watch:
-        - action: sync
-          path: ./src
-          target: /app/src
+      dockerfile: Dockerfile.backend
     ports:
-      - "4200:4200"
       - "3000:3000"
-    stdin_open: true
-    tty: true
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+    volumes:
+      - ./quiz.db:/app/quiz.db
+    restart: unless-stopped
+    init: true
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
