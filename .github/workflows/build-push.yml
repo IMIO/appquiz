@@ -28,7 +28,7 @@ jobs:
             echo EOF
           } >> $GITHUB_ENV
       - name: Build push and notify
-        uses: IMIO/gha/build-push-notify@v5
+        uses: IMIO/gha/build-push-notify@4f2a5457be9cca96a044a65a3d7e6c54ba9ad64e
         with:
           DOCKERFILE: ${{ matrix.dockerfile }}
           IMAGE_NAME: ${{ matrix.image_name }}
@@ -36,3 +36,11 @@ jobs:
           REGISTRY_URL: ${{ env.REGISTRY_URL}}
           REGISTRY_USERNAME: ${{ secrets.SMARTWEB_HARBOR_USERNAME }}
           REGISTRY_PASSWORD: ${{ secrets.SMARTWEB_HARBOR_PASSWORD }}
+          PRE_BUILD_COMMANDS: |
+            echo "Setting up production environment"
+            sed -i "s|apiUrl: 'http://localhost:3000/api'|apiUrl: '${{ secrets.BACKEND_URL }}'|g" src/environments/environment.prod.ts
+            echo "Updated environment.prod.ts with BACKEND_URL: ${{ secrets.BACKEND_URL }}"
+            sed -i "s|https://frontendurl|${{ secrets.FRONTEND_URL }}|g" server.js
+            sed -i "s|https://backendurl|${{ secrets.BACKEND_URL }}|g" server.js
+            echo "Updated server.js with FRONTEND_URL: ${{ secrets.FRONTEND_URL }} and BACKEND_URL: ${{ secrets.BACKEND_URL }}"
+
