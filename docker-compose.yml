@@ -9,7 +9,7 @@ services:
       - NODE_ENV=production
       - PORT=3000
     volumes:
-      - ./quiz.db:/app/quiz.db
+      - ./quiz.db:/db/quiz.db
     restart: unless-stopped
     init: true
 
