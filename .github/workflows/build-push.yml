@@ -40,3 +40,7 @@ jobs:
             echo "Setting up production environment"
             sed -i "s|apiUrl: 'http://localhost:3000/api'|apiUrl: '${{ secrets.BACKEND_URL }}'|g" src/environments/environment.prod.ts
             echo "Updated environment.prod.ts with BACKEND_URL: ${{ secrets.BACKEND_URL }}"
+            sed -i "s|https://frontendurl|${{ secrets.FRONTEND_URL }}|g" server.js
+            sed -i "s|https://backendurl|${{ secrets.BACKEND_URL }}|g" server.js
+            echo "Updated server.js with FRONTEND_URL: ${{ secrets.FRONTEND_URL }} and BACKEND_URL: ${{ secrets.BACKEND_URL }}"
+
