@@ -8,7 +8,13 @@ const PORT = process.env.PORT || 3000;
 
 // Configuration CORS
 app.use(cors({
-  origin: ['http://localhost:4200', 'http://localhost:4201', 'https://your-domain.com'],
+  origin: process.env.NODE_ENV === 'production'
+    ? [
+        'http://localhost',
+        'http://localhost:80',
+        'https://your-domain.com'
+      ]
+    : true, // En développement, autoriser toutes les origines
   credentials: true
 }));
 
@@ -110,8 +116,8 @@ function initDatabase() {
 
 // Route de santé
 app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'OK', 
+  res.json({
+    status: 'OK',
     timestamp: new Date().toISOString(),
     message: 'Serveur quiz SQLite opérationnel',
     database: 'SQLite'
@@ -121,7 +127,7 @@ app.get('/health', (req, res) => {
 // Token d'authentification (simplifié pour SQLite)
 app.post('/api/auth/token', (req, res) => {
   const token = 'sqlite-token-' + Date.now();
-  res.json({ 
+  res.json({
     token: token,
     message: 'Token SQLite créé avec succès'
   });
@@ -153,22 +159,22 @@ app.get('/api/questions', (req, res) => {
 // Ajouter une question
 app.post('/api/questions', (req, res) => {
   const { id, text, options, correctIndex } = req.body;
-  
+
   if (!text || !options || typeof correctIndex !== 'number') {
     return res.status(400).json({ error: 'Données manquantes' });
   }
-  
+
   const optionsJson = JSON.stringify(options);
-  
-  db.run('INSERT OR REPLACE INTO questions (id, text, options, correctIndex) VALUES (?, ?, ?, ?)', 
-    [id, text, optionsJson, correctIndex], 
+
+  db.run('INSERT OR REPLACE INTO questions (id, text, options, correctIndex) VALUES (?, ?, ?, ?)',
+    [id, text, optionsJson, correctIndex],
     function(err) {
       if (err) {
         console.error('Erreur ajout question:', err);
         res.status(500).json({ error: 'Erreur serveur' });
       } else {
-        res.json({ 
-          success: true, 
+        res.json({
+          success: true,
           question: { id, text, options, correctIndex }
         });
       }
@@ -200,11 +206,11 @@ app.get('/api/participants', (req, res) => {
 // Créer un participant
 app.post('/api/participants', (req, res) => {
   const { id, name, avatarUrl } = req.body;
-  
+
   if (!id || !name) {
     return res.status(400).json({ error: 'ID et nom requis' });
   }
-  
+
   const participant = {
     id,
     name: name.trim(),
@@ -213,9 +219,9 @@ app.post('/api/participants', (req, res) => {
     avatarUrl: avatarUrl || null,
     createdAt: new Date().toISOString()
   };
-  
-  db.run('INSERT OR REPLACE INTO participants (id, name, score, answers, avatarUrl) VALUES (?, ?, ?, ?, ?)', 
-    [participant.id, participant.name, participant.score, participant.answers, participant.avatarUrl], 
+
+  db.run('INSERT OR REPLACE INTO participants (id, name, score, answers, avatarUrl) VALUES (?, ?, ?, ?, ?)',
+    [participant.id, participant.name, participant.score, participant.answers, participant.avatarUrl],
     function(err) {
       if (err) {
         console.error('Erreur création participant:', err);
@@ -231,9 +237,9 @@ app.post('/api/participants', (req, res) => {
 // Obtenir les réponses d'une question
 app.get('/api/answers/:questionIndex', (req, res) => {
   const questionIndex = parseInt(req.params.questionIndex);
-  
-  db.all('SELECT userId, userName, answerIndex, timestamp FROM answers WHERE questionIndex = ? ORDER BY timestamp', 
-    [questionIndex], 
+
+  db.all('SELECT userId, userName, answerIndex, timestamp FROM answers WHERE questionIndex = ? ORDER BY timestamp',
+    [questionIndex],
     (err, rows) => {
       if (err) {
         console.error('Erreur récupération réponses:', err);
@@ -247,13 +253,13 @@ app.get('/api/answers/:questionIndex', (req, res) => {
 // Soumission d'une réponse
 app.post('/api/answers', (req, res) => {
   const { questionIndex, userId, userName, answerIndex } = req.body;
-  
+
   if (typeof questionIndex !== 'number' || !userId || !userName || typeof answerIndex !== 'number') {
     return res.status(400).json({ error: 'Données manquantes' });
   }
-  
-  db.run('INSERT INTO answers (questionIndex, userId, userName, answerIndex) VALUES (?, ?, ?, ?)', 
-    [questionIndex, userId, userName, answerIndex], 
+
+  db.run('INSERT INTO answers (questionIndex, userId, userName, answerIndex) VALUES (?, ?, ?, ?)',
+    [questionIndex, userId, userName, answerIndex],
     function(err) {
       if (err) {
         console.error('Erreur soumission réponse:', err);
@@ -268,7 +274,7 @@ app.post('/api/answers', (req, res) => {
 
 // Obtenir l'état du quiz
 app.get('/api/quiz-state', (req, res) => {
-  db.get('SELECT step, currentQuestionIndex, questionStartTime, questionStartTimes FROM quiz_state WHERE id = 1', 
+  db.get('SELECT step, currentQuestionIndex, questionStartTime, questionStartTimes FROM quiz_state WHERE id = 1',
     (err, row) => {
       if (err) {
         console.error('Erreur récupération état quiz:', err);
@@ -291,10 +297,10 @@ app.get('/api/quiz-state', (req, res) => {
 // Mettre à jour l'état du quiz
 app.put('/api/quiz-state', (req, res) => {
   const { step, currentQuestionIndex, questionStartTime, questionStartTimes } = req.body;
-  
+
   let updateFields = [];
   let updateValues = [];
-  
+
     // On récupère l'état actuel pour détecter le changement de question
     db.get('SELECT currentQuestionIndex, questionStartTime, questionStartTimes FROM quiz_state WHERE id = 1', (err, row) => {
       if (err) {
@@ -356,15 +362,15 @@ app.post('/api/quiz/reset', (req, res) => {
   db.serialize(() => {
     db.run('DELETE FROM participants');
     db.run('DELETE FROM answers');
-    db.run('UPDATE quiz_state SET step = ?, currentQuestionIndex = ?, questionStartTime = ?, questionStartTimes = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = 1', 
-      ['lobby', 0, Date.now(), '{}'], 
+    db.run('UPDATE quiz_state SET step = ?, currentQuestionIndex = ?, questionStartTime = ?, questionStartTimes = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = 1',
+      ['lobby', 0, Date.now(), '{}'],
       function(err) {
         if (err) {
           console.error('Erreur reset quiz:', err);
           res.status(500).json({ error: 'Erreur serveur' });
         } else {
-          res.json({ 
-            success: true, 
+          res.json({
+            success: true,
             message: 'Quiz reset avec succès',
             database: 'SQLite'
           });
@@ -389,7 +395,7 @@ app.get('/api/leaderboard', (req, res) => {
 async function startServer() {
   try {
     await initDatabase();
-    
+
     app.listen(PORT, () => {
       console.log(`🚀 Serveur SQLite démarré sur le port ${PORT}`);
       console.log(`📊 Base de données: ${dbPath}`);

@@ -1,0 +1,28 @@
+FROM node:lts-bookworm-slim AS build
+ARG version=0.0.0
+WORKDIR /app
+
+RUN npm install -g @angular/cli
+
+# Copier uniquement les fichiers nécessaires au frontend
+COPY package*.json ./
+COPY angular.json ./
+COPY tsconfig*.json ./
+COPY ngsw-config.json ./
+COPY src/ ./src/
+COPY public/ ./public/
+
+RUN npm ci
+
+RUN ng build
+
+FROM nginx:1.28-alpine-slim
+
+COPY --from=build /app/dist/ /usr/share/nginx/html/
+
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]
+
