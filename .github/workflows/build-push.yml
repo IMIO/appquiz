@@ -5,7 +5,6 @@ on:
       - '!**'
   workflow_dispatch:
 env:
-  IMAGE_NAME: 'web/appquiz'
   REGISTRY_URL: ${{ secrets.HARBOR_URL }}
 
 jobs:
@@ -24,8 +23,8 @@ jobs:
           SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
           {
             echo 'IMAGE_TAGS<<EOF'
-            echo '${{ env.REGISTRY_URL }}/${{ env.IMAGE_NAME }}:latest'
-            echo '${{ env.REGISTRY_URL }}/${{ env.IMAGE_NAME }}:latest-'$SHORT_SHA
+            echo '${{ env.REGISTRY_URL }}/${{ matrix.image_name }}:latest'
+            echo '${{ env.REGISTRY_URL }}/${{ matrix.image_name }}:'$SHORT_SHA
             echo EOF
           } >> $GITHUB_ENV
       - name: Build push and notify
