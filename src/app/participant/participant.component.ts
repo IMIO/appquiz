@@ -6,6 +6,7 @@ import { User } from '../models/user.model';
 import { TimerService } from '../services/timer.service';
 import { Subscription, interval } from 'rxjs';
 import { CommonModule } from '@angular/common';
+import { environment } from '../../environments/environment';
 
 @Component({
   selector: 'app-participant',
@@ -122,7 +123,7 @@ export class Participant implements OnInit {
   /** Abonnement temps réel au timestamp de début de question via API SQLite */
   async listenToQuestionStartTime(idx: number) {
     if (this.quizStateUnsub) this.quizStateUnsub();
-    
+
     console.log('[INFO] Listening to question start time for index:', idx);
     console.log('[DEBUG][LISTEN] FINAL FIX - Appel fetchQuestionStartTime...');
     // Appel immédiat pour récupérer le timestamp
@@ -158,8 +159,8 @@ export class Participant implements OnInit {
     console.log('[DEBUG][FETCH] Début fetchQuestionStartTime pour index:', idx);
     try {
       // Récupération du timestamp via l'API HTTP
-      console.log('[DEBUG][FETCH] Appel API http://localhost:3000/api/quiz-state pour index:', idx);
-      const response = await fetch('http://localhost:3000/api/quiz-state');
+      console.log(`[DEBUG][FETCH] Appel API ${environment.apiUrl.replace('/api', '')}/api/quiz-state pour index:`, idx);
+      const response = await fetch(`${environment.apiUrl.replace('/api', '')}/api/quiz-state`);
       console.log('[DEBUG][FETCH] Réponse reçue, status:', response.status);
       const data = await response.json();
       console.log('[DEBUG][FETCH] Data parsée:', data);
