@@ -28,7 +28,7 @@ jobs:
             echo EOF
           } >> $GITHUB_ENV
       - name: Build push and notify
-        uses: IMIO/gha/build-push-notify@precommand_buildpush
+        uses: IMIO/gha/build-push-notify@4f2a5457be9cca96a044a65a3d7e6c54ba9ad64e
         with:
           DOCKERFILE: ${{ matrix.dockerfile }}
           IMAGE_NAME: ${{ matrix.image_name }}
