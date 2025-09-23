@@ -19,7 +19,9 @@ app.use(cors({
 app.use(express.json());
 
 // Configuration SQLite
-const dbPath = path.join('/db', 'quiz.db');
+const dbPath = process.env.NODE_ENV === 'production'
+  ? path.join('/db', 'quiz.db')
+  : path.join(__dirname, 'quiz.db');
 const db = new sqlite3.Database(dbPath, (err) => {
   if (err) {
     console.error('❌ Erreur ouverture base SQLite:', err);
