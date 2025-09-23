@@ -1,4 +1,4 @@
-<!-- DIAGNOSTIC : Bloc ultra-visible si aucune étape reconnue 
+<!-- DIAGNOSTIC : Bloc ultra-visible si aucune étape reconnue
 <div *ngIf="!step || (step !== 'lobby' && step !== 'waiting' && step !== 'question' && step !== 'result' && step !== 'end')" style="background:#d32f2f;color:#fff;font-size:1.5em;padding:2em 2em;border-r  </div>
 
 </div>
@@ -10,10 +10,10 @@
       <h3>📷 Photo de groupe - Promotion 2025</h3>
       <button class="camera-close-btn" (click)="stopCamera()">✕</button>
     </div>
-    
+
     <div class="camera-container">
       <video id="cameraVideo" class="camera-video" autoplay muted playsinline></video>
-      
+
       <!-- Overlay de prévisualisation -->
       <div class="camera-overlay">
         <div class="overlay-promotion">
@@ -26,7 +26,7 @@
         </div>
       </div>
     </div>
-    
+
     <div class="camera-controls">
       <button *ngIf="!photoTaken" class="camera-btn camera-take-btn" (click)="takeGroupPhoto()">
         📷 Prendre la photo
@@ -41,11 +41,11 @@
   </div>
 </div>
 
-<!-- DEBUG : bouton pour forcer l'étape 'question' 
+<!-- DEBUG : bouton pour forcer l'étape 'question'
 <button style="position:fixed;top:10px;right:10px;z-index:9999;background:#1976d2;color:#fff;padding:0.5em 1em;border-radius:6px;font-size:1em;" (click)="quizService.setStep('question')">[DEBUG] Forcer étape QUESTION</button>
 -->
 
-<!-- DEBUG: Affichage d'urgence si aucune étape n'est reconnue 
+<!-- DEBUG: Affichage d'urgence si aucune étape n'est reconnue
 <div *ngIf="!step || (step !== 'lobby' && step !== 'waiting' && step !== 'question' && step !== 'result' && step !== 'end')" style="background:#d32f2f;color:#fff;padding:2em;border-radius:16px;margin:2em;text-align:center;box-shadow:0 2px 24px #d32f2f88;z-index:99999;position:relative;">
   <b>⚠️ Aucun écran d'étape affiché</b><br>
   <span style="font-size:1.1em;color:#ffe082;">La variable <b>step</b> n'est pas reconnue ou n'est pas initialisée.</span><br>
@@ -53,7 +53,7 @@
   <span style="font-size:1.1em;color:#fff !important;">Vérifiez la synchronisation et l'initialisation dans le TypeScript.</span>
 </div>
 -->
-<!-- Écran maître du jeu classique 
+<!-- Écran maître du jeu classique
 
 <div class="maitre-banner">
   <div class="maitre-banner-content">
@@ -75,7 +75,7 @@
   </div>
   <!-- <div class="step-desc">QR code, liste des inscrits, bouton démarrer</div>
   <div class="maitre-debug">step = {{step}}</div> -->
-  <h2 class="step-h2">Scan to join the game</h2>
+  <h2 class="step-h2">Scan to join and enjoy the game</h2>
   </div>
   <div class="bg-qr">
     <qrcode [qrdata]="windowLocation + '/login'" [width]="200" [errorCorrectionLevel]="'M'"></qrcode>
@@ -83,7 +83,7 @@
       <p class="join-url">Or visit: <strong>{{windowLocation}}/login</strong></p>
     </div>
   </div>
-  
+
 
 <div class="container-question">
   <h3 class="step-h3">Registered players</h3>
@@ -117,8 +117,8 @@
         <img *ngIf="user.avatarUrl" [src]="user.avatarUrl" alt="avatar" width="32" height="32" class="step-avatar" />
         {{ user.name }}
       </li>
-    </ul> 
-    
+    </ul>
+
   <div class="step-total">Total : {{ participants.length }} player(s)</div>
   <br/>
   <button class="step-btn" (click)="startFirstQuestion()">Start the quiz</button>
@@ -140,17 +140,17 @@
     <!-- Structure avec ngFor pour forcer la recréation complète -->
     <ng-container *ngFor="let q of [currentQuestion]; trackBy: trackByQuestionId">
       <!-- Image avec transition et dimensions préservées - cachée si hideImages est true -->
-      <img 
-        *ngIf="q?.imageUrl && imageLoaded && !hideImages" 
-        [src]="q.imageUrl" 
-        alt="Illustration question" 
-        style="width:100%;height:100%;object-fit:cover;border-radius:18px;transition:opacity 0.4s ease-in-out;" 
+      <img
+        *ngIf="q?.imageUrl && imageLoaded && !hideImages"
+        [src]="q.imageUrl"
+        alt="Illustration question"
+        style="width:100%;height:100%;object-fit:cover;border-radius:18px;transition:opacity 0.4s ease-in-out;"
         class="question-image-loaded"
         [@imageAnimation]
       />
       <!-- Placeholder pendant chargement - même dimensions - caché si hideImages est true -->
-      <div 
-        *ngIf="q?.imageUrl && !imageLoaded && !hideImages" 
+      <div
+        *ngIf="q?.imageUrl && !imageLoaded && !hideImages"
         style="width:100%;height:100%;background: linear-gradient(45deg, #f0f0f0 25%, transparent 25%), linear-gradient(-45deg, #f0f0f0 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #f0f0f0 75%), linear-gradient(-45deg, transparent 75%, #f0f0f0 75%);background-size: 20px 20px;background-position: 0 0, 0 10px, 10px -10px, -10px 0px;border-radius:18px;display:flex;align-items:center;justify-content:center;color:#666;"
         class="question-image-loading"
       >
@@ -159,10 +159,10 @@
         </div>
       </div>
       <!-- Image cachée pour préchargement avec clé unique - pas affectée par hideImages -->
-      <img 
-        *ngIf="q?.imageUrl && !hideImages" 
-        [src]="q.imageUrl" 
-        alt="Préchargement" 
+      <img
+        *ngIf="q?.imageUrl && !hideImages"
+        [src]="q.imageUrl"
+        alt="Préchargement"
         style="position: absolute; visibility: hidden; width: 1px; height: 1px;"
         (load)="onImageLoaded()"
         (error)="onImageError()"
@@ -185,7 +185,7 @@
     </li>
   </ul>
   </div>
- 
+
   <div *ngIf="voters && voters.length > 0" class="step-voters" [@stepTransition]>
     <h4 class="step-h4">Already answered :</h4>
     <ul class="step-voters-list" [@listAnimation]>
@@ -210,7 +210,7 @@
     <br>
     <span>answersCount = {{answersCount}}</span>
     <span>totalAnswers = {{totalAnswers}}</span>
-  </div> 
+  </div>
   <button class="step-btn" (click)="restartGame()">🧹 Tout réinitialiser</button> -->
   <div *ngIf="!currentQuestion" class="maitre-no-question step-no-question">Aucune question courante.</div>
   <ng-container *ngIf="currentQuestion">
@@ -219,17 +219,17 @@
       <!-- Structure avec ngFor pour forcer la recréation complète -->
       <ng-container *ngFor="let q of [currentQuestion]; trackBy: trackByQuestionId">
         <!-- Image de résultat avec dimensions préservées - cachée si hideImages est true -->
-        <img 
-          *ngIf="q?.imageUrlResult && resultImageLoaded && !hideImages" 
-          [src]="q.imageUrlResult" 
-          alt="Illustration résultat" 
-          style="width:100%;height:100%;object-fit:cover;border-radius:18px;transition:opacity 0.4s ease-in-out;" 
+        <img
+          *ngIf="q?.imageUrlResult && resultImageLoaded && !hideImages"
+          [src]="q.imageUrlResult"
+          alt="Illustration résultat"
+          style="width:100%;height:100%;object-fit:cover;border-radius:18px;transition:opacity 0.4s ease-in-out;"
           class="result-image-loaded"
           [@imageAnimation]
         />
         <!-- Placeholder pendant chargement - caché si hideImages est true -->
-        <div 
-          *ngIf="q?.imageUrlResult && !resultImageLoaded && !hideImages" 
+        <div
+          *ngIf="q?.imageUrlResult && !resultImageLoaded && !hideImages"
           style="width:100%;height:100%;background: linear-gradient(45deg, #f0f0f0 25%, transparent 25%), linear-gradient(-45deg, #f0f0f0 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #f0f0f0 75%), linear-gradient(-45deg, transparent 75%, #f0f0f0 75%);background-size: 20px 20px;background-position: 0 0, 0 10px, 10px -10px, -10px 0px;border-radius:18px;display:flex;align-items:center;justify-content:center;color:#666;"
           class="result-image-loading"
         >
@@ -238,10 +238,10 @@
           </div>
         </div>
         <!-- Image cachée pour préchargement avec clé unique - pas affectée par hideImages -->
-        <img 
-          *ngIf="q?.imageUrlResult && !hideImages" 
-          [src]="q.imageUrlResult" 
-          alt="Préchargement résultat" 
+        <img
+          *ngIf="q?.imageUrlResult && !hideImages"
+          [src]="q.imageUrlResult"
+          alt="Préchargement résultat"
           style="position: absolute; visibility: hidden; width: 1px; height: 1px;"
           (load)="onResultImageLoaded()"
           (error)="onResultImageError()"
@@ -282,7 +282,7 @@
     <button class="step-btn step-end-btn" (click)="endGame()" *ngIf="canShowEndButton()" [@stepTransition]>Close quiz & show ranking</button>
   </div>
   </ng-container>
-  
+
 </div>
 
   <!-- END : classement final -->
@@ -317,6 +317,6 @@
   </div>
 
 </div>
-<!-- DEBUG : bouton pour forcer l’étape 'question' 
+<!-- DEBUG : bouton pour forcer l’étape 'question'
 <button style="position:fixed;top:10px;right:10px;z-index:9999;background:#1976d2;color:#fff;padding:0.5em 1em;border-radius:6px;font-size:1em;" (click)="quizService.setStep('question')">[DEBUG] Forcer étape QUESTION</button>
 -->
