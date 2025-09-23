@@ -48,6 +48,7 @@ jobs:
     environment: staging
     runs-on: gha-runners-smartweb
     strategy:
+      max-parallel: 1
       matrix:
         include:
           - values_file_path: staging/appquiz/values-backend.yaml
