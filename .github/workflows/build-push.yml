@@ -44,6 +44,8 @@ jobs:
             sed -i "s|https://backendurl|${{ secrets.BACKEND_URL }}|g" server.js
             echo "Updated server.js with FRONTEND_URL: ${{ secrets.FRONTEND_URL }} and BACKEND_URL: ${{ secrets.BACKEND_URL }}"
   deploy:
+    needs: build-push
+    environment: staging
     runs-on: gha-runners-smartweb
     strategy:
       matrix:
