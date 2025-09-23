@@ -57,9 +57,9 @@ jobs:
         uses: IMIO/gha/k8s-update-tag@k8s-update-tag
         with:
           TAG: ${{ env.SHORT_SHA }}
-          REPO_TOKEN_NAME: ${{ secrets.K8S_TOKEN_NAME }}
-          REPO_ACCESS_TOKEN: ${{ secrets.K8S_ACCESS_TOKEN }}
-          REPO_URL: ${{ secrets.K8S_REPO_URL }}
+          REPO_TOKEN_NAME: ${{ secrets.INFRA_CHARTS_TOKEN_NAME }}
+          REPO_ACCESS_TOKEN: ${{ secrets.INFRA_CHARTS_ACCESS_TOKEN }}
+          REPO_URL: ${{ secrets.INFRA_CHARTS_REPOSITORY_URL }}
           TARGET_BRANCH: main
           VALUES_FILE_PATH: ${{ matrix.values_file_path }}
 
