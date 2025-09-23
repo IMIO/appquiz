@@ -1,8 +1,5 @@
-name: Publish and deploy dev image
+name: Publish and deploy image
 on:
-  push:
-    tags:
-      - '!**'
   workflow_dispatch:
 env:
   REGISTRY_URL: ${{ secrets.HARBOR_URL }}
@@ -28,7 +25,7 @@ jobs:
             echo EOF
           } >> $GITHUB_ENV
       - name: Build push and notify
-        uses: IMIO/gha/build-push-notify@4f2a5457be9cca96a044a65a3d7e6c54ba9ad64e
+        uses: IMIO/gha/build-push-notify@v5
         with:
           DOCKERFILE: ${{ matrix.dockerfile }}
           IMAGE_NAME: ${{ matrix.image_name }}
@@ -43,4 +40,26 @@ jobs:
             sed -i "s|https://frontendurl|${{ secrets.FRONTEND_URL }}|g" server.js
             sed -i "s|https://backendurl|${{ secrets.BACKEND_URL }}|g" server.js
             echo "Updated server.js with FRONTEND_URL: ${{ secrets.FRONTEND_URL }} and BACKEND_URL: ${{ secrets.BACKEND_URL }}"
+  deploy:
+    needs: build-push
+    environment: staging
+    runs-on: gha-runners-smartweb
+    strategy:
+      max-parallel: 1
+      matrix:
+        include:
+          - values_file_path: staging/appquiz/values-backend.yaml
+          - values_file_path: staging/appquiz/values-frontend.yaml
+    steps:
+      - name: Build short SHA
+        run: echo "SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_ENV
+      - name: Update Kubernetes tag
+        uses: IMIO/gha/k8s-update-tag@v5
+        with:
+          TAG: ${{ env.SHORT_SHA }}
+          REPO_TOKEN_NAME: ${{ secrets.INFRA_CHARTS_TOKEN_NAME }}
+          REPO_ACCESS_TOKEN: ${{ secrets.INFRA_CHARTS_ACCESS_TOKEN }}
+          REPO_URL: ${{ secrets.INFRA_CHARTS_REPOSITORY_URL }}
+          TARGET_BRANCH: main
+          VALUES_FILE_PATH: ${{ matrix.values_file_path }}
 
