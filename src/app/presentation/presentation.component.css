@@ -302,7 +302,7 @@ body, .presentation-root {
   margin-bottom: 1em;
 }
 .step-h2 {
-  color: #DAE72A;
+  color: red;
   margin: 0.7em 0 0 0;
   font-size: 24px;
   font-weight: 600;
