@@ -1,0 +1,74 @@
+/* Styles pour le bloc-bouton avec table_title personnalisés */
+.bloc-bouton .table_title {
+  border-radius: 50px;
+  margin-top: 20px;
+  padding: 10px 15px;
+  text-align: center;
+  transition: all 0.3s ease;
+}
+
+/* Premier élément - Bleu */
+.bloc-bouton li:nth-child(1) .table_title {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.bloc-bouton li:nth-child(1) .table_title span {
+  color: #ffffff;
+  font-weight: 600;
+}
+
+/* Deuxième élément - Vert */
+.bloc-bouton li:nth-child(2) .table_title {
+  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+}
+
+.bloc-bouton li:nth-child(2) .table_title span {
+  color: #ffffff;
+  font-weight: 600;
+}
+
+/* Troisième élément - Orange */
+.bloc-bouton li:nth-child(3) .table_title {
+  background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+}
+
+.bloc-bouton li:nth-child(3) .table_title span {
+  color: #2c3e50;
+  font-weight: 600;
+}
+
+/* Quatrième élément - Violet */
+.bloc-bouton li:nth-child(4) .table_title {
+  background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+}
+
+.bloc-bouton li:nth-child(4) .table_title span {
+  color: #2c3e50;
+  font-weight: 600;
+}
+
+/* Effet hover pour tous les table_title */
+.bloc-bouton .table_title:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+}
+
+/* Styles supplémentaires pour améliorer l'apparence */
+.bloc-bouton .table_title span {
+  display: block;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .bloc-bouton .table_title {
+    margin-top: 15px;
+    padding: 8px 12px;
+  }
+  
+  .bloc-bouton .table_title span {
+    font-size: 12px;
+  }
+}
