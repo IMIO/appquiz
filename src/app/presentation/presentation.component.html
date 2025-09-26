@@ -1,6 +1,60 @@
+<!-- Modal de restauration de partie -->
+<div *ngIf="showRestoreDialog" class="restore-modal-backdrop">
+  <div class="restore-modal">
+    <div class="restore-header">
+      <h2>🔄 Partie en cours détectée</h2>
+    </div>
+    <div class="restore-body">
+      <p>Une partie était en cours avant la fermeture de la page.</p>
+      <p>Souhaitez-vous :</p>
+      <div class="restore-actions">
+        <button 
+          class="restore-btn continue" 
+          [disabled]="!buttonsEnabled"
+          [class.disabled]="!buttonsEnabled"
+          (click)="onRestoreGame()">
+          <span class="btn-icon">🔄</span>
+          <span>Reprendre la partie</span>
+        </button>
+        <button 
+          class="restore-btn new-game" 
+          [disabled]="!buttonsEnabled"
+          [class.disabled]="!buttonsEnabled"
+          (click)="onStartNewGame()">
+          <span class="btn-icon">🆕</span>
+          <span>Nouvelle partie</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- DIAGNOSTIC : Bloc ultra-visible si aucune étape reconnue
 <div *ngIf="!step || (step !== 'lobby' && step !== 'waiting' && step !== 'question' && step !== 'result' && step !== 'end')" style="background:#d32f2f;color:#fff;font-size:1.5em;padding:2em 2em;border-r  </div>
 
+</div>
+
+<!-- Modal pour la photo de groupe -<!-- Barre d'administration admin -->
+<div class="admin-bar">
+  <div class="admin-info">
+    <span class="admin-title">👨‍💼 Administration</span>
+    <span class="session-info">
+      Session : {{ getRemainingTime() }}
+    </span>
+  </div>
+  <div class="admin-actions">
+    <button class="admin-btn extend" (click)="extendSession()" title="Prolonger la session de 4 heures">
+      ⏰ Prolonger
+    </button>
+    <button class="admin-btn logout" (click)="logout()" title="Se déconnecter">
+      🚪 Déconnexion
+    </button>
+  </div>
+</div>
+
+<!-- DIAGNOSTIC : Bloc ultra-visible si aucune étape reconnue -->
+<div *ngIf="!step || (step !== 'lobby' && step !== 'waiting' && step !== 'question' && step !== 'result' && step !== 'end')" style="background:#d32f2f;color:#fff;font-size:1.5em;padding:2em 2em;border-radius:8px;margin:1em;text-align:center;">
+  🚨 ERREUR : Étape inconnue "{{ step }}" - Vérifiez la logique de navigation
 </div>
 
 <!-- Modal pour la photo de groupe -->
@@ -28,7 +82,14 @@
     </div>
 
     <div class="camera-controls">
-      <button *ngIf="!photoTaken" class="camera-btn camera-take-btn" (click)="takeGroupPhoto()">
+      <button *ngIf="!photoTaken" class="camera-btn camera-take-btn" (click)="takeGroupPhoto()" [disabled]="!cameraReady">
+      <!-- Indicateur d'état de la caméra -->
+      <div class="camera-status" *ngIf="cameraActive && !photoTaken">
+        <span class="status-indicator" [class.ready]="cameraReady">
+          {{ cameraReady ? '✅ Caméra prête' : '⏳ Préparation...' }}
+        </span>
+      </div>
+      
         📷 Prendre la photo
       </button>
       <div *ngIf="photoTaken" class="photo-success">
@@ -285,13 +346,16 @@
 
 </div>
 
+<!-- DEBUG : bouton pour forcer l’étape 'question'
+<button style="position:fixed;top:10px;right:10px;z-index:9999;background:#1976d2;color:#fff;padding:0.5em 1em;border-radius:6px;font-size:1em;" (click)="quizService.setStep('question')">[DEBUG] Forcer étape QUESTION</button>
+
   <!-- END : classement final -->
   <div *ngIf="step === 'end'" class="maitre-step-banner end step-block" [@stepTransition]>
   <div class="banner-img"><div class="step-header">
     <!-- <span class="step-icon">🟢</span> -->
     <span class="step-title">&nbsp;</span>
   </div>
-  <h2 class="step-h2">You’ve completed the test !</h2>
+  <h2 class="step-h2">You've completed the test !</h2>
   </div>
   <div>
     <div class="container-question">
@@ -317,6 +381,9 @@
   </div>
 
 </div>
-<!-- DEBUG : bouton pour forcer l’étape 'question'
-<button style="position:fixed;top:10px;right:10px;z-index:9999;background:#1976d2;color:#fff;padding:0.5em 1em;border-radius:6px;font-size:1em;" (click)="quizService.setStep('question')">[DEBUG] Forcer étape QUESTION</button>
--->
+
+<div class="global-reset-btn" (click)="restartGame()" title="Réinitialiser complètement le quiz (participants, scores, état)">
+  🔄
+</div>
+
+</div>

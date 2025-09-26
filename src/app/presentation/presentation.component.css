@@ -973,9 +973,11 @@ ol { margin-top: 2rem; }
   background: #fff;
   border-radius: 20px;
   box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5);
-  max-width: 85vw;
-  max-height: 85vh;
-  overflow-y: auto;
+  max-width: 95vw;
+  max-height: 95vh;
+  width: 95vw;
+  height: 95vh;
+  overflow: hidden;
   animation: cameraModalOpen 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
   border: 3px solid #08B0EC;
   z-index: 999999 !important;
@@ -1045,19 +1047,42 @@ ol { margin-top: 2rem; }
 
 .camera-container {
   position: relative;
-  display: flex;
+  display: flex !important;
   justify-content: center;
   background: #000;
-  flex-shrink: 0;
+  flex: 1;
+  width: 100%;
+  min-height: 300px;
+  border-radius: 8px;
+  overflow: visible !important; /* Changed from hidden to visible */
+  z-index: 1;
 }
 
 .camera-video {
-  max-width: 600px;
-  max-height: 400px;
-  width: 100%;
-  height: auto;
-  border-radius: 0;
-  object-fit: cover;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  max-height: none !important;
+  border-radius: 8px;
+  object-fit: contain; /* Preserve aspect ratio without cropping */
+  display: block !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  z-index: 1 !important;
+  background: #000; /* Fallback background */
+}
+
+/* Media queries for responsive camera */
+@media (max-width: 768px) {
+  .camera-container {
+    min-height: 250px;
+  }
+}
+
+@media (max-height: 600px) {
+  .camera-container {
+    min-height: 200px;
+  }
 }
 
 .camera-overlay {
@@ -1066,6 +1091,7 @@ ol { margin-top: 2rem; }
   left: 0;
   right: 0;
   pointer-events: none;
+  z-index: 10; /* Above video but not blocking it */
 }
 
 .overlay-promotion {
@@ -1112,16 +1138,32 @@ ol { margin-top: 2rem; }
 }
 
 .camera-controls {
-  padding: 1rem 1.5rem;
-  background: #f9f9f9;
-  display: flex;
-  gap: 1rem;
-  justify-content: center;
-  align-items: center;
-  flex-wrap: wrap;
-  flex-shrink: 0;
-  border-bottom-left-radius: 17px;
-  border-bottom-right-radius: 17px;
+  padding: 1.5rem;
+  text-align: center;
+  border-top: 1px solid #e0e0e0;
+  background: #f8f9fa;
+}
+
+.camera-status {
+  margin-bottom: 1rem;
+  padding: 0.5rem;
+}
+
+.status-indicator {
+  display: inline-block;
+  padding: 0.5rem 1rem;
+  border-radius: 20px;
+  font-weight: 500;
+  background: #fff3cd;
+  color: #856404;
+  border: 1px solid #ffeaa7;
+  transition: all 0.3s ease;
+}
+
+.status-indicator.ready {
+  background: #d4edda;
+  color: #155724;
+  border: 1px solid #c3e6cb;
 }
 
 .camera-btn {
@@ -1214,5 +1256,174 @@ ol { margin-top: 2rem; }
   
   .camera-controls {
     padding: 0.8rem 1rem;
+  }
+}
+
+/* Modal de restauration */
+.restore-modal-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(4px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 2000;
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+.restore-modal {
+  background: #fff;
+  border-radius: 20px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+  max-width: 500px;
+  width: 90%;
+  overflow: hidden;
+  animation: slideIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.restore-header {
+  background: linear-gradient(135deg, #6BBD97, #08B0EC);
+  padding: 2rem;
+  text-align: center;
+}
+
+.restore-header h2 {
+  color: #fff;
+  margin: 0;
+  font-size: 1.8rem;
+  font-weight: 600;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.restore-body {
+  padding: 2rem;
+}
+
+.restore-body p {
+  color: #333;
+  margin-bottom: 1rem;
+  font-size: 1.1rem;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.restore-actions {
+  display: flex;
+  gap: 1rem;
+  margin-top: 2rem;
+}
+
+.restore-btn {
+  flex: 1;
+  padding: 1rem 1.5rem;
+  border: none;
+  border-radius: 12px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  position: relative;
+  overflow: hidden;
+}
+
+.restore-btn::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+  transition: left 0.5s;
+}
+
+.restore-btn:hover::before {
+  left: 100%;
+}
+
+.restore-btn.continue {
+  background: linear-gradient(135deg, #6BBD97, #C5CB2F);
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(107, 189, 151, 0.3);
+}
+
+.restore-btn:hover {
+  background: linear-gradient(135deg, #5aa085, #b1b829);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(107, 189, 151, 0.4);
+}
+
+.restore-btn.disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none !important;
+  pointer-events: none;
+}
+
+.restore-btn.new-game {
+  background: linear-gradient(135deg, #ff7979, #eb4d4b);
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(255, 121, 121, 0.3);
+}
+
+.restore-btn.new-game:hover {
+  background: linear-gradient(135deg, #e66767, #d63031);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(255, 121, 121, 0.4);
+}
+
+.btn-icon {
+  font-size: 1.2rem;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: scale(0.9) translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* Responsive pour mobile */
+@media (max-width: 768px) {
+  .restore-modal {
+    max-width: 95%;
+    margin: 1rem;
+  }
+  
+  .restore-header {
+    padding: 1.5rem;
+  }
+  
+  .restore-header h2 {
+    font-size: 1.5rem;
+  }
+  
+  .restore-body {
+    padding: 1.5rem;
+  }
+  
+  .restore-actions {
+    flex-direction: column;
+  }
+  
+  .restore-btn {
+    padding: 1.2rem;
   }
 }

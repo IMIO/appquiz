@@ -1,11 +1,12 @@
 import { Injectable } from '@angular/core';
 import { BehaviorSubject, Observable, firstValueFrom, interval, timer } from 'rxjs';
-import { map, switchMap, catchError, distinctUntilChanged } from 'rxjs/operators';
+import { map, switchMap, catchError, distinctUntilChanged, tap } from 'rxjs/operators';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { Question } from '../models/question.model';
 import { User } from '../models/user.model';
 import { of } from 'rxjs';
 import { environment } from '../../environments/environment';
+import { GamePersistenceService } from './game-persistence.service';
 
 export type QuizStep = 'lobby' | 'waiting' | 'question' | 'result' | 'end';
 
@@ -22,7 +23,7 @@ export class QuizService {
   // Cache pour éviter les logs répétitifs
   private lastStep: QuizStep | null = null;
 
-  constructor(private http: HttpClient) {
+  constructor(private http: HttpClient, private persistenceService: GamePersistenceService) {
     this.initQuestions();
   }
 
@@ -142,7 +143,7 @@ export class QuizService {
 
   // Observable : état du quiz via polling optimisé
   getStep(): Observable<QuizStep> {
-  return interval(100).pipe( // Réduction à 0.1s pour synchronisation maximale
+  return interval(1000).pipe( // Augmentation à 1s pour réduire la charge réseau
       switchMap(() =>
         this.http.get<any>(`${this.apiUrl}/quiz-state`, {
           headers: this.getHeaders()
@@ -158,8 +159,25 @@ export class QuizService {
         return currentStep;
       }),
       distinctUntilChanged(), // Éviter les émissions répétées
-      catchError(() => of('lobby' as QuizStep))
+      catchError((error) => {
+        console.warn('[SERVICE] Erreur getStep, conservation du dernier état:', error);
+        return of(this.lastStep || 'lobby' as QuizStep); // Conserver le dernier état connu au lieu de forcer 'lobby'
+      })
     );
+  }
+
+  // Récupérer l'état complet du jeu (pour la synchronisation du timer)
+  async getGameState(): Promise<any> {
+    try {
+      return await firstValueFrom(
+        this.http.get<any>(`${this.apiUrl}/quiz-state`, {
+          headers: this.getHeaders()
+        })
+      );
+    } catch (error) {
+      console.error('Erreur récupération état du jeu:', error);
+      return null;
+    }
   }
 
   // Mise à jour de l'étape du quiz
@@ -170,6 +188,16 @@ export class QuizService {
           headers: this.getHeaders()
         })
       );
+      
+      // Sauvegarde automatique après changement d'étape (sauf pour lobby)
+      if (step !== 'lobby') {
+        this.persistenceService.updateGameState({
+          step,
+          currentQuestionIndex: 0, // Reset index pour nouvelles étapes
+          questionStartTime: step === 'question' ? Date.now() : undefined
+        });
+      }
+      
     } catch (error) {
       console.error('Erreur setStep:', error);
     }
@@ -184,6 +212,22 @@ export class QuizService {
     return this.participants;
   }
 
+  // Récupérer les participants directement du serveur (pour synchronisation)
+  async fetchParticipantsFromServer(): Promise<User[]> {
+    try {
+      const response = await firstValueFrom(
+        this.http.get<User[]>(`${this.apiUrl}/participants`, {
+          headers: this.getHeaders()
+        })
+      );
+      this.participants = response || [];
+      return this.participants;
+    } catch (error) {
+      console.error('Erreur récupération participants du serveur:', error);
+      return [];
+    }
+  }
+
   // Observable : participants via polling (réduit de 2s à 4s)
   getParticipants$(): Observable<User[]> {
     return interval(4000).pipe(
@@ -196,7 +240,10 @@ export class QuizService {
         this.participants = users;
         return users;
       }),
-      catchError(() => of([]))
+      catchError((error) => {
+        console.warn('[SERVICE] Erreur getParticipants, conservation de la liste existante:', error);
+        return of(this.participants); // Conserver la liste existante au lieu de tableau vide
+      })
     );
   }
 
@@ -249,11 +296,20 @@ export class QuizService {
     try {
       if (nextIndex < this.questions.length) {
         console.log('[SERVICE] Envoi PUT vers API pour index:', nextIndex);
+        
+        // Préparer les données pour l'API
+        const updateData: any = {
+          currentQuestionIndex: nextIndex,
+          questionStartTime: Date.now()
+        };
+        
+        // Si on passe à la première question (index 0), on met aussi le step à 'question'
+        if (nextIndex === 0) {
+          updateData.step = 'question';
+        }
+        
         const result = await firstValueFrom(
-          this.http.put(`${this.apiUrl}/quiz-state`, {
-            currentQuestionIndex: nextIndex,
-            questionStartTime: Date.now()
-          }, {
+          this.http.put(`${this.apiUrl}/quiz-state`, updateData, {
             headers: this.getHeaders()
           })
         );
@@ -270,13 +326,27 @@ export class QuizService {
   // Ajout d'un participant
   async addParticipant(user: User) {
     try {
-      await firstValueFrom(
+      console.log('[SERVICE] Ajout participant via API:', user);
+      const response = await firstValueFrom(
         this.http.post(`${this.apiUrl}/participants`, user, {
           headers: this.getHeaders()
         })
       );
+      console.log('[SERVICE] ✅ Réponse API addParticipant:', response);
+      
+      // Ajouter le participant à la liste locale
+      this.participants.push(user);
+      console.log('[SERVICE] ✅ Participant ajouté à la liste locale, total:', this.participants.length);
+      
+      // Sauvegarde automatique des participants
+      this.persistenceService.updateGameState({
+        participants: this.participants
+      });
+      console.log('[SERVICE] ✅ État sauvegardé');
+      
     } catch (error) {
-      console.error('Erreur addParticipant:', error);
+      console.error('[SERVICE] ❌ Erreur addParticipant:', error);
+      throw error; // Re-throw pour que le composant puisse gérer l'erreur
     }
   }
 
@@ -402,15 +472,95 @@ export class QuizService {
 
   async resetParticipants() {
     try {
+      console.log('[SERVICE] Reset participants - Appel API /quiz/reset...');
       await firstValueFrom(
         this.http.post(`${this.apiUrl}/quiz/reset`, {}, {
           headers: this.getHeaders()
         })
       );
+      console.log('[SERVICE] Reset participants - ✅ API appelée avec succès');
+      
       this.participants = [];
+      console.log('[SERVICE] Reset participants - Liste locale vidée');
+      
       await this.setStep('lobby');
+      console.log('[SERVICE] Reset participants - ✅ Étape lobby définie');
+      
+      // Effacer la sauvegarde lors du reset
+      this.persistenceService.clearSavedGameState();
+      console.log('[SERVICE] Reset participants - ✅ Sauvegarde effacée');
+      
     } catch (error) {
-      console.error('Erreur resetParticipants:', error);
+      console.error('[SERVICE] ❌ Erreur resetParticipants:', error);
+      throw error; // Re-throw pour que le composant puisse gérer l'erreur
     }
+  }
+
+  // Méthodes de persistance et restauration
+  canRestoreGameState(): boolean {
+    return this.persistenceService.canRestoreGame();
+  }
+
+  clearSavedGameState(): void {
+    this.persistenceService.clearSavedGameState();
+  }
+
+  async restoreGameState(): Promise<boolean> {
+    try {
+      const savedState = this.persistenceService.getSavedGameState();
+      if (!savedState) {
+        console.log('🔄 Aucun état sauvegardé trouvé');
+        return false;
+      }
+
+      console.log('🔄 Restauration de l\'état du jeu:', savedState);
+
+      // Restaurer l'état serveur
+      await firstValueFrom(
+        this.http.put(`${this.apiUrl}/quiz-state`, {
+          step: savedState.step,
+          currentQuestionIndex: savedState.currentQuestionIndex || 0,
+          questionStartTime: savedState.questionStartTime || Date.now()
+        }, {
+          headers: this.getHeaders()
+        })
+      );
+
+      // Restaurer les participants (si pas déjà présents sur le serveur)
+      if (savedState.participants && savedState.participants.length > 0) {
+        for (const participant of savedState.participants) {
+          try {
+            await this.addParticipant(participant);
+          } catch (error) {
+            // Ignorer si le participant existe déjà
+            console.warn('Participant déjà existant:', participant.name);
+          }
+        }
+      }
+
+      // Mettre à jour l'état local
+      this.participants = savedState.participants || [];
+      
+      console.log('✅ État du jeu restauré avec succès');
+      return true;
+
+    } catch (error) {
+      console.error('❌ Erreur lors de la restauration:', error);
+      return false;
+    }
+  }
+
+  // Initialiser la sauvegarde pour une nouvelle partie
+  initGameState(): void {
+    this.persistenceService.saveGameState({
+      step: 'lobby',
+      currentQuestionIndex: 0,
+      questionStartTime: 0,
+      participants: [],
+      leaderboard: [],
+      totalQuestions: this.questions.length,
+      gameStartTime: Date.now(),
+      lastActivity: Date.now()
+    });
   }
 }
