@@ -525,7 +525,7 @@ async function startServer() {
     const server = app.listen(PORT, () => {
       console.log(`🚀 Serveur SQLite démarré`);
       console.log(`📊 Base de données: ${dbPath}`);
-      console.log(`🌐 API disponible sur: http://localhost:${PORT}`);
+      console.log(`🌐 API disponible sur: https://backendurl`);
       console.log('[DEBUG] 3. Serveur en écoute');
     });
     
