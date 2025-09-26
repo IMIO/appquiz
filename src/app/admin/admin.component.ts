@@ -56,7 +56,7 @@ export class AdminComponent implements OnInit, OnDestroy {
       });
       
       await this.quizService.nextQuestion(this.currentQuestionIndex);
-      console.log(`[ADMIN] Question suivante appelée: ${this.currentQuestionIndex} -> ${this.currentQuestionIndex + 1}`);
+      console.log(`[ADMIN] Question suivante appelée`);
     } catch (error) {
       console.error('[ADMIN] Erreur lors du passage à la question suivante:', error);
     }

@@ -5,11 +5,13 @@ import { CommonModule } from '@angular/common';
 import { QuizService, QuizStep } from '../services/quiz-secure.service';
 import { Question } from '../models/question.model';
 import { User } from '../models/user.model';
-import { Observable, timer, Subscription } from 'rxjs';
+import { Observable, timer, Subscription, firstValueFrom } from 'rxjs';
 import { LeaderboardEntry } from '../models/leaderboard-entry.model';
 import { trigger, state, style, transition, animate, query, stagger } from '@angular/animations';
 import html2canvas from 'html2canvas';
 import { QRCodeComponent } from 'angularx-qrcode';
+import { AdminAuthService } from '../services/admin-auth.service';
+import { Router } from '@angular/router';
 
 @Component({
   selector: 'app-presentation',
@@ -52,13 +54,63 @@ import { QRCodeComponent } from 'angularx-qrcode';
 })
 export class PresentationComponent implements OnInit, OnDestroy {
   step: any = 'lobby'; // Typage élargi pour compatibilité template Angular
+  showRestoreDialog: boolean = false;
+  private minModalDisplayTime = 2000; // Afficher le modal au minimum 2 secondes
+  private modalStartTime = 0;
+  buttonsEnabled = false;
 
-  ngOnInit() {
+  async ngOnInit() {
+    // D'abord, synchroniser avec l'état du serveur
+    try {
+      const serverState = await this.quizService.getGameState();
+      console.log('🔄 État du serveur au démarrage:', serverState);
+      
+      // Si le serveur n'est pas à l'étape lobby, il faut restaurer cet état
+      if (serverState && serverState.step && serverState.step !== 'lobby') {
+        console.log('🔄 Partie en cours détectée sur le serveur, synchronisation automatique');
+        await this.synchronizeWithServer(serverState);
+        return;
+      }
+      
+      // Vérifier s'il y a un état sauvegardé à restaurer
+      if (this.quizService.canRestoreGameState()) {
+        this.showRestoreDialog = true;
+        this.modalStartTime = Date.now();
+        this.buttonsEnabled = false;
+        
+        console.log('🔄 État sauvegardé détecté, affichage du modal de restauration');
+        
+        // Activer les boutons après le temps minimum
+        setTimeout(() => {
+          this.buttonsEnabled = true;
+          console.log('✅ Boutons du modal activés');
+        }, this.minModalDisplayTime);
+        
+        // NE PAS initialiser tant que l'utilisateur n'a pas choisi
+        return;
+      }
+      
+      // Initialisation pour une nouvelle partie
+      this.initializeNewGame();
+    } catch (error) {
+      console.error('❌ Erreur lors de la synchronisation avec le serveur:', error);
+      // En cas d'erreur, continuer avec l'initialisation normale
+      this.initializeNewGame();
+    }
+  }
+
+  private initializeNewGame() {
     // Appel unique dans le contexte Angular pour éviter les warnings
     this.quizService.initQuestions();
     // Forcer l'étape lobby au démarrage
     this.step = 'lobby';
     this.quizService.setStep('lobby');
+    // Initialiser l'état du jeu si c'est une nouvelle partie
+    this.quizService.initGameState();
+    
+    // Initialiser les souscriptions après l'initialisation
+    this.initializeSubscriptions();
+    
     // Diagnostic : log ultra-visible
     console.log('[DEBUG][ngOnInit] step initialisé à', this.step);
     // Vérification périodique de la synchro step - DÉSACTIVÉ pour réduire les logs
@@ -122,6 +174,7 @@ export class PresentationComponent implements OnInit, OnDestroy {
   // Propriétés pour la photo de groupe
   cameraStream: MediaStream | null = null;
   cameraActive: boolean = false;
+  cameraReady: boolean = false;
   showCameraModal: boolean = false;
   photoTaken: boolean = false;
   timerSub?: Subscription;
@@ -148,7 +201,26 @@ export class PresentationComponent implements OnInit, OnDestroy {
     return this.currentIndex === (this.quizService.getQuestions().length - 1) && this.step !== 'end';
   }
 
-  constructor(public quizService: QuizService, private timerService: TimerService, private cdr: ChangeDetectorRef) {
+  constructor(
+    public quizService: QuizService, 
+    private timerService: TimerService, 
+    private cdr: ChangeDetectorRef,
+    public adminAuthService: AdminAuthService,
+    private router: Router
+  ) {
+    // Initialiser les souscriptions immédiatement pour assurer la synchronisation
+    this.initializeSubscriptions();
+  }
+
+  private initializeSubscriptions() {
+    // Éviter la duplication des souscriptions
+    if (this.subscriptions.length > 0) {
+      console.log('⚠️  Souscriptions déjà initialisées, ignorer');
+      return;
+    }
+    
+    console.log('🔄 Initialisation des souscriptions...');
+    
     // Synchro temps réel de l'étape du quiz - optimisé pour éviter les logs répétitifs
     let lastStep: string | null = null;
     const stepSub = this.quizService.getStep().subscribe(step => {
@@ -164,8 +236,12 @@ export class PresentationComponent implements OnInit, OnDestroy {
         this.refresh();
         this.cdr.detectChanges(); // Forcer la synchro immédiate
         
-        if (step === 'question') this.startTimer();
-        else this.stopTimer();
+        if (step === 'question') {
+          // Vérifier si le serveur a déjà défini un questionStartTime avant de démarrer
+          this.checkAndSyncTimer();
+        } else {
+          this.stopTimer();
+        }
         
         // Réinitialisation des réponses lors du retour à l'étape lobby
         if (step === 'lobby') {
@@ -214,7 +290,16 @@ export class PresentationComponent implements OnInit, OnDestroy {
     
     // Synchro temps réel des inscrits - optimisé sans logs excessifs
     const participantsSub = this.quizService.getParticipants$().subscribe(participants => {
+      console.log('[PRESENTATION] Participants reçus:', participants.length, participants);
+      const oldCount = this.participants.length;
       this.participants = participants;
+      const newCount = this.participants.length;
+      
+      if (oldCount !== newCount) {
+        console.log(`[PRESENTATION] Changement participants: ${oldCount} → ${newCount}`);
+        this.cdr.detectChanges(); // Force la mise à jour de l'interface
+      }
+      
       this.updateLeaderboard();
     });
     this.subscriptions.push(participantsSub);
@@ -391,8 +476,8 @@ export class PresentationComponent implements OnInit, OnDestroy {
   async startFirstQuestion() {
     // Démarre la première question via l'API HTTP
     try {
-      await this.quizService.setStep('question');
-      // TODO: Implémenter la gestion des timestamps via l'API
+      // Utilise nextQuestion(-1) pour forcer le passage à l'index 0 avec initialisation du timer
+      await this.quizService.nextQuestion(-1);
       console.log('[INFO] First question started via HTTP API');
     } catch (error) {
       console.error('Erreur lors du démarrage de la première question:', error);
@@ -400,17 +485,85 @@ export class PresentationComponent implements OnInit, OnDestroy {
   }
 
   startTimer() {
-    // ...
-  this.timerValue = 15;
-  this.timerMax = 15;
     this.stopTimer();
-    if (this.timerSub) {
-      // ...
-      this.timerSub.unsubscribe();
-    }
-    this.timerSub = timer(0, 1000).subscribe(val => {
-      this.timerValue = 15 - val;
+    this.syncTimerWithServer();
+  }
+
+  private async checkAndSyncTimer() {
+    try {
+      const gameState = await this.quizService.getGameState();
+      
+      if (gameState?.questionStartTime) {
+        // Le serveur a déjà un questionStartTime, synchroniser
+        console.log('🕐 Question déjà démarrée côté serveur, synchronisation...');
+        this.syncTimerWithServer();
+      } else {
+        // Pas de questionStartTime côté serveur, ne pas démarrer le timer
+        console.log('⏸️ Pas de timer côté serveur, attente...');
+        this.timerValue = 15;
+        this.timerMax = 15;
+        // Ne pas démarrer le timer
+      }
+    } catch (error) {
+      console.warn('Erreur vérification timer serveur:', error);
+      this.timerValue = 15;
       this.timerMax = 15;
+    }
+  }
+
+  private async syncTimerWithServer() {
+    try {
+      // Récupérer l'état du serveur pour synchroniser le timer
+      const gameState = await this.quizService.getGameState();
+      
+      if (!gameState) {
+        this.startTimerNormal(15);
+        return;
+      }
+      
+      const questionStartTime = gameState.questionStartTime;
+      const timerMax = gameState.timerMax || 15;
+      
+      if (questionStartTime) {
+        const elapsed = Math.floor((Date.now() - questionStartTime) / 1000);
+        const remainingTime = Math.max(0, timerMax - elapsed);
+        
+        console.log(`🕐 Synchronisation timer: elapsed=${elapsed}s, remaining=${remainingTime}s`);
+        
+        this.timerValue = remainingTime;
+        this.timerMax = timerMax;
+        
+        if (remainingTime <= 0) {
+          this.showResult();
+          return;
+        }
+        
+        // Démarrer le timer avec le temps restant
+        if (this.timerSub) this.timerSub.unsubscribe();
+        this.timerSub = timer(0, 1000).subscribe(val => {
+          this.timerValue = remainingTime - val;
+          if (this.timerValue <= 0) {
+            this.showResult();
+          }
+        });
+      } else {
+        // Fallback: démarrer normalement
+        this.startTimerNormal(timerMax);
+      }
+    } catch (error) {
+      console.warn('Erreur synchronisation timer, démarrage normal:', error);
+      this.startTimerNormal(15);
+    }
+  }
+
+  private startTimerNormal(duration: number = 15) {
+    this.timerValue = duration;
+    this.timerMax = duration;
+    
+    if (this.timerSub) this.timerSub.unsubscribe();
+    this.timerSub = timer(0, 1000).subscribe(val => {
+      this.timerValue = duration - val;
+      this.timerMax = duration;
       if (this.timerValue <= 0) {
         this.showResult();
       }
@@ -503,13 +656,22 @@ export class PresentationComponent implements OnInit, OnDestroy {
       return;
     }
     
+    console.log('[RESET] Début de la réinitialisation du quiz');
+    
     try {
       // Utilise les méthodes du service HTTP
+      console.log('[RESET] 1. Passage à l\'étape lobby...');
       await this.quizService.setStep('lobby');
+      console.log('[RESET] 1. ✅ Étape lobby définie');
+      
+      console.log('[RESET] 2. Suppression des participants...');
       await this.quizService.resetParticipants();
+      console.log('[RESET] 2. ✅ Participants supprimés');
+      
       console.log('[INFO] Quiz reset via HTTP API');
       alert('Quiz réinitialisé. Tous les participants et réponses ont été supprimés.');
       
+      console.log('[RESET] 3. Réinitialisation locale de l\'état...');
       // Réinitialisation locale de l'état du composant
       this.step = 'lobby';
       this.currentIndex = 0;
@@ -518,9 +680,12 @@ export class PresentationComponent implements OnInit, OnDestroy {
       this.leaderboard = [];
       this.imageLoaded = false; // Reset image state
       this.resultImageLoaded = false; // Reset result image state
+      console.log('[RESET] 3. ✅ État local réinitialisé');
+      
     } catch (error) {
-      console.error('Erreur lors de la réinitialisation:', error);
-      alert('Erreur lors de la réinitialisation du quiz.');
+      console.error('[RESET] ❌ Erreur lors de la réinitialisation:', error);
+      const errorMsg = error instanceof Error ? error.message : 'Erreur inconnue';
+      alert(`Erreur lors de la réinitialisation du quiz: ${errorMsg}`);
     }
     this.timerValue = 15;
     this.voters = [];
@@ -562,25 +727,109 @@ export class PresentationComponent implements OnInit, OnDestroy {
   
   async startCamera(): Promise<void> {
     try {
-      // Demander l'accès à la caméra
+      // Calculer la résolution optimale basée sur l'écran
+      const screenWidth = window.screen.width;
+      const screenHeight = window.screen.height;
+      const aspectRatio = screenWidth / screenHeight;
+      
+      // Demander une résolution adaptée à l'écran
+      let videoConstraints: MediaTrackConstraints = {
+        facingMode: 'user' // Caméra frontale par défaut
+      };
+
+      // Adapter la résolution demandée à l'écran
+      if (aspectRatio > 1.5) {
+        // Écran large (16:9 ou plus)
+        videoConstraints.width = { ideal: Math.min(1920, screenWidth * 0.9) };
+        videoConstraints.height = { ideal: Math.min(1080, screenHeight * 0.9) };
+      } else {
+        // Écran plus carré
+        videoConstraints.width = { ideal: Math.min(1280, screenWidth * 0.9) };
+        videoConstraints.height = { ideal: Math.min(720, screenHeight * 0.9) };
+      }
+
+      console.log('📹 Demande de résolution caméra:', videoConstraints);
+
       this.cameraStream = await navigator.mediaDevices.getUserMedia({
-        video: { 
-          width: { ideal: 1280 }, 
-          height: { ideal: 720 },
-          facingMode: 'user' // Caméra frontale par défaut
-        },
+        video: videoConstraints,
         audio: false
       });
 
       this.cameraActive = true;
+      this.cameraReady = false;
       this.showCameraModal = true;
       
       // Attendre que le DOM soit mis à jour
       setTimeout(() => {
         const videoElement = document.getElementById('cameraVideo') as HTMLVideoElement;
         if (videoElement && this.cameraStream) {
+          console.log('📹 Configuration de l\'élément vidéo...');
+          console.log('VideoElement trouvé:', !!videoElement);
+          console.log('CameraStream disponible:', !!this.cameraStream);
+          
+          // Forcer l'affichage de la vidéo
+          videoElement.style.display = 'block';
+          videoElement.style.opacity = '1';
+          videoElement.style.visibility = 'visible';
+          videoElement.style.background = 'blue'; // Pour voir si l'élément est visible
+          
           videoElement.srcObject = this.cameraStream;
-          videoElement.play();
+          
+          // Attendre que les métadonnées de la vidéo soient chargées
+          videoElement.onloadedmetadata = () => {
+            console.log(`📹 Métadonnées chargées: ${videoElement.videoWidth}x${videoElement.videoHeight}`);
+            console.log('📹 ReadyState:', videoElement.readyState);
+            console.log('📹 Style computed:', window.getComputedStyle(videoElement).display);
+            
+            // Ajuster le container pour maintenir le ratio
+            const container = videoElement.closest('.camera-container') as HTMLElement;
+            if (container) {
+              const ratio = videoElement.videoHeight / videoElement.videoWidth;
+              container.style.aspectRatio = `${videoElement.videoWidth} / ${videoElement.videoHeight}`;
+              console.log('📹 Container aspect ratio défini:', container.style.aspectRatio);
+            }
+          };
+          
+          // S'assurer que la vidéo est bien en cours de lecture
+          videoElement.oncanplay = () => {
+            console.log('📹 Vidéo prête pour la capture (canplay)');
+            console.log('📹 Video playing:', !videoElement.paused && !videoElement.ended && videoElement.readyState > 2);
+            this.cameraReady = true;
+          };
+          
+          videoElement.onloadeddata = () => {
+            console.log('📹 Données vidéo chargées (loadeddata)');
+            // Test si le stream est bien connecté
+            if (videoElement.srcObject === this.cameraStream) {
+              console.log('✅ Stream correctement assigné à la vidéo');
+            } else {
+              console.error('❌ Stream non assigné correctement');
+              // Réessayer d'assigner le stream
+              videoElement.srcObject = this.cameraStream;
+            }
+          };
+          
+          videoElement.onplaying = () => {
+            console.log('📹 Vidéo en cours de lecture (playing)');
+          };
+          
+          videoElement.play().then(() => {
+            console.log('📹 Lecture vidéo démarrée avec succès');
+            // Double vérification après 1 seconde
+            setTimeout(() => {
+              if (videoElement.readyState >= 2 && videoElement.videoWidth > 0) {
+                this.cameraReady = true;
+                console.log('📹 Caméra confirmée prête');
+                console.log('📹 État final - Paused:', videoElement.paused, 'Ended:', videoElement.ended, 'ReadyState:', videoElement.readyState);
+              }
+            }, 1000);
+          }).catch(err => {
+            console.error('❌ Erreur de lecture vidéo:', err);
+          });
+        } else {
+          console.error('❌ Élément vidéo ou stream introuvable');
+          console.log('VideoElement:', !!videoElement);
+          console.log('CameraStream:', !!this.cameraStream);
         }
       }, 100);
 
@@ -594,20 +843,59 @@ export class PresentationComponent implements OnInit, OnDestroy {
   async takeGroupPhoto(): Promise<void> {
     try {
       const videoElement = document.getElementById('cameraVideo') as HTMLVideoElement;
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-
-      if (!videoElement || !ctx || !this.cameraStream) {
+      
+      if (!videoElement || !this.cameraStream) {
         console.error('Éléments caméra introuvables');
         return;
       }
 
-      // Dimensions du canvas
-      canvas.width = videoElement.videoWidth;
-      canvas.height = videoElement.videoHeight;
+      // Vérifier que la vidéo est bien en cours de lecture
+      if (videoElement.readyState < 2) {
+        console.error('Vidéo pas encore prête, readyState:', videoElement.readyState);
+        alert('La caméra n\'est pas encore prête. Veuillez attendre quelques secondes et réessayer.');
+        return;
+      }
+
+      // Vérifier les dimensions de la vidéo
+      const videoWidth = videoElement.videoWidth;
+      const videoHeight = videoElement.videoHeight;
+      
+      console.log(`📹 Dimensions vidéo: ${videoWidth}x${videoHeight}`);
+      
+      if (videoWidth === 0 || videoHeight === 0) {
+        console.error('Dimensions vidéo invalides');
+        alert('Erreur: dimensions de la vidéo invalides. Veuillez relancer la caméra.');
+        return;
+      }
+
+      // Créer le canvas avec les bonnes dimensions
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      
+      if (!ctx) {
+        console.error('Impossible de créer le contexte 2D');
+        return;
+      }
+
+      // Définir les dimensions du canvas
+      canvas.width = videoWidth;
+      canvas.height = videoHeight;
+      
+      console.log(`🎨 Canvas créé: ${canvas.width}x${canvas.height}`);
 
       // Capturer l'image de la vidéo
       ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+      
+      // Vérifier que quelque chose a été capturé (pixel test)
+      const imageData = ctx.getImageData(0, 0, Math.min(10, canvas.width), Math.min(10, canvas.height));
+      const hasContent = Array.from(imageData.data).some(value => value !== 0);
+      
+      if (!hasContent) {
+        console.error('⚠️ Canvas semble vide, tentative avec délai...');
+        // Attendre un peu et réessayer
+        await new Promise(resolve => setTimeout(resolve, 500));
+        ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+      }
 
       // Ajouter l'overlay "Promotion 2025"
       this.addPromotionOverlay(ctx, canvas.width, canvas.height);
@@ -617,7 +905,13 @@ export class PresentationComponent implements OnInit, OnDestroy {
       const now = new Date();
       const timestamp = now.toISOString().replace(/[:.]/g, '-').split('T')[0];
       link.download = `quiz-promotion-2025-${timestamp}.jpg`;
-      link.href = canvas.toDataURL('image/jpeg', 0.9);
+      
+      // Utiliser une qualité plus élevée pour une meilleure image
+      link.href = canvas.toDataURL('image/jpeg', 0.95);
+      
+      // Déboguer: afficher la taille du dataURL
+      console.log(`📸 Taille de l'image générée: ${link.href.length} caractères`);
+      
       link.click();
 
       this.photoTaken = true;
@@ -630,6 +924,7 @@ export class PresentationComponent implements OnInit, OnDestroy {
 
     } catch (error) {
       console.error('❌ Erreur lors de la prise de photo:', error);
+      alert('Erreur lors de la capture de la photo. Veuillez réessayer.');
     }
   }
 
@@ -674,6 +969,7 @@ export class PresentationComponent implements OnInit, OnDestroy {
     }
     
     this.cameraActive = false;
+    this.cameraReady = false;
     this.showCameraModal = false;
     this.photoTaken = false;
     console.log('✅ Caméra fermée');
@@ -769,6 +1065,153 @@ export class PresentationComponent implements OnInit, OnDestroy {
       console.log('✅ Capture du leaderboard réussie !');
     } catch (error) {
       console.error('❌ Erreur lors de la capture:', error);
+    }
+  }
+
+  // Méthodes de gestion admin
+  extendSession(): void {
+    this.adminAuthService.extendSession();
+  }
+
+  logout(): void {
+    if (confirm('Êtes-vous sûr de vouloir vous déconnecter ?')) {
+      this.adminAuthService.logout();
+      this.router.navigate(['/admin-login']);
+    }
+  }
+
+  getRemainingTime(): string {
+    return this.adminAuthService.getFormattedRemainingTime();
+  }
+
+  // Méthodes de restauration
+  async onRestoreGame(): Promise<void> {
+    if (!this.buttonsEnabled) return;
+    
+    // Attendre le temps minimum d'affichage du modal
+    const elapsedTime = Date.now() - this.modalStartTime;
+    if (elapsedTime < this.minModalDisplayTime) {
+      await new Promise(resolve => setTimeout(resolve, this.minModalDisplayTime - elapsedTime));
+    }
+
+    try {
+      console.log('🔄 Tentative de restauration de la partie...');
+      
+      const restored = await this.quizService.restoreGameState();
+      if (restored) {
+        this.showRestoreDialog = false;
+        
+        // Synchroniser l'état local avec l'état restauré
+        this.participants = this.quizService.participants;
+        
+        // Récupérer l'étape actuelle du serveur
+        try {
+          const gameState = await this.quizService.getGameState();
+          this.step = gameState?.step || 'lobby';
+          
+          // Si on est dans une question, synchroniser le timer
+          if (this.step === 'question') {
+            console.log('🕐 Restauration pendant une question, synchronisation du timer');
+            await this.syncTimerWithServer();
+          }
+          
+        } catch (error) {
+          console.warn('Erreur lors de la récupération de l\'étape, utilisation de lobby par défaut');
+          this.step = 'lobby';
+        }
+        
+        console.log('✅ Partie restaurée avec succès !');
+        
+      } else {
+        console.error('❌ Impossible de restaurer la partie');
+        this.onStartNewGame();
+      }
+    } catch (error) {
+      console.error('❌ Erreur lors de la restauration:', error);
+      this.onStartNewGame();
+    }
+  }
+
+  onStartNewGame(): void {
+    if (!this.buttonsEnabled) return;
+    
+    // Attendre le temps minimum d'affichage du modal
+    const elapsedTime = Date.now() - this.modalStartTime;
+    if (elapsedTime < this.minModalDisplayTime) {
+      setTimeout(() => {
+        this.actuallyStartNewGame();
+      }, this.minModalDisplayTime - elapsedTime);
+    } else {
+      this.actuallyStartNewGame();
+    }
+  }
+
+  private actuallyStartNewGame(): void {
+    console.log('🆕 Démarrage d\'une nouvelle partie');
+    this.showRestoreDialog = false;
+    
+    // Effacer la sauvegarde précédente
+    this.quizService.clearSavedGameState();
+    
+    // Initialiser une nouvelle partie
+    this.initializeNewGame();
+  }
+
+  /**
+   * Synchronise l'état local avec l'état du serveur
+   */
+  private async synchronizeWithServer(serverState: any): Promise<void> {
+    try {
+      console.log('🔄 Synchronisation avec l\'état du serveur:', serverState);
+      
+      // Initialiser les composants de base
+      this.quizService.initQuestions();
+      
+      // Synchroniser l'étape
+      this.step = serverState.step || 'lobby';
+      
+      // Initialiser les souscriptions
+      this.initializeSubscriptions();
+      
+      // Récupérer la liste des participants depuis le serveur
+      try {
+        const participants = await this.quizService.fetchParticipantsFromServer();
+        this.participants = participants || [];
+        console.log('👥 Participants synchronisés:', this.participants.length);
+      } catch (error) {
+        console.warn('⚠️ Impossible de récupérer les participants:', error);
+        this.participants = [];
+      }
+      
+      // Si on est dans une question, synchroniser l'index et le timer
+      if (serverState.step === 'question') {
+        this.currentIndex = serverState.currentQuestionIndex || 0;
+        this.currentQuestion = this.quizService.getCurrentQuestion(this.currentIndex);
+        
+        // Synchroniser le timer si nécessaire
+        if (serverState.questionStartTime) {
+          this.checkAndSyncTimer();
+        }
+      }
+      
+      // Si on est dans les résultats, synchroniser l'index de la question
+      if (serverState.step === 'result') {
+        this.currentIndex = serverState.currentQuestionIndex || 0;
+        this.currentQuestion = this.quizService.getCurrentQuestion(this.currentIndex);
+      }
+      
+      // Forcer la détection des changements
+      this.cdr.detectChanges();
+      
+      console.log('✅ Synchronisation terminée:', {
+        step: this.step,
+        currentIndex: this.currentIndex,
+        participants: this.participants.length
+      });
+      
+    } catch (error) {
+      console.error('❌ Erreur lors de la synchronisation:', error);
+      throw error;
     }
   }
 }
