@@ -121,7 +121,7 @@ export class GamePersistenceService {
 
     const now = Date.now();
     const elapsed = now - savedState.questionStartTime;
-    const maxTime = (savedState.timerMax || 15) * 1000; // 15 secondes par défaut
+    const maxTime = (savedState.timerMax || 20) * 1000; // 20 secondes par défaut
 
     return Math.max(0, maxTime - elapsed);
   }

@@ -168,8 +168,8 @@ export class PresentationComponent implements OnInit, OnDestroy {
   // Retourne le temps total des bonnes réponses pour un user
   // (méthode unique, suppression du doublon)
   windowLocation = window.location.origin;
-  timerValue: number = 15;
-  timerMax: number = 15; // Durée du timer en secondes, synchronisée avec timerValue
+  timerValue: number = 20;
+  timerMax: number = 20; // Durée du timer en secondes, synchronisée avec timerValue
 
   // Propriétés pour la photo de groupe
   cameraStream: MediaStream | null = null;
@@ -313,9 +313,21 @@ export class PresentationComponent implements OnInit, OnDestroy {
 
   // Méthode optimisée pour mettre à jour le leaderboard sans logs excessifs
   private updateLeaderboard(): void {
+    // Si pas de participants, pas besoin de calculer le leaderboard
+    if (this.participants.length === 0) {
+      this.leaderboard = [];
+      return;
+    }
+
     this.fetchQuestionStartTimes().then(() => {
       const subscription = this.quizService.getAllAnswers$().subscribe((allAnswersDocs: any[]) => {
         const nbQuestions = this.quizService.getQuestions().length;
+        
+        // Si pas de questions, pas de leaderboard
+        if (nbQuestions === 0) {
+          this.leaderboard = [];
+          return;
+        }
         
         console.log('[LEADERBOARD] Mise à jour du classement:', {
           participants: this.participants.length,
@@ -373,7 +385,7 @@ export class PresentationComponent implements OnInit, OnDestroy {
                     score++;
                     const qStart = this.questionStartTimes[i] ?? this.questionStartTimes[String(i)];
                     if (answer.timestamp && qStart && answer.timestamp >= qStart) {
-                      const timeTaken = Math.min(answer.timestamp - qStart, 15000);
+                      const timeTaken = Math.min(answer.timestamp - qStart, 20000);
                       goodTimes[i] = timeTaken;
                       totalTime += timeTaken;
                     }
@@ -500,14 +512,14 @@ export class PresentationComponent implements OnInit, OnDestroy {
       } else {
         // Pas de questionStartTime côté serveur, ne pas démarrer le timer
         console.log('⏸️ Pas de timer côté serveur, attente...');
-        this.timerValue = 15;
-        this.timerMax = 15;
+        this.timerValue = 20;
+        this.timerMax = 20;
         // Ne pas démarrer le timer
       }
     } catch (error) {
       console.warn('Erreur vérification timer serveur:', error);
-      this.timerValue = 15;
-      this.timerMax = 15;
+      this.timerValue = 20;
+      this.timerMax = 20;
     }
   }
 
@@ -517,12 +529,12 @@ export class PresentationComponent implements OnInit, OnDestroy {
       const gameState = await this.quizService.getGameState();
       
       if (!gameState) {
-        this.startTimerNormal(15);
+        this.startTimerNormal(20);
         return;
       }
       
       const questionStartTime = gameState.questionStartTime;
-      const timerMax = gameState.timerMax || 15;
+      const timerMax = gameState.timerMax || 20;
       
       if (questionStartTime) {
         const elapsed = Math.floor((Date.now() - questionStartTime) / 1000);
@@ -552,11 +564,11 @@ export class PresentationComponent implements OnInit, OnDestroy {
       }
     } catch (error) {
       console.warn('Erreur synchronisation timer, démarrage normal:', error);
-      this.startTimerNormal(15);
+      this.startTimerNormal(20);
     }
   }
 
-  private startTimerNormal(duration: number = 15) {
+  private startTimerNormal(duration: number = 20) {
     this.timerValue = duration;
     this.timerMax = duration;
     
@@ -628,8 +640,8 @@ export class PresentationComponent implements OnInit, OnDestroy {
       await new Promise(resolve => setTimeout(resolve, 50));
       
       // Reset timer to full immediately for visual sync
-      this.timerValue = 15;
-      this.timerMax = 15;
+      this.timerValue = 20;
+      this.timerMax = 20;
       this.cdr.detectChanges();
       
       // Incrémenter l'index de la question
@@ -678,6 +690,7 @@ export class PresentationComponent implements OnInit, OnDestroy {
       this.currentQuestion = null;
       this.answersCount = [];
       this.leaderboard = [];
+      this.participants = []; // Vider aussi les participants locaux
       this.imageLoaded = false; // Reset image state
       this.resultImageLoaded = false; // Reset result image state
       console.log('[RESET] 3. ✅ État local réinitialisé');
@@ -687,16 +700,14 @@ export class PresentationComponent implements OnInit, OnDestroy {
       const errorMsg = error instanceof Error ? error.message : 'Erreur inconnue';
       alert(`Erreur lors de la réinitialisation du quiz: ${errorMsg}`);
     }
-    this.timerValue = 15;
+    this.timerValue = 20;
     this.voters = [];
+    
+    // Arrêter les subscriptions existantes pour éviter les logs répétés
+    this.subscriptions.forEach(sub => sub.unsubscribe());
+    this.subscriptions = [];
+    
     this.refresh();
-    // Rafraîchit explicitement le leaderboard après reset
-    setTimeout(() => {
-      this.quizService.getAllAnswers$().subscribe((allAnswersDocs: any[]) => {
-        console.log('[DEBUG][RESET][LEADERBOARD] Réponses SQLite après reset:', allAnswersDocs);
-        this.leaderboard = [];
-      });
-    }, 500);
   }
 
   // Méthodes de gestion des images pour éviter le flash
