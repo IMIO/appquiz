@@ -1,6 +1,6 @@
 import { User } from './models/user.model';
 import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
-import { Subscription, interval } from 'rxjs';
+import { Subscription, interval, take } from 'rxjs';
 import { Question } from './models/question.model';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
@@ -16,7 +16,22 @@ import { environment } from '../environments/environment';
 })
 export class QuizComponent implements OnInit {
   syncSelectedAnswerFromServer() {
-    // À compléter selon la logique métier
+    // Ne pas écraser l'état restauré 
+    const savedData = localStorage.getItem(this.PLAYER_STATE_KEY);
+    if (savedData) {
+      try {
+        const playerState = JSON.parse(savedData);
+        if (playerState.currentIndex === this.currentIndex && playerState.answerSubmitted) {
+          console.log('[SYNC] État restauré préservé, pas de synchronisation serveur');
+          return;
+        }
+      } catch (error) {
+        console.error('[SYNC] Erreur lecture état pour sync:', error);
+      }
+    }
+    
+    // TODO: Logique de synchronisation avec le serveur si nécessaire
+    console.log('[SYNC] Synchronisation avec serveur (pas d\'état restauré)');
   }
 
   updateTimerValue() {
@@ -71,6 +86,9 @@ export class QuizComponent implements OnInit {
   questionResults: { good: number, bad: number, none: number }[] = [];
   answersSub?: Subscription;
 
+  // Clé de stockage pour l'état du joueur
+  private readonly PLAYER_STATE_KEY = 'quiz_player_state';
+
   constructor(private quizService: QuizService, private router: Router, private cdr: ChangeDetectorRef) { }
 
   public get totalQuestions(): number {
@@ -86,10 +104,155 @@ export class QuizComponent implements OnInit {
     return this.goodAnswersTimes.reduce((sum, t) => sum + t, 0);
   }
 
+  /**
+   * Sauvegarder l'état du joueur dans localStorage
+   */
+  private savePlayerState(): void {
+    try {
+      const playerState = {
+        totalScore: this.totalScore,
+        questionResults: this.questionResults,
+        goodAnswersTimes: this.goodAnswersTimes,
+        currentIndex: this.currentIndex,
+        timerQuestionIndex: this.timerQuestionIndex,
+        questionStartTime: this.questionStartTime,
+        answerSubmitted: this.answerSubmitted,
+        selectedAnswerIndex: this.selectedAnswerIndex,
+        isAnswerCorrect: this.isAnswerCorrect,
+        step: this.step,
+        answers: this.answers,
+        personalScore: this.personalScore,
+        lastActivity: Date.now()
+      };
+      
+      localStorage.setItem(this.PLAYER_STATE_KEY, JSON.stringify(playerState));
+      console.log('[PLAYER-STATE] État sauvegardé:', playerState);
+    } catch (error) {
+      console.error('[PLAYER-STATE] Erreur sauvegarde:', error);
+    }
+  }
+
+  /**
+   * Restaurer l'état du joueur depuis localStorage
+   */
+  private restorePlayerState(): boolean {
+    try {
+      const savedData = localStorage.getItem(this.PLAYER_STATE_KEY);
+      if (!savedData) return false;
+
+      const playerState = JSON.parse(savedData);
+      
+      // Vérifier que la sauvegarde n'est pas trop ancienne (30 minutes)
+      const maxAge = 30 * 60 * 1000;
+      const age = Date.now() - (playerState.lastActivity || 0);
+      if (age > maxAge) {
+        console.log('[PLAYER-STATE] Sauvegarde trop ancienne, suppression');
+        localStorage.removeItem(this.PLAYER_STATE_KEY);
+        return false;
+      }
+
+      // Restaurer les données importantes
+      this.questionResults = playerState.questionResults || [];
+      this.goodAnswersTimes = playerState.goodAnswersTimes || [];
+      this.currentIndex = playerState.currentIndex || 0;
+      this.timerQuestionIndex = playerState.timerQuestionIndex || -1;
+      this.questionStartTime = playerState.questionStartTime || 0;
+      this.answerSubmitted = playerState.answerSubmitted || false;
+      this.selectedAnswerIndex = playerState.selectedAnswerIndex;
+      this.isAnswerCorrect = playerState.isAnswerCorrect;
+      this.answers = playerState.answers || [];
+      this.personalScore = playerState.personalScore || { good: 0, bad: 0, none: 0 };
+
+      // Recalculer le score total à partir des résultats restaurés
+      this.totalScore = this.questionResults.reduce((sum, r) => sum + (r?.good || 0), 0);
+
+      console.log('[PLAYER-STATE] État restauré:', {
+        totalScore: this.totalScore,
+        questionResults: this.questionResults.length,
+        questionResultsData: this.questionResults,
+        currentIndex: this.currentIndex,
+        answerSubmitted: this.answerSubmitted,
+        selectedAnswerIndex: this.selectedAnswerIndex
+      });
+
+      return true;
+    } catch (error) {
+      console.error('[PLAYER-STATE] Erreur restauration:', error);
+      localStorage.removeItem(this.PLAYER_STATE_KEY);
+      return false;
+    }
+  }
+
+  /**
+   * Calculer le temps de timer restant en fonction du temps du serveur
+   */
+  private calculateSyncedTimer(): void {
+    if (this.questionStartTime && this.step === 'question') {
+      const elapsed = Date.now() - this.questionStartTime;
+      const maxTime = this.timerMax * 1000;
+      const remaining = Math.max(0, maxTime - elapsed);
+      
+      this.timerValue = Math.ceil(remaining / 1000);
+      this.timerPercent = (remaining / maxTime) * 100;
+      
+      console.log('[TIMER-SYNC] Timer synchronisé:', {
+        elapsed: elapsed,
+        remaining: remaining,
+        timerValue: this.timerValue,
+        timerPercent: this.timerPercent
+      });
+    }
+  }
+
   ngOnInit(): void {
     this.avatarUrl = localStorage.getItem('avatarUrl');
     this.quizService.initQuestions();
+    
+    // Restaurer l'état du joueur s'il existe
+    const stateRestored = this.restorePlayerState();
+    if (stateRestored) {
+      console.log('[PLAYER-STATE] État restauré avec succès au démarrage');
+    }
+    
     this.subscribeAnswers();
+    
+    // Détecter les resets complets par disparition des participants (VERSION RENFORCÉE)
+    let lastParticipantCount = 0;
+    let hasSeenParticipants = false; // S'assurer qu'on a vu des participants avant
+    
+    this.quizService.getParticipants$().subscribe((participants: User[]) => {
+      const userId = localStorage.getItem('userId');
+      
+      // Marquer qu'on a vu des participants (seulement si > 0)
+      if (participants.length > 0) {
+        hasSeenParticipants = true;
+      }
+      
+      // Détecter reset SEULEMENT si on a vu des participants ET qu'ils disparaissent tous
+      if (hasSeenParticipants && lastParticipantCount > 0 && participants.length === 0 && userId) {
+        console.log('[QUIZ] 🔄 Reset complet potentiel détecté (participants: ' + lastParticipantCount + ' → 0)');
+        
+        // Délai de confirmation pour éviter les faux positifs
+        setTimeout(() => {
+          this.quizService.getParticipants$().pipe(take(1)).subscribe((recheck: User[]) => {
+            if (recheck.length === 0) {
+              console.log('[QUIZ] 🔄 Reset confirmé après délai, redirection vers login');
+              localStorage.removeItem('userId');
+              localStorage.removeItem('userName');
+              localStorage.removeItem('avatarUrl');
+              localStorage.removeItem(this.PLAYER_STATE_KEY); // Nettoyer l'état du joueur
+              this.router.navigate(['/login']);
+            } else {
+              console.log('[QUIZ] ℹ️ Fausse alerte reset, participants revenus:', recheck.length);
+            }
+          });
+        }, 2000); // 2 secondes de délai de confirmation
+        return;
+      }
+      
+      lastParticipantCount = participants.length;
+    });
+    
     this.quizService.getStep().subscribe((step: QuizStep) => {
       // Éviter les redéclenchements inutiles
       if (this.step === step) {
@@ -99,6 +262,15 @@ export class QuizComponent implements OnInit {
       console.log('[STEP] Changement d\'étape de', this.step, 'vers', step);
       this.step = step;
       if (step === 'lobby') {
+        console.log('[QUIZ] Reset détecté, nettoyage et redirection vers login');
+        
+        // Nettoyer le localStorage
+        localStorage.removeItem('userId');
+        localStorage.removeItem('userName');
+        localStorage.removeItem('avatarUrl');
+        localStorage.removeItem(this.PLAYER_STATE_KEY); // Nettoyer l'état du joueur
+        
+        // Nettoyer les données locales et rediriger
         this.router.navigate(['/login']);
         this.totalScore = 0;
         this.questionResults = [];
@@ -130,8 +302,21 @@ export class QuizComponent implements OnInit {
                              this.lastStep === 'lobby' ||
                              this.lastStep === null;
 
-        if (isNewQuestion || comingFromResult) {
-          // Nouvelle question : toujours réinitialiser
+        // Vérifier si on a un état restauré pour cette question
+        const savedData = localStorage.getItem(this.PLAYER_STATE_KEY);
+        let hasRestoredState = false;
+        
+        if (savedData) {
+          try {
+            const playerState = JSON.parse(savedData);
+            hasRestoredState = playerState.currentIndex === this.currentIndex && playerState.answerSubmitted;
+          } catch (error) {
+            console.error('[QUESTION] Erreur lecture état:', error);
+          }
+        }
+
+        if ((isNewQuestion || comingFromResult) && !hasRestoredState) {
+          // Nouvelle question : réinitialiser seulement si pas d'état restauré
           this.answerSubmitted = false;
           this.justSubmitted = false;
           this.selectedAnswerIndex = null;
@@ -147,20 +332,21 @@ export class QuizComponent implements OnInit {
             answerSubmitted: this.answerSubmitted
           });
         } else {
-          // Même question : préserver l'état si réponse soumise
+          // Même question OU état restauré : préserver l'état
           const shouldPreserveState = this.answerSubmitted && this.selectedAnswerIndex !== null;
 
-          if (!shouldPreserveState) {
+          if (!shouldPreserveState && !hasRestoredState) {
             this.answerSubmitted = false;
             this.justSubmitted = false;
             this.selectedAnswerIndex = null;
             this.isAnswerCorrect = null;
           }
 
-          console.log('[QUESTION] Même question - État préservé:', {
+          console.log('[QUESTION] État préservé (même question ou restauré):', {
             currentIndex: this.currentIndex,
             answerSubmitted: this.answerSubmitted,
-            selectedAnswerIndex: this.selectedAnswerIndex
+            selectedAnswerIndex: this.selectedAnswerIndex,
+            hasRestoredState
           });
         }
 
@@ -171,6 +357,9 @@ export class QuizComponent implements OnInit {
         if (!this.timerActive || this.timerQuestionIndex !== this.currentIndex) {
           this.startTimer();
         }
+        
+        // Sauvegarder l'état après changement d'étape
+        this.savePlayerState();
       } else {
         this.stopTimer();
         // Mettre à jour lastStep pour les autres étapes aussi
@@ -210,24 +399,50 @@ export class QuizComponent implements OnInit {
       // Forcer la détection de changement pour l'affichage
       this.cdr.detectChanges();
 
-      // TOUJOURS réinitialiser pour une nouvelle question (changement d'index)
-      this.answerSubmitted = false;
-      this.justSubmitted = false;
-      this.selectedAnswerIndex = null;
-      this.isAnswerCorrect = null;
-
-      console.log('[INDEX] Après réinitialisation pour nouvelle question:', {
-        currentIndex: this.currentIndex,
-        answerSubmitted: this.answerSubmitted,
-        selectedAnswerIndex: this.selectedAnswerIndex
-      });
+      // Réinitialiser SEULEMENT si pas d'état restauré pour cette question
+      const savedData = localStorage.getItem(this.PLAYER_STATE_KEY);
+      let shouldResetAnswer = true;
+      
+      if (savedData) {
+        try {
+          const playerState = JSON.parse(savedData);
+          // Ne pas réinitialiser si on a une réponse sauvegardée pour cette question
+          if (playerState.currentIndex === idx && playerState.answerSubmitted) {
+            shouldResetAnswer = false;
+            console.log('[INDEX] État restauré préservé pour question', idx);
+          }
+        } catch (error) {
+          console.error('[INDEX] Erreur lecture état sauvegardé:', error);
+        }
+      }
+      
+      if (shouldResetAnswer) {
+        this.answerSubmitted = false;
+        this.justSubmitted = false;
+        this.selectedAnswerIndex = null;
+        this.isAnswerCorrect = null;
+        console.log('[INDEX] Réinitialisation pour nouvelle question:', idx);
+      } else {
+        console.log('[INDEX] État préservé pour question avec réponse:', {
+          currentIndex: this.currentIndex,
+          answerSubmitted: this.answerSubmitted,
+          selectedAnswerIndex: this.selectedAnswerIndex
+        });
+      }
 
       // Si on est dans l'étape question, redémarrer le timer
       if (this.step === 'question') {
         this.startTimer();
       }
+      
+      // Sauvegarder l'état après changement d'index
+      this.savePlayerState();
     });
-    this.totalScore = this.questionResults.reduce((sum, r) => sum + (r?.good || 0), 0);
+    
+    // Recalculer le score total seulement si pas d'état restauré
+    if (!stateRestored) {
+      this.totalScore = this.questionResults.reduce((sum, r) => sum + (r?.good || 0), 0);
+    }
   }
 
   private subscribeAnswers() {
@@ -238,7 +453,7 @@ export class QuizComponent implements OnInit {
   }
 
   startTimer() {
-    console.log('[TIMER] Démarrage du timer pour question', this.currentIndex);
+    console.log('[TIMER] Démarrage timer pour question', this.currentIndex);
 
     // Éviter de redémarrer si déjà actif pour la même question
     if (this.timerActive && this.timerQuestionIndex === this.currentIndex && this.timerCountdownSub) {
@@ -248,16 +463,37 @@ export class QuizComponent implements OnInit {
 
     this.stopTimer();
 
+    // Marquer le temps de début de la question (pour synchronisation)
+    this.questionStartTime = Date.now();
+    
+    // Si on a une sauvegarde récente, ajuster le temps de début
+    const savedData = localStorage.getItem(this.PLAYER_STATE_KEY);
+    if (savedData) {
+      try {
+        const playerState = JSON.parse(savedData);
+        if (playerState.questionStartTime && playerState.timerQuestionIndex === this.currentIndex) {
+          // Utiliser le temps de début sauvegardé pour rester synchronisé
+          this.questionStartTime = playerState.questionStartTime;
+        }
+      } catch (error) {
+        console.error('[TIMER] Erreur lors de la synchronisation:', error);
+      }
+    }
+
     // Initialiser le timer à sa valeur maximale
     this.timerValue = this.timerMax;
     this.timerPercent = 100;
     this.timerActive = true;
     this.timerQuestionIndex = this.currentIndex;
 
+    // Calculer le timer synchronisé immédiatement
+    this.calculateSyncedTimer();
+
     console.log('[TIMER] Timer initialisé:', {
       timerValue: this.timerValue,
       timerMax: this.timerMax,
-      timerActive: this.timerActive
+      timerActive: this.timerActive,
+      questionStartTime: this.questionStartTime
     });
 
     // Démarrer l'intervalle de décrémentation
@@ -269,11 +505,14 @@ export class QuizComponent implements OnInit {
       }
 
       if (this.timerActive) {
-        this.updateTimerValue();
+        this.calculateSyncedTimer(); // Utiliser la synchronisation au lieu d'updateTimerValue
       }
     });
 
-    console.log('[TIMER] Timer démarré avec interval de 1000ms');
+    console.log('[TIMER] Timer démarré avec interval de 1000ms et synchronisation');
+    
+    // Sauvegarder l'état après démarrage du timer
+    this.savePlayerState();
   }
 
   stopTimer() {
@@ -300,6 +539,9 @@ export class QuizComponent implements OnInit {
     console.log('[SELECT] Sélection de la réponse:', index);
     this.selectedAnswerIndex = index;
     this.isAnswerCorrect = this.currentQuestion?.correctIndex === index;
+
+    // Sauvegarder l'état après sélection
+    this.savePlayerState();
 
     // Laisser la réponse visuellement sélectionnée avant de soumettre
     setTimeout(() => {
@@ -356,6 +598,9 @@ export class QuizComponent implements OnInit {
       this.questionResults = updatedResults;
       this.totalScore = this.questionResults.reduce((sum, r) => sum + (r?.good || 0), 0);
       this.personalScore = result;
+      
+      // Sauvegarder l'état après soumission de la réponse
+      this.savePlayerState();
     }
   }
 

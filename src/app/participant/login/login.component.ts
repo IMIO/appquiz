@@ -17,8 +17,18 @@ export class LoginComponent {
   github: string = '';
   avatarUrl: string | null = null;
   loadingAvatar = false;
+  isSubmitting = false;
 
   constructor(private quizService: QuizService, private router: Router) {}
+
+  private generateUniqueId(): string {
+    // Use crypto.randomUUID if available, otherwise fallback
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+      return crypto.randomUUID();
+    }
+    // Fallback for older browsers
+    return 'user-' + Math.random().toString(36).substr(2, 9) + '-' + Date.now().toString(36);
+  }
 
   async fetchGithubAvatar() {
     if (!this.github.trim()) return;
@@ -35,33 +45,124 @@ export class LoginComponent {
     }
   }
 
-  async join() {
-    let userName = this.name.trim();
-    let avatar = this.avatarUrl;
-    if (this.github.trim()) {
-      userName = this.github.trim();
-      avatar = this.avatarUrl;
-    } else if (!avatar && userName) {
-      // Génère un avatar DiceBear si pseudo uniquement
-      avatar = `https://api.dicebear.com/7.x/identicon/svg?seed=${encodeURIComponent(userName)}`;
+  async join(event?: Event) {
+    console.log('=== LOGIN JOIN START ===');
+    
+    // Prevent any default behavior
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+      console.log('Event preventDefault and stopPropagation called');
     }
-    if (!userName) return;
-    const user: User = {
-      id: crypto.randomUUID(),
-      name: userName,
-      score: 0,
-      answers: []
-    };
-    if (avatar) user.avatarUrl = avatar;
+    
+    // Prevent multiple submissions
+    if (this.isSubmitting) {
+      console.warn('Join already in progress, preventing duplicate submission');
+      return;
+    }
+    
+    // Check if user is already registered in this session
+    const existingUserId = localStorage.getItem('userId');
+    if (existingUserId) {
+      console.log('User already registered in this session, navigating to waiting...');
+      await this.router.navigate(['/waiting']);
+      return;
+    }
+    
+    this.isSubmitting = true;
+    
     try {
+      // Validation détaillée
+      const nameValue = this.name?.trim() || '';
+      const githubValue = this.github?.trim() || '';
+      console.log('Form values:', { nameValue, githubValue, avatarUrl: this.avatarUrl });
+
+      if (!nameValue && !githubValue) {
+        console.error('No name or github provided');
+        alert('Veuillez saisir un nom ou un nom d\'utilisateur GitHub');
+        return;
+      }
+
+      if (githubValue && !this.avatarUrl) {
+        console.error('GitHub username provided but no avatar fetched');
+        alert('Veuillez récupérer l\'avatar GitHub avant de continuer');
+        return;
+      }
+
+      // Create user object
+      const userId = this.generateUniqueId();
+      console.log('Generated user ID:', userId);
+
+      const user: User = {
+        id: userId,
+        name: nameValue || githubValue,
+        score: 0,
+        answers: [],
+        avatarUrl: this.avatarUrl || undefined
+      };
+      console.log('Created user object:', user);
+
+      // Add participant to server
+      console.log('Attempting to add participant to server...');
       await this.quizService.addParticipant(user);
+      console.log('Add participant success');
+
+      // Save to localStorage
+      console.log('Saving user to localStorage...');
+      localStorage.setItem('quiz-user', JSON.stringify(user));
       localStorage.setItem('userId', user.id);
       localStorage.setItem('userName', user.name);
-      if (avatar) localStorage.setItem('avatarUrl', avatar);
-      this.router.navigate(['/waiting']);
-    } catch (e) {
-      alert('Erreur lors de l\'inscription, veuillez réessayer.');
-      console.error('[LOGIN] Erreur ajout participant', e);
+      if (user.avatarUrl) {
+        localStorage.setItem('avatarUrl', user.avatarUrl);
+      }
+      console.log('User saved to localStorage successfully');
+
+      // Clear form
+      this.name = '';
+      this.github = '';
+      this.avatarUrl = null;
+      console.log('Form cleared');
+
+      // Add small delay to ensure all async operations complete
+      console.log('Adding small delay before navigation...');
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Navigate with multiple approaches
+      console.log('Attempting navigation to /waiting...');
+      try {
+        // Try navigateByUrl first
+        console.log('Trying navigateByUrl...');
+        const urlResult = await this.router.navigateByUrl('/waiting');
+        console.log('NavigateByUrl result:', urlResult);
+        
+        if (!urlResult) {
+          console.warn('NavigateByUrl failed, trying navigate...');
+          const navResult = await this.router.navigate(['/waiting']);
+          console.log('Navigate result:', navResult);
+          
+          if (!navResult) {
+            console.error('Both navigation methods failed');
+            // Force page navigation as last resort
+            console.log('Forcing window location change...');
+            window.location.href = '/waiting';
+            return;
+          }
+        }
+        
+        console.log('Navigation successful');
+      } catch (navError) {
+        console.error('Navigation error:', navError);
+        console.log('Forcing window location change due to error...');
+        window.location.href = '/waiting';
+      }
+
+      console.log('=== LOGIN JOIN SUCCESS ===');
+    } catch (error) {
+      console.error('=== LOGIN JOIN ERROR ===', error);
+      alert('Erreur lors de l\'inscription. Veuillez réessayer.');
+    } finally {
+      this.isSubmitting = false;
+      console.log('isSubmitting reset to false');
     }
   }
 }
