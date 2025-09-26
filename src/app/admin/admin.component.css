@@ -1,1 +1,31 @@
 h2 { color: #d32f2f; }
+
+.admin-navigation {
+  margin: 20px 0;
+  display: flex;
+  gap: 15px;
+  flex-wrap: wrap;
+}
+
+.btn-manage, .btn-presentation {
+  padding: 12px 20px;
+  background: #3498db;
+  color: white;
+  text-decoration: none;
+  border-radius: 5px;
+  font-weight: 600;
+  transition: background 0.3s;
+  display: inline-block;
+}
+
+.btn-manage {
+  background: #27ae60;
+}
+
+.btn-manage:hover {
+  background: #219a52;
+}
+
+.btn-presentation:hover {
+  background: #2980b9;
+}

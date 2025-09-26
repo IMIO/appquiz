@@ -1,0 +1,268 @@
+<div class="admin-questions-container">
+  <h1>🔧 Gestion des Questions</h1>
+  
+  <!-- Authentification -->
+  <div class="auth-section" *ngIf="!isAuthenticated">
+    <div class="auth-card">
+      <h2>🔒 Authentification Administrateur</h2>
+      <div class="form-group">
+        <label for="password">Mot de passe administrateur :</label>
+        <input 
+          type="password" 
+          id="password"
+          [(ngModel)]="adminPassword" 
+          (keyup.enter)="authenticate()"
+          class="form-control"
+          placeholder="Saisissez le mot de passe"
+        >
+      </div>
+      <button 
+        (click)="authenticate()" 
+        [disabled]="loading || !adminPassword"
+        class="btn btn-primary">
+        {{ loading ? 'Authentification...' : 'Se connecter' }}
+      </button>
+    </div>
+  </div>
+
+  <!-- Interface principale -->
+  <div *ngIf="isAuthenticated">
+    <!-- Header avec actions -->
+    <div class="header-actions">
+      <button (click)="goBack()" class="btn btn-secondary">
+        ← Retour Admin
+      </button>
+      <button (click)="logout()" class="btn btn-outline">
+        🚪 Déconnexion
+      </button>
+    </div>
+
+    <!-- Messages -->
+    <div class="messages">
+      <div *ngIf="error" class="alert alert-error">
+        ❌ {{ error }}
+      </div>
+      <div *ngIf="success" class="alert alert-success">
+        ✅ {{ success }}
+      </div>
+      <div *ngIf="loading" class="alert alert-info">
+        ⏳ Chargement...
+      </div>
+    </div>
+
+    <!-- Formulaire d'ajout -->
+    <div class="add-section">
+      <h2>➕ Ajouter une nouvelle question</h2>
+      <div class="question-form-container">
+        <div class="form-group">
+          <label for="newQuestionText">Question :</label>
+          <textarea 
+            id="newQuestionText"
+            [(ngModel)]="newQuestion.text" 
+            class="form-control"
+            rows="3"
+            placeholder="Saisissez votre question..."
+          ></textarea>
+        </div>
+
+        <!-- Images de la question -->
+        <div class="images-section">
+          <h4>🖼️ Images associées</h4>
+          
+          <div class="form-group">
+            <label for="imageUrl">Image de la question :</label>
+            <input 
+              type="text" 
+              id="imageUrl"
+              [(ngModel)]="newQuestion.imageUrl" 
+              class="form-control"
+              placeholder="/assets/img/question1.jpg"
+            >
+            <small class="form-hint">Chemin vers l'image : /assets/img/nom-image.jpg (images dans /public/assets/img/)</small>
+          </div>
+
+          <div class="form-group">
+            <label for="imageUrlResult">Image du résultat :</label>
+            <input 
+              type="text" 
+              id="imageUrlResult"
+              [(ngModel)]="newQuestion.imageUrlResult" 
+              class="form-control"
+              placeholder="/assets/img/result1.jpg"
+            >
+            <small class="form-hint">Chemin vers l'image de réponse : /assets/img/nom-image.jpg</small>
+          </div>
+
+          <div class="form-group">
+            <label for="imageUrlEnd">Image de fin :</label>
+            <input 
+              type="text" 
+              id="imageUrlEnd"
+              [(ngModel)]="newQuestion.imageUrlEnd" 
+              class="form-control"
+              placeholder="/assets/img/end.jpg"
+            >
+            <small class="form-hint">Chemin vers l'image de fin (optionnel) : /assets/img/nom-image.jpg</small>
+          </div>
+        </div>
+
+        <div class="options-section">
+          <label>Options de réponse :</label>
+          <div class="options-simple">
+            <div class="simple-option">
+              <div class="option-label-row">
+                <span class="opt-letter">A.</span>
+                <input 
+                  type="radio" 
+                  id="radio-a"
+                  name="correctChoice"
+                  (change)="setCorrectOption(0)"
+                  [checked]="newQuestion.correctIndex === 0"
+                >
+                <label for="radio-a">Bonne réponse</label>
+              </div>
+              <input 
+                type="text" 
+                id="simple-option-a"
+                class="simple-text-input"
+                placeholder="Tapez l'option A..."
+                (blur)="updateSimpleOption(0, $event)"
+                [value]="newQuestion.options[0]"
+              >
+            </div>
+
+            <div class="simple-option">
+              <div class="option-label-row">
+                <span class="opt-letter">B.</span>
+                <input 
+                  type="radio" 
+                  id="radio-b"
+                  name="correctChoice"
+                  (change)="setCorrectOption(1)"
+                  [checked]="newQuestion.correctIndex === 1"
+                >
+                <label for="radio-b">Bonne réponse</label>
+              </div>
+              <input 
+                type="text" 
+                id="simple-option-b"
+                class="simple-text-input"
+                placeholder="Tapez l'option B..."
+                (blur)="updateSimpleOption(1, $event)"
+                [value]="newQuestion.options[1]"
+              >
+            </div>
+
+            <div class="simple-option">
+              <div class="option-label-row">
+                <span class="opt-letter">C.</span>
+                <input 
+                  type="radio" 
+                  id="radio-c"
+                  name="correctChoice"
+                  (change)="setCorrectOption(2)"
+                  [checked]="newQuestion.correctIndex === 2"
+                >
+                <label for="radio-c">Bonne réponse</label>
+              </div>
+              <input 
+                type="text" 
+                id="simple-option-c"
+                class="simple-text-input"
+                placeholder="Tapez l'option C..."
+                (blur)="updateSimpleOption(2, $event)"
+                [value]="newQuestion.options[2]"
+              >
+            </div>
+
+            <div class="simple-option">
+              <div class="option-label-row">
+                <span class="opt-letter">D.</span>
+                <input 
+                  type="radio" 
+                  id="radio-d"
+                  name="correctChoice"
+                  (change)="setCorrectOption(3)"
+                  [checked]="newQuestion.correctIndex === 3"
+                >
+                <label for="radio-d">Bonne réponse</label>
+              </div>
+              <input 
+                type="text" 
+                id="simple-option-d"
+                class="simple-text-input"
+                placeholder="Tapez l'option D..."
+                (blur)="updateSimpleOption(3, $event)"
+                [value]="newQuestion.options[3]"
+              >
+            </div>
+          </div>
+        </div>
+
+        <button 
+          (click)="addQuestion()" 
+          [disabled]="loading"
+          class="btn btn-primary"
+        >
+          ➕ Ajouter la question
+        </button>
+      </div>
+    </div>
+
+    <!-- Liste des questions existantes -->
+    <div class="questions-list">
+      <h2>📝 Questions existantes ({{ questions.length }})</h2>
+      
+      <div *ngIf="questions.length === 0" class="no-questions">
+        Aucune question dans la base de données.
+      </div>
+
+      <div *ngFor="let question of questions; let i = index" class="question-card">
+        <!-- Mode affichage -->
+        <div class="question-display">
+          <div class="question-header">
+            <h3>{{ i + 1 }}. {{ question.text }}</h3>
+            <div class="question-actions">
+              <button (click)="deleteQuestion(question)" class="btn btn-small btn-danger">
+                🗑️ Supprimer
+              </button>
+            </div>
+          </div>
+          
+          <!-- Images associées -->
+          <div class="question-images" *ngIf="question.imageUrl || question.imageUrlResult || question.imageUrlEnd">
+            <div class="images-grid">
+              <div *ngIf="question.imageUrl" class="image-preview">
+                <label>Image question :</label>
+                <img [src]="question.imageUrl" alt="Image de la question" class="preview-img">
+                <small>{{ question.imageUrl }}</small>
+              </div>
+              <div *ngIf="question.imageUrlResult" class="image-preview">
+                <label>Image résultat :</label>
+                <img [src]="question.imageUrlResult" alt="Image du résultat" class="preview-img">
+                <small>{{ question.imageUrlResult }}</small>
+              </div>
+              <div *ngIf="question.imageUrlEnd" class="image-preview">
+                <label>Image fin :</label>
+                <img [src]="question.imageUrlEnd" alt="Image de fin" class="preview-img">
+                <small>{{ question.imageUrlEnd }}</small>
+              </div>
+            </div>
+          </div>
+
+          <div class="options-display">
+            <div 
+              *ngFor="let option of question.options; let j = index" 
+              class="option-display"
+              [class.correct-option]="j === question.correctIndex"
+            >
+              <span class="option-label">{{ getOptionLabel(j) }}.</span>
+              {{ option }}
+              <span *ngIf="j === question.correctIndex" class="correct-badge">✓ Correcte</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
