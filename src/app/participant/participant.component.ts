@@ -34,7 +34,7 @@ export class Participant implements OnInit {
   answersSub?: Subscription;
   currentQuestion: any = null;
   timerValue: number = 15;
-  timerMax: number = 15; // Durée du timer en secondes, synchronisée avec timerValue
+  timerMax: number = 20; // Durée du timer en secondes, synchronisée avec timerValue
   hasAnswered: boolean = false;
 
   constructor(private quizService: QuizService, private timerService: TimerService) {}
@@ -145,8 +145,8 @@ export class Participant implements OnInit {
     }
     this.waitingForStart = false;
     const elapsed = Math.floor((now - this.questionStartTime) / 1000);
-    this.timerValue = Math.max(15 - elapsed, 0);
-    this.timerMax = 15;
+    this.timerValue = Math.max(20 - elapsed, 0);
+    this.timerMax = 20;
     console.log('[DEBUG][PARTICIPANT][TIMER] TICK | currentIndex:', this.currentIndex, '| questionStartTime:', this.questionStartTime, '| now:', now, '| timerValue:', this.timerValue, '| waitingForStart:', this.waitingForStart);
     if (this.timerValue <= 0) {
       this.hasAnswered = true;

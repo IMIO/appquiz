@@ -5,9 +5,9 @@ import { take } from 'rxjs/operators';
 @Injectable({ providedIn: 'root' })
 export class TimerService {
   private countdown$ = new Subject<number>();
-  private lastValue = 15;
+  private lastValue = 20;
 
-  start(seconds: number = 15) {
+  start(seconds: number = 20) {
     this.lastValue = seconds;
     interval(1000).pipe(take(seconds + 1)).subscribe(i => {
       const value = seconds - i;

@@ -281,7 +281,7 @@ app.get('/api/quiz-state', (req, res) => {
         res.status(500).json({ error: 'Erreur serveur' });
       } else {
         // Ajout timerMax pour synchronisation stricte
-        const TIMER_MAX = 15; // valeur à adapter si besoin
+        const TIMER_MAX = 20; // valeur à adapter si besoin
         const state = {
           step: row?.step || 'lobby',
           currentQuestionIndex: row?.currentQuestionIndex || 0,
@@ -357,6 +357,130 @@ app.put('/api/quiz-state', (req, res) => {
 
 // === GESTION DU QUIZ ===
 
+// === ENDPOINTS ADMIN POUR GESTION DES QUESTIONS ===
+
+// Authentification admin simple
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123'; // À changer en production
+
+// Middleware d'authentification admin
+function requireAdminAuth(req, res, next) {
+  const { password } = req.body;
+  if (password !== ADMIN_PASSWORD) {
+    return res.status(401).json({ error: 'Mot de passe administrateur incorrect' });
+  }
+  next();
+}
+
+// Lister toutes les questions
+app.post('/api/admin/questions', requireAdminAuth, (req, res) => {
+  db.all('SELECT * FROM questions ORDER BY id', (err, rows) => {
+    if (err) {
+      console.error('Erreur récupération questions:', err);
+      res.status(500).json({ error: 'Erreur serveur' });
+    } else {
+      const questions = rows.map(row => ({
+        ...row,
+        options: JSON.parse(row.options)
+      }));
+      res.json(questions);
+    }
+  });
+});
+
+// Ajouter une nouvelle question
+app.post('/api/admin/questions/add', requireAdminAuth, (req, res) => {
+  const { text, options, correctIndex } = req.body;
+  
+  if (!text || !Array.isArray(options) || options.length < 2 || typeof correctIndex !== 'number') {
+    return res.status(400).json({ 
+      error: 'Données invalides. Requis: text, options (array), correctIndex (number)' 
+    });
+  }
+
+  if (correctIndex < 0 || correctIndex >= options.length) {
+    return res.status(400).json({ 
+      error: 'correctIndex doit être un index valide dans options' 
+    });
+  }
+
+  db.run(
+    'INSERT INTO questions (text, options, correctIndex) VALUES (?, ?, ?)',
+    [text, JSON.stringify(options), correctIndex],
+    function(err) {
+      if (err) {
+        console.error('Erreur ajout question:', err);
+        res.status(500).json({ error: 'Erreur serveur' });
+      } else {
+        res.json({ 
+          success: true, 
+          id: this.lastID,
+          message: 'Question ajoutée avec succès'
+        });
+      }
+    }
+  );
+});
+
+// Modifier une question existante
+app.put('/api/admin/questions/:id', requireAdminAuth, (req, res) => {
+  const { id } = req.params;
+  const { text, options, correctIndex } = req.body;
+
+  if (!text || !Array.isArray(options) || options.length < 2 || typeof correctIndex !== 'number') {
+    return res.status(400).json({ 
+      error: 'Données invalides. Requis: text, options (array), correctIndex (number)' 
+    });
+  }
+
+  if (correctIndex < 0 || correctIndex >= options.length) {
+    return res.status(400).json({ 
+      error: 'correctIndex doit être un index valide dans options' 
+    });
+  }
+
+  db.run(
+    'UPDATE questions SET text = ?, options = ?, correctIndex = ? WHERE id = ?',
+    [text, JSON.stringify(options), correctIndex, id],
+    function(err) {
+      if (err) {
+        console.error('Erreur modification question:', err);
+        res.status(500).json({ error: 'Erreur serveur' });
+      } else if (this.changes === 0) {
+        res.status(404).json({ error: 'Question non trouvée' });
+      } else {
+        res.json({ 
+          success: true,
+          message: 'Question modifiée avec succès'
+        });
+      }
+    }
+  );
+});
+
+// Supprimer une question
+app.delete('/api/admin/questions/:id', requireAdminAuth, (req, res) => {
+  const { id } = req.params;
+  const { password } = req.body;
+
+  if (password !== ADMIN_PASSWORD) {
+    return res.status(401).json({ error: 'Mot de passe administrateur incorrect' });
+  }
+
+  db.run('DELETE FROM questions WHERE id = ?', [id], function(err) {
+    if (err) {
+      console.error('Erreur suppression question:', err);
+      res.status(500).json({ error: 'Erreur serveur' });
+    } else if (this.changes === 0) {
+      res.status(404).json({ error: 'Question non trouvée' });
+    } else {
+      res.json({ 
+        success: true,
+        message: 'Question supprimée avec succès'
+      });
+    }
+  });
+});
+
 // Reset complet du quiz
 app.post('/api/quiz/reset', (req, res) => {
   db.serialize(() => {
@@ -394,13 +518,28 @@ app.get('/api/leaderboard', (req, res) => {
 // Démarrage du serveur
 async function startServer() {
   try {
+    console.log('[DEBUG] 1. Début de startServer');
     await initDatabase();
+    console.log('[DEBUG] 2. initDatabase terminé');
 
-    app.listen(PORT, () => {
+    const server = app.listen(PORT, () => {
       console.log(`🚀 Serveur SQLite démarré`);
       console.log(`📊 Base de données: ${dbPath}`);
-      console.log(`🌐 API disponible sur: https://backendurl`);
+      console.log(`🌐 API disponible sur: http://localhost:${PORT}`);
+      console.log('[DEBUG] 3. Serveur en écoute');
     });
+    
+    console.log('[DEBUG] 4. app.listen appelé');
+    
+    // Garder le serveur vivant
+    process.on('SIGTERM', () => {
+      console.log('SIGTERM reçu, fermeture du serveur...');
+      server.close(() => {
+        console.log('Serveur fermé');
+        process.exit(0);
+      });
+    });
+    
   } catch (error) {
     console.error('❌ Erreur démarrage serveur:', error);
     process.exit(1);
