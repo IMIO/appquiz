@@ -1,0 +1,51 @@
+#!/bin/bash
+
+echo "🔄 Test de synchronisation du timer multi-clients"
+echo "================================================"
+
+echo ""
+echo "📋 Instructions de test :"
+echo "1. Ouvrir 4 onglets dans votre navigateur :"
+echo "   - Onglet 1 : http://localhost:4200/presentation (Maître du jeu)"
+echo "   - Onglet 2 : http://localhost:4200/login (Joueur 1)"
+echo "   - Onglet 3 : http://localhost:4200/login (Joueur 2)" 
+echo "   - Onglet 4 : http://localhost:4200/login (Joueur 3)"
+
+echo ""
+echo "2. S'inscrire comme joueurs :"
+echo "   - Inscrire 'Joueur1' dans l'onglet 2"
+echo "   - Inscrire 'Joueur2' dans l'onglet 3"
+echo "   - Inscrire 'Joueur3' dans l'onglet 4"
+echo "   - Tous seront redirigés vers /waiting"
+
+echo ""
+echo "3. Démarrer le quiz :"
+echo "   - Dans l'onglet 1 (présentation), cliquer 'Commencer le Quiz'"
+echo "   - Puis 'Démarrer la première question'"
+echo "   - Tous les joueurs passeront sur /quiz"
+
+echo ""
+echo "🔍 Points à vérifier ABSOLUMENT :"
+echo "   ✅ Tous les timers doivent afficher EXACTEMENT le même temps"
+echo "   ✅ Tous les timers doivent décompter ensemble (pas de décalage)"
+echo "   ✅ Le timer de la présentation doit être identique aux joueurs"
+echo "   ✅ Pas de 'sauts' ou 'bonds' dans les timers"
+
+echo ""
+echo "📊 Dans la console du navigateur, vérifiez les logs :"
+echo "   - Recherchez '🕐 Timer sync SERVER:' pour voir la synchronisation"
+echo "   - Recherchez '⏱️  Timer sync:' côté serveur"
+echo "   - Les temps doivent être identiques pour tous les clients"
+
+echo ""
+echo "🐛 Si les timers ne sont PAS synchronisés :"
+echo "   - Notez la différence en secondes"
+echo "   - Vérifiez les logs de la console"
+echo "   - Testez en rafraîchissant les pages joueurs"
+
+echo ""
+echo "💡 Améliorations apportées :"
+echo "   - Le serveur calcule le temps restant (pas les clients)"
+echo "   - Synchronisation toutes les 500ms (au lieu de 1s)"  
+echo "   - Tick local uniquement pour la fluidité visuelle"
+echo "   - Source unique de vérité : le serveur"

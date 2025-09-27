@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core';
-import { BehaviorSubject, Observable, firstValueFrom, interval, timer } from 'rxjs';
+import { BehaviorSubject, Observable, firstValueFrom, interval, timer, concat } from 'rxjs';
 import { map, switchMap, catchError, distinctUntilChanged, tap } from 'rxjs/operators';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { Question } from '../models/question.model';
@@ -39,7 +39,7 @@ export class QuizService {
     if (this.questionsLoaded) return;
     this.questionsLoaded = true;
 
-    console.log('[SERVICE] Début chargement des questions...');
+    console.log('[SERVICE] Chargement des questions...');
 
     try {
       const questions: Question[] = await firstValueFrom(
@@ -51,10 +51,7 @@ export class QuizService {
       this.questions = questions.sort((a, b) => a.id - b.id);
       this.questionsSubject.next(this.questions);
 
-      console.log('[SERVICE] Questions chargées:', {
-        total: this.questions.length,
-        questions: this.questions.map(q => ({ id: q.id, text: q.text.substring(0, 50) + '...' }))
-      });
+      console.log(`[SERVICE] ${this.questions.length} questions chargées avec succès`);
     } catch (error) {
       console.error('[SERVICE] Erreur chargement questions:', error);
       this.questions = [];
@@ -77,7 +74,7 @@ export class QuizService {
 
   // Observable : toutes les réponses via polling de l'API
   getAllAnswers$(): Observable<any[]> {
-    return interval(4000).pipe(
+    return interval(8000).pipe(
       switchMap(async () => {
         const nbQuestions = this.questions.length;
         const allAnswersDocs: any[] = [];
@@ -95,7 +92,7 @@ export class QuizService {
               answers: response.answers || []
             });
           } catch (error) {
-            console.error(`[SERVICE] Erreur récupération réponses question ${idx}:`, error);
+            // Erreur silencieuse pour éviter la pollution de logs
             allAnswersDocs.push({
               id: idx,
               answers: []
@@ -112,7 +109,7 @@ export class QuizService {
   // Observable : réponses d'un utilisateur spécifique
   getAllAnswersForUser$(userId: string): Observable<any[]> {
     const safeUserId = String(userId).trim();
-    return interval(5000).pipe(
+    return interval(10000).pipe(
       switchMap(async () => {
         const nbQuestions = this.questions.length;
         const answersByIndex: any[] = Array(nbQuestions).fill(null);
@@ -143,7 +140,7 @@ export class QuizService {
 
   // Observable : état du quiz via polling optimisé
   getStep(): Observable<QuizStep> {
-  return interval(1000).pipe( // Augmentation à 1s pour réduire la charge réseau
+  return interval(3000).pipe( // Augmenté à 3s pour réduire la charge réseau
       switchMap(() =>
         this.http.get<any>(`${this.apiUrl}/quiz-state`, {
           headers: this.getHeaders()
@@ -151,9 +148,8 @@ export class QuizService {
       ),
       map((data: any) => {
         const currentStep = data?.step as QuizStep || 'lobby';
-        // Log uniquement si l'état a changé
+        // Log uniquement si l'état a changé (débug réduit)
         if (currentStep !== this.lastStep) {
-          console.log('[DEBUG][API][getStep] Changement détecté:', this.lastStep, '->', currentStep);
           this.lastStep = currentStep;
         }
         return currentStep;
@@ -228,15 +224,21 @@ export class QuizService {
     }
   }
 
-  // Observable : participants via polling (réduit de 2s à 4s)
+  // Observable : participants via polling (réduit à 6s)
   getParticipants$(): Observable<User[]> {
-    return interval(4000).pipe(
+    // Émettre immédiatement la valeur courante, puis continuer avec le polling
+    const immediate = of(this.participants);
+    const polling = interval(6000).pipe(
       switchMap(() =>
         this.http.get<User[]>(`${this.apiUrl}/participants`, {
           headers: this.getHeaders()
         })
       ),
       map((users: User[]) => {
+        // Eviter les fluctuations : ne pas vider si liste temporairement vide
+        if (users.length === 0 && this.participants.length > 0) {
+          return this.participants; // Conserver la liste existante
+        }
         this.participants = users;
         return users;
       }),
@@ -245,15 +247,17 @@ export class QuizService {
         return of(this.participants); // Conserver la liste existante au lieu de tableau vide
       })
     );
+    
+    return concat(immediate, polling);
   }
 
   getQuestions() {
     return this.questions;
   }
 
-  // Observable : index de question courante via polling (réduit à 1s pour test)
+  // Observable : index de question courante via polling (réduit à 3s)
   getCurrentIndex(): Observable<number> {
-    return interval(1000).pipe(
+    return interval(3000).pipe(
       switchMap(() =>
         this.http.get<any>(`${this.apiUrl}/quiz-state`, {
           headers: this.getHeaders()
@@ -266,17 +270,9 @@ export class QuizService {
   }
 
   getCurrentQuestion(index?: number): Question | null {
-    console.log('[SERVICE] getCurrentQuestion appelé avec index:', index, {
-      questionsLength: this.questions.length,
-      questionsAvailable: this.questions.map(q => ({ id: q.id, text: q.text.substring(0, 30) + '...' }))
-    });
-
+    // Log réduit pour éviter la pollution de console
     if (typeof index === 'number') {
       const question = this.questions[index] || null;
-      console.log('[SERVICE] Question retournée pour index', index, ':', question ? {
-        id: question.id,
-        text: question.text.substring(0, 50) + '...'
-      } : 'NULL');
       return question;
     }
     return null;
@@ -286,27 +282,23 @@ export class QuizService {
   async nextQuestion(currentIndex: number) {
     const nextIndex = currentIndex + 1;
 
-    console.log('[SERVICE] nextQuestion appelé:', {
-      currentIndex,
-      nextIndex,
-      totalQuestions: this.questions.length,
-      willProceed: nextIndex < this.questions.length
-    });
+    console.log('[SERVICE] Passage à la question', nextIndex);
 
     try {
       if (nextIndex < this.questions.length) {
-        console.log('[SERVICE] Envoi PUT vers API pour index:', nextIndex);
         
-        // Préparer les données pour l'API
+        // SOLUTION SYNC: Démarrer le timer 3 secondes dans le futur 
+        // pour laisser le temps à TOUS les clients de se synchroniser
+        const delayMs = 3000; // 3 secondes de délai
+        const questionStartTime = Date.now() + delayMs;
+        
         const updateData: any = {
           currentQuestionIndex: nextIndex,
-          questionStartTime: Date.now()
+          questionStartTime: questionStartTime,
+          step: 'question' // TOUJOURS définir le step à 'question' pour toutes les questions
         };
         
-        // Si on passe à la première question (index 0), on met aussi le step à 'question'
-        if (nextIndex === 0) {
-          updateData.step = 'question';
-        }
+        console.log(`[SERVICE] ⏱️  Question ${nextIndex} programmée pour démarrer dans ${delayMs}ms (${new Date(questionStartTime).toLocaleTimeString()})`);
         
         const result = await firstValueFrom(
           this.http.put(`${this.apiUrl}/quiz-state`, updateData, {
@@ -337,6 +329,11 @@ export class QuizService {
       // Ajouter le participant à la liste locale
       this.participants.push(user);
       console.log('[SERVICE] ✅ Participant ajouté à la liste locale, total:', this.participants.length);
+      
+      // Synchroniser immédiatement avec le serveur pour s'assurer que la liste est à jour
+      console.log('[SERVICE] 🔄 Synchronisation avec le serveur...');
+      await this.fetchParticipantsFromServer();
+      console.log('[SERVICE] ✅ Synchronisation terminée, participants:', this.participants.length);
       
       // Sauvegarde automatique des participants
       this.persistenceService.updateGameState({

@@ -29,6 +29,15 @@
   </div>
 </div>
 
+<!-- Écran de loading pour synchronisation avec les joueurs -->
+<div *ngIf="isLoading" class="loading-overlay presentation-loading">
+  <div class="loading-content">
+    <div class="loading-spinner master"></div>
+    <h2>{{ loadingMessage }}</h2>
+    <p>Les écrans des joueurs se préparent...</p>
+  </div>
+</div>
+
 <!-- DIAGNOSTIC : Bloc ultra-visible si aucune étape reconnue
 <div *ngIf="!step || (step !== 'lobby' && step !== 'waiting' && step !== 'question' && step !== 'result' && step !== 'end')" style="background:#d32f2f;color:#fff;font-size:1.5em;padding:2em 2em;border-r  </div>
 
@@ -233,11 +242,35 @@
   <h3 class="step-h3">{{ currentQuestion.text }}</h3>
   <div class="container-question">
   <div class="timer step-timer" [@stepTransition]>
-    <div class="timer-bar-container">
-      <div class="timer-bar" [ngStyle]="{width: (timerValue / timerMax * 100) + '%'}"></div>
-      <span class="timer-bar-label">{{ timerValue }}s</span>
+    <div class="timer-bar-container" [ngClass]="{'timer-active': timerActive, 'timer-waiting': !timerActive}">
+      <div class="timer-bar" 
+           [ngStyle]="{width: (timerValue / timerMax * 100) + '%'}"
+           [ngClass]="{'timer-bar-active': timerActive}"></div>
+      <span class="timer-bar-label" [ngClass]="{'timer-active': timerActive}">
+        <span *ngIf="timerActive">{{ timerValue }}s</span>
+        <span *ngIf="!timerActive && timerStartedManually">Timer démarré</span>
+        <span *ngIf="!timerActive && !timerStartedManually">En attente</span>
+      </span>
     </div>
-    <button class="step-btn" (click)="forceEndTimer()">Skip</button>
+    
+    <!-- Boutons de contrôle du timer -->
+    <div class="timer-controls" style="display: flex; gap: 10px; margin-top: 10px;">
+      <button 
+        *ngIf="!timerStartedManually" 
+        class="step-btn start-timer-btn" 
+        (click)="startTimerManually(20)"
+        style="background: #28a745; color: white; font-weight: bold;">
+        ▶️ Démarrer Timer (20s)
+      </button>
+      
+      <button 
+        *ngIf="timerStartedManually" 
+        class="step-btn" 
+        (click)="forceEndTimer()"
+        style="background: #dc3545;">
+        ⏭️ Skip
+      </button>
+    </div>
   </div>
    <ul *ngIf="currentQuestion && currentQuestion.options" class="step-list" [@listAnimation]>
     <li *ngFor="let option of currentQuestion.options; let i = index; trackBy: trackByQuestionId" class="step-list-item step-option" style="pointer-events: none; cursor: default;">

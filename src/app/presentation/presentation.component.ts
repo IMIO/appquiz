@@ -1,6 +1,6 @@
 
 import { Component, ChangeDetectorRef, OnInit, OnDestroy } from '@angular/core';
-import { TimerService } from '../services/timer.service';
+import { TimerService, TimerState } from '../services/timer.service';
 import { CommonModule } from '@angular/common';
 import { QuizService, QuizStep } from '../services/quiz-secure.service';
 import { Question } from '../models/question.model';
@@ -12,6 +12,7 @@ import html2canvas from 'html2canvas';
 import { QRCodeComponent } from 'angularx-qrcode';
 import { AdminAuthService } from '../services/admin-auth.service';
 import { Router } from '@angular/router';
+import { WebSocketTimerService } from '../services/websocket-timer.service';
 
 @Component({
   selector: 'app-presentation',
@@ -99,7 +100,7 @@ export class PresentationComponent implements OnInit, OnDestroy {
     }
   }
 
-  private initializeNewGame() {
+  private async initializeNewGame() {
     // Appel unique dans le contexte Angular pour éviter les warnings
     this.quizService.initQuestions();
     // Forcer l'étape lobby au démarrage
@@ -107,6 +108,15 @@ export class PresentationComponent implements OnInit, OnDestroy {
     this.quizService.setStep('lobby');
     // Initialiser l'état du jeu si c'est une nouvelle partie
     this.quizService.initGameState();
+    
+    // CORRECTION : Charger immédiatement les participants depuis le serveur
+    try {
+      console.log('🔄 Chargement immédiat des participants depuis le serveur...');
+      await this.quizService.fetchParticipantsFromServer();
+      console.log('✅ Participants chargés avec succès');
+    } catch (error) {
+      console.error('❌ Erreur lors du chargement des participants:', error);
+    }
     
     // Initialiser les souscriptions après l'initialisation
     this.initializeSubscriptions();
@@ -153,6 +163,11 @@ export class PresentationComponent implements OnInit, OnDestroy {
   // Gestion des souscriptions pour éviter les fuites mémoire
   private subscriptions: Subscription[] = [];
   
+  // Système de loading pour synchroniser avec les joueurs
+  isLoading: boolean = false;
+  loadingMessage: string = '';
+  loadingType: string = '';
+  
   // Flag pour éviter les logs excessifs
   private debugMode = false;
   
@@ -170,6 +185,10 @@ export class PresentationComponent implements OnInit, OnDestroy {
   windowLocation = window.location.origin;
   timerValue: number = 20;
   timerMax: number = 20; // Durée du timer en secondes, synchronisée avec timerValue
+  timerActive: boolean = false; // État d'activation du timer pour l'affichage visuel
+  
+  // Contrôle manuel du timer
+  timerStartedManually: boolean = false;
 
   // Propriétés pour la photo de groupe
   cameraStream: MediaStream | null = null;
@@ -206,49 +225,62 @@ export class PresentationComponent implements OnInit, OnDestroy {
     private timerService: TimerService, 
     private cdr: ChangeDetectorRef,
     public adminAuthService: AdminAuthService,
-    private router: Router
+    private router: Router,
+    private websocketTimerService: WebSocketTimerService
   ) {
     // Initialiser les souscriptions immédiatement pour assurer la synchronisation
     this.initializeSubscriptions();
   }
 
-  private initializeSubscriptions() {
-    // Éviter la duplication des souscriptions
-    if (this.subscriptions.length > 0) {
+  private initializeSubscriptions(force: boolean = false) {
+    // Éviter la duplication des souscriptions sauf si forcé
+    if (this.subscriptions.length > 0 && !force) {
       console.log('⚠️  Souscriptions déjà initialisées, ignorer');
       return;
     }
     
+    // Si forcé, nettoyer d'abord les anciennes souscriptions
+    if (force && this.subscriptions.length > 0) {
+      console.log('🔄 Nettoyage des anciennes souscriptions avant réinitialisation');
+      this.subscriptions.forEach(sub => sub.unsubscribe());
+      this.subscriptions = [];
+    }
+    
     console.log('🔄 Initialisation des souscriptions...');
     
-    // Synchro temps réel de l'étape du quiz - optimisé pour éviter les logs répétitifs
+    // ✅ S'abonner aux transitions d'étapes synchronisées via WebSocket
+    const stepTransitionSub = this.websocketTimerService.getStepTransitions().subscribe(transitionData => {
+      console.log('[PRESENTATION][STEP-WS] Transition reçue:', transitionData);
+      this.showLoadingForTransition('question-start'); // Type par défaut pour les transitions
+    });
+    this.subscriptions.push(stepTransitionSub);
+
+    const stepActivationSub = this.websocketTimerService.getStepActivations().subscribe(activationData => {
+      console.log('[PRESENTATION][STEP-WS] Activation reçue:', activationData);
+      this.isLoading = false;
+      this.step = activationData.step as QuizStep;
+      
+      // Actions spécifiques aux étapes après activation synchronisée
+      this.handleStepActivationPresentation(activationData.step as QuizStep);
+      
+      this.refresh();
+      this.cdr.detectChanges();
+    });
+    this.subscriptions.push(stepActivationSub);
+    
+    // Synchro temps réel de l'étape du quiz (fallback pour compatibilité)
     let lastStep: string | null = null;
     const stepSub = this.quizService.getStep().subscribe(step => {
-      if (!step) return;
+      if (!step || step === lastStep) return;
       
-      // Log uniquement si l'étape a vraiment changé
-      if (step !== lastStep) {
-        console.log('[DEBUG][SYNC][getStep] Changement d\'étape :', lastStep, '->', step);
-        lastStep = step;
-        
-        // Correction typage : accepte tous les états possibles
-        this.step = step as QuizStep;
-        this.refresh();
-        this.cdr.detectChanges(); // Forcer la synchro immédiate
-        
-        if (step === 'question') {
-          // Vérifier si le serveur a déjà défini un questionStartTime avant de démarrer
-          this.checkAndSyncTimer();
-        } else {
-          this.stopTimer();
-        }
-        
-        // Réinitialisation des réponses lors du retour à l'étape lobby
-        if (step === 'lobby') {
-          this.quizService.resetAllAnswers();
-        }
-        // NE PAS appeler showResult ici pour éviter la boucle infinie
-      }
+      console.log('[PRESENTATION][STEP-FALLBACK] Changement d\'étape :', lastStep, '->', step);
+      lastStep = step;
+      
+      // Changement direct si WebSocket ne fonctionne pas
+      this.step = step as QuizStep;
+      this.handleStepActivationPresentation(step as QuizStep);
+      this.refresh();
+      this.cdr.detectChanges();
     });
     this.subscriptions.push(stepSub);
 
@@ -288,21 +320,62 @@ export class PresentationComponent implements OnInit, OnDestroy {
     });
     this.subscriptions.push(indexSub);
     
-    // Synchro temps réel des inscrits - optimisé sans logs excessifs
+    // Synchro temps réel des inscrits - optimisé pour 60+ participants
     const participantsSub = this.quizService.getParticipants$().subscribe(participants => {
-      console.log('[PRESENTATION] Participants reçus:', participants.length, participants);
       const oldCount = this.participants.length;
+      
+      // Eviter les fluctuations si la liste est vide temporairement
+      if (participants.length === 0 && oldCount > 0) {
+        console.log('[PRESENTATION] Liste participants temporairement vide - conservation de la liste précédente');
+        return; // Ne pas vider la liste si elle était non-vide avant
+      }
+      
       this.participants = participants;
       const newCount = this.participants.length;
       
       if (oldCount !== newCount) {
-        console.log(`[PRESENTATION] Changement participants: ${oldCount} → ${newCount}`);
+        console.log(`[PRESENTATION] Participants: ${oldCount} → ${newCount}`);
         this.cdr.detectChanges(); // Force la mise à jour de l'interface
       }
       
       this.updateLeaderboard();
     });
     this.subscriptions.push(participantsSub);
+
+    // ✅ S'abonner aux mises à jour WebSocket du timer pour la synchronisation visuelle côté présentation
+    const timerWebSocketSub = this.websocketTimerService.getCountdown().subscribe(timerState => {
+      console.log('[PRESENTATION][TIMER-WS] Timer update reçu:', timerState);
+      
+      // Mettre à jour l'affichage du timer côté présentation quand il est actif
+      if (timerState.questionStartTime && timerState.questionStartTime > 0 && this.step === 'question') {
+        this.timerValue = timerState.timeRemaining;
+        this.timerMax = timerState.timerMax;
+        this.timerActive = timerState.isActive;
+        
+        // Si le timer est démarré côté serveur, marquer comme démarré manuellement
+        if (!this.timerStartedManually) {
+          this.timerStartedManually = true;
+          console.log('[PRESENTATION][TIMER-WS] Timer démarré détecté, timerStartedManually = true');
+        }
+        
+        // Mise à jour visuelle immédiate
+        this.cdr.detectChanges();
+        
+        console.log('[PRESENTATION][TIMER-WS] Timer visuel mis à jour:', {
+          timeRemaining: this.timerValue,
+          isActive: this.timerActive,
+          timerMax: this.timerMax
+        });
+      } else if (timerState.questionStartTime === 0 && this.step === 'question') {
+        // Timer pas encore démarré, réinitialiser l'affichage
+        this.timerActive = false;
+        this.timerValue = timerState.timerMax || 20;
+        this.timerStartedManually = false;
+        console.log('[PRESENTATION][TIMER-WS] Timer en attente, timerStartedManually = false');
+        this.cdr.detectChanges();
+      }
+    });
+    this.subscriptions.push(timerWebSocketSub);
   }
 
   // Retourne le temps total des bonnes réponses pour un user
@@ -511,79 +584,62 @@ export class PresentationComponent implements OnInit, OnDestroy {
         this.syncTimerWithServer();
       } else {
         // Pas de questionStartTime côté serveur, ne pas démarrer le timer
-        console.log('⏸️ Pas de timer côté serveur, attente...');
-        this.timerValue = 20;
-        this.timerMax = 20;
-        // Ne pas démarrer le timer
+        console.log('⏸️ Pas de timer côté serveur, service centralisé gère l\'état');
+        // Le service centralisé gère l'état par défaut
       }
     } catch (error) {
-      console.warn('Erreur vérification timer serveur:', error);
-      this.timerValue = 20;
-      this.timerMax = 20;
+      console.warn('Erreur vérification timer serveur, service centralisé prend le relais:', error);
+      // Le service centralisé gère l'état par défaut en cas d'erreur
     }
   }
 
   private async syncTimerWithServer() {
     try {
-      // Récupérer l'état du serveur pour synchroniser le timer
-      const gameState = await this.quizService.getGameState();
+      console.log('🕐 [PRESENTATION] Synchronisation timer centralisée (auto-démarrage)');
       
-      if (!gameState) {
-        this.startTimerNormal(20);
-        return;
-      }
+      // S'abonner aux mises à jour du timer centralisé (démarrage automatique)
+      if (this.timerSub) this.timerSub.unsubscribe();
       
-      const questionStartTime = gameState.questionStartTime;
-      const timerMax = gameState.timerMax || 20;
-      
-      if (questionStartTime) {
-        const elapsed = Math.floor((Date.now() - questionStartTime) / 1000);
-        const remainingTime = Math.max(0, timerMax - elapsed);
+      this.timerSub = this.timerService.getCountdown().subscribe(timerState => {
+        const countdown = timerState.countdownToStart || 0;
         
-        console.log(`🕐 Synchronisation timer: elapsed=${elapsed}s, remaining=${remainingTime}s`);
-        
-        this.timerValue = remainingTime;
-        this.timerMax = timerMax;
-        
-        if (remainingTime <= 0) {
-          this.showResult();
-          return;
-        }
-        
-        // Démarrer le timer avec le temps restant
-        if (this.timerSub) this.timerSub.unsubscribe();
-        this.timerSub = timer(0, 1000).subscribe(val => {
-          this.timerValue = remainingTime - val;
-          if (this.timerValue <= 0) {
+        if (countdown > 0) {
+          // Mode countdown avant démarrage
+          this.timerValue = countdown;
+          this.timerMax = countdown;
+          console.log(`⏳ [PRESENTATION] Countdown: Question démarre dans ${countdown}s`);
+        } else {
+          // Mode timer normal
+          this.timerValue = timerState.timeRemaining;
+          this.timerMax = timerState.timerMax;
+          console.log(`🕐 [PRESENTATION] Timer: ${timerState.timeRemaining}s/${timerState.timerMax}s, active: ${timerState.isActive}`);
+          
+          if (timerState.timeRemaining <= 0 && timerState.isActive === false) {
             this.showResult();
           }
-        });
-      } else {
-        // Fallback: démarrer normalement
-        this.startTimerNormal(timerMax);
-      }
+        }
+      });
+      
+      // Le service centralisé gère la synchronisation initiale automatiquement
+      console.log('🕐 [PRESENTATION] Service centralisé actif, synchronisation automatique');
+      
     } catch (error) {
-      console.warn('Erreur synchronisation timer, démarrage normal:', error);
-      this.startTimerNormal(20);
+      console.warn('Erreur synchronisation timer, fallback au service centralisé:', error);
+      // Fallback: utiliser le service centralisé avec démarrage simple
+      this.timerService.start(20);
     }
   }
 
-  private startTimerNormal(duration: number = 20) {
-    this.timerValue = duration;
-    this.timerMax = duration;
-    
-    if (this.timerSub) this.timerSub.unsubscribe();
-    this.timerSub = timer(0, 1000).subscribe(val => {
-      this.timerValue = duration - val;
-      this.timerMax = duration;
-      if (this.timerValue <= 0) {
-        this.showResult();
-      }
-    });
+  // DEPRECATED: Ancienne méthode remplacée par le service timer centralisé
+  private startTimerNormal_DEPRECATED(duration: number = 20) {
+    console.warn('⚠️ startTimerNormal_DEPRECATED appelée - utiliser le service centralisé à la place');
+    // Ne plus utiliser cette méthode, utiliser timerService.startServerSync() à la place
+    this.timerService.start(duration);
   }
 
   stopTimer() {
     if (this.timerSub) this.timerSub.unsubscribe();
+    this.timerService.stopServerSync(); // Arrêter la synchronisation centralisée
   }
 
   showResult() {
@@ -644,10 +700,8 @@ export class PresentationComponent implements OnInit, OnDestroy {
       this.timerMax = 20;
       this.cdr.detectChanges();
       
-      // Incrémenter l'index de la question
+      // CORRECTION: Un seul appel qui gère tout (index + step + timer)
       await this.quizService.nextQuestion(this.currentIndex);
-      // Puis passer à l'étape question (this will eventually call startTimer and reset hideImages)
-      await this.quizService.setStep('question');
       console.log('[PRESENTATION] Question suivante appelée, nouvel index:', this.currentIndex + 1);
     } catch (error) {
       console.error('[PRESENTATION] Erreur lors du passage à la question suivante:', error);
@@ -1181,14 +1235,18 @@ export class PresentationComponent implements OnInit, OnDestroy {
       // Synchroniser l'étape
       this.step = serverState.step || 'lobby';
       
-      // Initialiser les souscriptions
-      this.initializeSubscriptions();
+      // Initialiser les souscriptions avec force pour s'assurer de la synchronisation
+      this.initializeSubscriptions(true);
       
       // Récupérer la liste des participants depuis le serveur
       try {
         const participants = await this.quizService.fetchParticipantsFromServer();
         this.participants = participants || [];
         console.log('👥 Participants synchronisés:', this.participants.length);
+        
+        // Forcer la détection des changements pour que l'UI se mette à jour
+        this.cdr.detectChanges();
+        console.log('🔄 Détection des changements forcée pour les participants');
       } catch (error) {
         console.warn('⚠️ Impossible de récupérer les participants:', error);
         this.participants = [];
@@ -1200,8 +1258,15 @@ export class PresentationComponent implements OnInit, OnDestroy {
         this.currentQuestion = this.quizService.getCurrentQuestion(this.currentIndex);
         
         // Synchroniser le timer si nécessaire
-        if (serverState.questionStartTime) {
+        if (serverState.questionStartTime && serverState.questionStartTime > 0) {
+          // Timer déjà démarré sur le serveur, marquer comme démarré manuellement
+          this.timerStartedManually = true;
+          console.log('[SYNC] Timer déjà démarré côté serveur, timerStartedManually = true');
           this.checkAndSyncTimer();
+        } else {
+          // Timer pas encore démarré, rester en attente
+          this.timerStartedManually = false;
+          console.log('[SYNC] Timer pas encore démarré côté serveur, timerStartedManually = false');
         }
       }
       
@@ -1223,6 +1288,76 @@ export class PresentationComponent implements OnInit, OnDestroy {
     } catch (error) {
       console.error('❌ Erreur lors de la synchronisation:', error);
       throw error;
+    }
+  }
+
+  // Système de loading pour synchroniser avec les joueurs
+  private showLoadingForTransition(type: string) {
+    this.isLoading = true;
+    this.loadingType = type;
+    this.loadingMessage = this.getLoadingMessage(type);
+    console.log('[PRESENTATION][LOADING] Transition:', type, 'Message:', this.loadingMessage);
+  }
+
+  private getLoadingMessage(type: string): string {
+    switch (type) {
+      case 'question-start': return 'Synchronisation des écrans...';
+      case 'question-result': return 'Calcul des résultats...';
+      case 'next-question': return 'Préparation de la question...';
+      case 'quiz-end': return 'Quiz terminé !';
+      default: return 'Synchronisation...';
+    }
+  }
+
+  // Gestion des actions spécifiques aux étapes pour la présentation
+  private handleStepActivationPresentation(step: QuizStep) {
+    console.log('[PRESENTATION][STEP-ACTIVATION] Traitement de l\'étape:', step);
+    
+    if (step === 'question') {
+      // Réinitialiser le flag de démarrage manuel pour chaque nouvelle question
+      this.timerStartedManually = false;
+      // Ne plus démarrer automatiquement le timer - attendre le démarrage manuel
+      console.log('[MANUAL-TIMER] Question affichée, en attente de démarrage manuel du timer');
+    } else {
+      this.stopTimer();
+      this.timerStartedManually = false;
+    }
+    
+    // Réinitialisation des réponses lors du retour à l'étape lobby
+    if (step === 'lobby') {
+      this.quizService.resetAllAnswers();
+    }
+  }
+
+  // Démarrage manuel du timer (synchronisé avec tous les clients via WebSocket)
+  async startTimerManually(duration: number = 20) {
+    console.log('[MANUAL-TIMER] Démarrage manuel du timer pour', duration, 'secondes');
+    
+    try {
+      const response = await fetch('http://localhost:3000/api/start-timer', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          duration: duration,
+          currentQuestionIndex: this.currentIndex
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Erreur HTTP: ${response.status}`);
+      }
+
+      const result = await response.json();
+      console.log('[MANUAL-TIMER] Timer démarré avec succès:', result);
+      
+      this.timerStartedManually = true;
+      
+    } catch (error) {
+      console.error('[MANUAL-TIMER] Erreur lors du démarrage du timer:', error);
+      // Fallback: démarrer localement si le serveur ne répond pas
+      this.timerStartedManually = true;
     }
   }
 }
