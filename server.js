@@ -2,9 +2,164 @@ const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const cors = require('cors');
 const path = require('path');
+const WebSocket = require('ws');
+const http = require('http');
 
 const app = express();
+const server = http.createServer(app);
+const wss = new WebSocket.Server({ server });
+
 const PORT = process.env.PORT || 3000;
+
+// WebSocket connections pour synchronisation temps réel
+const clients = new Set();
+
+wss.on('connection', (ws) => {
+  console.log('🔌 Nouveau client WebSocket connecté');
+  clients.add(ws);
+  
+  ws.on('close', () => {
+    console.log('🔌 Client WebSocket déconnecté');
+    clients.delete(ws);
+  });
+  
+  ws.on('error', (error) => {
+    console.error('❌ Erreur WebSocket:', error);
+    clients.delete(ws);
+  });
+});
+
+// Fonction pour broadcaster à tous les clients connectés
+function broadcastTimerUpdate(timerData) {
+  const message = JSON.stringify({
+    type: 'timer-update',
+    data: timerData
+  });
+  
+  clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(message);
+    } else {
+      clients.delete(client);
+    }
+  });
+  
+  if (clients.size > 0) {
+    console.log(`📡 Timer broadcast vers ${clients.size} clients: ${timerData.timeRemaining}s`);
+  }
+}
+
+// Fonction pour broadcaster les transitions d'étapes avec loading synchronisé
+function broadcastStepTransition(fromStep, toStep, loadingDuration = 2000) {
+  const message = JSON.stringify({
+    type: 'step-transition',
+    data: {
+      fromStep,
+      toStep,
+      loadingDuration,
+      timestamp: Date.now()
+    }
+  });
+  
+  clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(message);
+    } else {
+      clients.delete(client);
+    }
+  });
+  
+  console.log(`📡 Step transition broadcast vers ${clients.size} clients: ${fromStep} -> ${toStep}`);
+  
+  // Programmer l'activation de la nouvelle étape après le loading
+  setTimeout(() => {
+    const activationMessage = JSON.stringify({
+      type: 'step-activation',
+      data: {
+        step: toStep,
+        timestamp: Date.now()
+      }
+    });
+    
+    clients.forEach((client) => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(activationMessage);
+      }
+    });
+    
+    console.log(`📡 Step activation broadcast vers ${clients.size} clients: ${toStep}`);
+  }, loadingDuration);
+}
+
+// Timer serveur qui broadcast en temps réel toutes les 100ms
+let serverTimerInterval;
+
+function startServerTimer() {
+  if (serverTimerInterval) {
+    clearInterval(serverTimerInterval);
+  }
+  
+  serverTimerInterval = setInterval(() => {
+    // Récupérer l'état actuel du timer
+    db.get('SELECT step, currentQuestionIndex, questionStartTime, questionStartTimes FROM quiz_state WHERE id = 1',
+      (err, row) => {
+        if (err || !row) return;
+        
+        const TIMER_MAX = 20;
+        const serverTime = Date.now();
+        let timeRemaining = 0;
+        let isTimerActive = false;
+        let countdownToStart = 0;
+        
+        if (row?.questionStartTime && row?.questionStartTime > 0 && row?.step === 'question') {
+          const timeDiff = row.questionStartTime - serverTime;
+          
+          if (timeDiff > 0) {
+            // Countdown mode
+            countdownToStart = Math.ceil(timeDiff / 1000);
+            isTimerActive = false;
+            timeRemaining = countdownToStart;
+          } else {
+            // Timer actif
+            const elapsedMs = serverTime - row.questionStartTime;
+            const elapsedSeconds = elapsedMs / 1000;
+            const preciseRemaining = Math.max(0, TIMER_MAX - elapsedSeconds);
+            timeRemaining = Math.floor(preciseRemaining);
+            isTimerActive = preciseRemaining > 0;
+            countdownToStart = 0;
+          }
+          
+          // Broadcaster seulement si timer actif ou countdown
+          if (isTimerActive || countdownToStart > 0) {
+            broadcastTimerUpdate({
+              timeRemaining: timeRemaining,
+              timerMax: TIMER_MAX,
+              isTimerActive: isTimerActive,
+              countdownToStart: countdownToStart,
+              serverTime: serverTime,
+              questionStartTime: row.questionStartTime, // ✅ Inclure questionStartTime du serveur
+              step: row.step,
+              currentQuestionIndex: row.currentQuestionIndex
+            });
+          } else if (!isTimerActive && timeRemaining <= 0 && row.step === 'question') {
+            // ✅ Timer expiré - basculer automatiquement vers 'result'
+            console.log('⏰ Timer expiré, basculement automatique vers result');
+            db.run('UPDATE quiz_state SET step = ? WHERE id = 1', ['result'], (updateErr) => {
+              if (updateErr) {
+                console.error('❌ Erreur basculement vers result:', updateErr);
+              } else {
+                console.log('✅ Basculement automatique vers result réussi');
+              }
+            });
+          }
+        }
+      }
+    );
+  }, 100); // Broadcast toutes les 100ms
+}
+
+// Démarrer le timer serveur
+startServerTimer();
 
 // Configuration CORS
 app.use(cors({
@@ -282,13 +437,55 @@ app.get('/api/quiz-state', (req, res) => {
       } else {
         // Ajout timerMax pour synchronisation stricte
         const TIMER_MAX = 20; // valeur à adapter si besoin
+        const serverTime = Date.now();
+        
+        // Calculer le temps restant côté serveur pour synchronisation parfaite
+        let timeRemaining = 0;
+        let isTimerActive = false;
+        let countdownToStart = 0;
+        let preciseTimeRemaining = 0; // Version plus précise avec décimales
+        
+        if (row?.questionStartTime && row?.step === 'question') {
+          const timeDiff = row.questionStartTime - serverTime;
+          
+          if (timeDiff > 0) {
+            // Question pas encore démarrée - mode countdown
+            countdownToStart = Math.ceil(timeDiff / 1000);
+            isTimerActive = false;
+            timeRemaining = TIMER_MAX; // Prêt à démarrer
+            preciseTimeRemaining = TIMER_MAX;
+          } else {
+            // Question en cours - calcul ultra-précis
+            const elapsedMs = serverTime - row.questionStartTime;
+            const elapsedSeconds = elapsedMs / 1000;
+            preciseTimeRemaining = Math.max(0, TIMER_MAX - elapsedSeconds);
+            timeRemaining = Math.max(0, Math.floor(preciseTimeRemaining));
+            isTimerActive = preciseTimeRemaining > 0;
+            countdownToStart = 0;
+          }
+        }
+        
         const state = {
           step: row?.step || 'lobby',
           currentQuestionIndex: row?.currentQuestionIndex || 0,
           questionStartTime: row?.questionStartTime || null,
           questionStartTimes: JSON.parse(row?.questionStartTimes || '{}'),
-          timerMax: TIMER_MAX
+          timerMax: TIMER_MAX,
+          // Nouveaux champs pour synchronisation parfaite
+          timeRemaining: timeRemaining,
+          preciseTimeRemaining: preciseTimeRemaining, // Temps avec décimales pour sync parfaite
+          isTimerActive: isTimerActive,
+          serverTime: serverTime, // Timestamp serveur pour référence
+          countdownToStart: countdownToStart // Compte à rebours avant démarrage
         };
+        
+        // Log pour debugging
+        if (countdownToStart > 0) {
+          console.log(`⏳ Question démarre dans ${countdownToStart}s`);
+        } else if (isTimerActive) {
+          console.log(`⏱️  Timer actif: ${timeRemaining}s restant`);
+        }
+        
         res.json(state);
       }
     });
@@ -301,20 +498,30 @@ app.put('/api/quiz-state', (req, res) => {
   let updateFields = [];
   let updateValues = [];
 
-    // On récupère l'état actuel pour détecter le changement de question
-    db.get('SELECT currentQuestionIndex, questionStartTime, questionStartTimes FROM quiz_state WHERE id = 1', (err, row) => {
+    // On récupère l'état actuel pour détecter le changement de question et d'étape
+    db.get('SELECT step, currentQuestionIndex, questionStartTime, questionStartTimes FROM quiz_state WHERE id = 1', (err, row) => {
       if (err) {
         console.error('Erreur lecture quiz_state:', err);
         return res.status(500).json({ error: 'Erreur serveur' });
       }
+      let oldStep = row?.step || 'lobby';
       let oldQuestionIndex = row?.currentQuestionIndex ?? 0;
       let oldStartTimes = JSON.parse(row?.questionStartTimes || '{}');
       let newStartTime = row?.questionStartTime;
 
-      // Si on change de question, on réinitialise le timer
+      // Si on change de question, on réinitialise le timestamp mais on ne démarre pas le timer automatiquement
       if (typeof currentQuestionIndex === 'number' && currentQuestionIndex !== oldQuestionIndex) {
-        newStartTime = Date.now();
+        // Réinitialiser le questionStartTime à 0 pour indiquer que le timer n'est pas encore démarré
+        newStartTime = 0; // 0 = timer pas encore démarré manuellement
         oldStartTimes[currentQuestionIndex] = newStartTime;
+        console.log('[TIMER] Nouvelle question détectée, timer non démarré (démarrage manuel requis)');
+      }
+      
+      // IMPORTANT: Forcer la réinitialisation du timer chaque fois qu'on passe à l'étape "question"
+      // pour s'assurer que le timer ne démarre pas automatiquement
+      if (step === 'question') {
+        newStartTime = 0;
+        console.log('[TIMER] Passage à l\'étape question - timer réinitialisé (démarrage manuel requis)');
       }
       // Construction des champs à mettre à jour
       if (step) {
@@ -325,8 +532,8 @@ app.put('/api/quiz-state', (req, res) => {
         updateFields.push('currentQuestionIndex = ?');
         updateValues.push(currentQuestionIndex);
       }
-      // On force la mise à jour du timer si nouvelle question
-      if (typeof currentQuestionIndex === 'number' && currentQuestionIndex !== oldQuestionIndex) {
+      // On force la mise à jour du timer si nouvelle question OU si passage à l'étape question
+      if ((typeof currentQuestionIndex === 'number' && currentQuestionIndex !== oldQuestionIndex) || step === 'question') {
         updateFields.push('questionStartTime = ?');
         updateValues.push(newStartTime);
         updateFields.push('questionStartTimes = ?');
@@ -349,10 +556,57 @@ app.put('/api/quiz-state', (req, res) => {
           console.error('Erreur mise à jour état quiz:', err);
           res.status(500).json({ error: 'Erreur serveur' });
         } else {
+          // Broadcaster la transition d'étape synchronisée si l'étape a changé
+          if (step && step !== oldStep) {
+            console.log(`🔄 Changement d'étape détecté: ${oldStep} -> ${step}`);
+            broadcastStepTransition(oldStep, step, 2000); // 2 secondes de loading
+          }
+          
           res.json({ success: true });
         }
       });
     });
+});
+
+// Démarrer manuellement le timer (synchronisé via WebSocket)
+app.post('/api/start-timer', (req, res) => {
+  const { duration = 20, currentQuestionIndex } = req.body;
+  
+  console.log('[MANUAL-TIMER] Démarrage manuel du timer:', { duration, currentQuestionIndex });
+  
+  // Mettre à jour la base de données avec le nouveau timestamp
+  const questionStartTime = Date.now();
+  
+  db.run(
+    'UPDATE quiz_state SET questionStartTime = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = 1',
+    [questionStartTime],
+    function(err) {
+      if (err) {
+        console.error('[MANUAL-TIMER] Erreur mise à jour timer:', err);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+      
+      // Broadcaster immédiatement le démarrage du timer à tous les clients
+      const timerData = {
+        timeRemaining: duration,
+        timerMax: duration,
+        isTimerActive: true,
+        questionStartTime: questionStartTime,
+        currentQuestionIndex: currentQuestionIndex || 0,
+        serverTime: Date.now(),
+        countdownToStart: 0
+      };
+      
+      broadcastTimerUpdate(timerData);
+      
+      console.log('[MANUAL-TIMER] Timer démarré et diffusé:', timerData);
+      res.json({ 
+        success: true, 
+        questionStartTime,
+        message: 'Timer démarré et synchronisé avec tous les clients'
+      });
+    }
+  );
 });
 
 // === GESTION DU QUIZ ===
@@ -522,14 +776,15 @@ async function startServer() {
     await initDatabase();
     console.log('[DEBUG] 2. initDatabase terminé');
 
-    const server = app.listen(PORT, () => {
-      console.log(`🚀 Serveur SQLite démarré`);
+    server.listen(PORT, () => {
+      console.log(`🚀 Serveur SQLite + WebSocket démarré`);
       console.log(`📊 Base de données: ${dbPath}`);
-      console.log(`🌐 API disponible sur: https://backendurl`);
-      console.log('[DEBUG] 3. Serveur en écoute');
+      console.log(`🌐 API + WebSocket disponible sur: http://localhost:${PORT}`);
+      console.log(`🔌 WebSocket prêt pour synchronisation temps réel`);
+      console.log('[DEBUG] 3. Serveur en écoute avec WebSocket');
     });
     
-    console.log('[DEBUG] 4. app.listen appelé');
+    console.log('[DEBUG] 4. server.listen (WebSocket) appelé');
     
     // Garder le serveur vivant
     process.on('SIGTERM', () => {

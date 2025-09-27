@@ -1,6 +1,15 @@
 
 <!-- Interface joueur harmonisée avec le style maître du jeu -->
 
+<!-- Écran de loading pour les transitions -->
+<div *ngIf="isLoading" class="loading-overlay">
+  <div class="loading-content">
+    <div class="loading-spinner"></div>
+    <h2>{{ loadingMessage }}</h2>
+    <p>Synchronisation en cours...</p>
+  </div>
+</div>
+
 <!-- Étapes simplifiées -->
 <div *ngIf="step === 'lobby'" class="player-step-banner lobby">
   <b>🎮 WAITING FOR GAME</b><br>
@@ -39,8 +48,12 @@
 
   <!-- Timer (style maître du jeu) -->
   <div class="timer" *ngIf="step === 'question'">
-    <div *ngIf="waitingForStart" class="timer-waiting">Waiting for start...</div>
-    <ng-container *ngIf="!waitingForStart">
+    <!-- Message d'attente si timer pas encore démarré -->
+    <div *ngIf="!timerActive && step === 'question'" class="timer-waiting">
+      ⏳ En attente du démarrage du timer...
+    </div>
+    <!-- Timer actif -->
+    <ng-container *ngIf="timerActive">
       <div class="timer-bar-container" *ngIf="timerValue > 0 && timerMax > 0">
         <div class="timer-bar" [ngStyle]="{width: (timerValue / timerMax * 100) + '%'}"></div>
         <span class="timer-bar-label">{{ timerValue }}s</span>
@@ -49,13 +62,27 @@
     </ng-container>
   </div>
 
-  <!-- Options de réponse (style maître du jeu) -->
+      <!-- Timer display avec message de statut -->
+    <div *ngIf="step === 'question'" class="timer-status">
+      <div *ngIf="questionStartTime === 0" class="waiting-message">
+        ⏸️ En attente du démarrage du timer...
+      </div>
+      <div *ngIf="questionStartTime > 0" class="timer-active-message">
+        ⏱️ Timer actif - {{ timerValue }}s
+      </div>
+      <!-- Debug info -->
+      <div class="debug-info" style="font-size: 0.8em; color: #666; margin-top: 5px;">
+        Debug: canPlay={{ canPlay }} | questionStartTime={{ questionStartTime }} | answerSubmitted={{ answerSubmitted }}
+      </div>
+    </div>
+
+    <!-- Options de réponses -->
   <ul class="options-list">
     <li *ngFor="let option of currentQuestion.options; let i = index">
       <button
         class="option-btn"
         (click)="selectAnswer(i)"
-        [disabled]="!timerActive || answerSubmitted || step === 'result'"
+        [disabled]="!canPlay || step === 'result'"
         [class.option-correct]="step === 'result' && i === currentQuestion.correctIndex"
         [class.option-incorrect]="step === 'result' && selectedAnswerIndex === i && i !== currentQuestion.correctIndex"
         [class.option-selected]="selectedAnswerIndex === i && (step === 'question' || answerSubmitted)"

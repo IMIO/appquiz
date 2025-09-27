@@ -64,9 +64,29 @@ export class LoginComponent {
     // Check if user is already registered in this session
     const existingUserId = localStorage.getItem('userId');
     if (existingUserId) {
-      console.log('User already registered in this session, navigating to waiting...');
-      await this.router.navigate(['/waiting']);
-      return;
+      console.log('User already registered in localStorage, verifying with server...');
+      
+      // Vérifier si l'userId existe encore sur le serveur
+      try {
+        const participants = await this.quizService.fetchParticipantsFromServer();
+        const userExists = participants.some((participant: User) => participant.id === existingUserId);
+        
+        if (userExists) {
+          console.log('User confirmed on server, navigating to waiting...');
+          await this.router.navigate(['/waiting']);
+          return;
+        } else {
+          console.log('User not found on server, clearing localStorage and allowing new registration...');
+          localStorage.removeItem('userId');
+          localStorage.removeItem('userName');
+          // Continue with new registration
+        }
+      } catch (error) {
+        console.warn('Error checking user on server, clearing localStorage:', error);
+        localStorage.removeItem('userId');
+        localStorage.removeItem('userName');
+        // Continue with new registration
+      }
     }
     
     this.isSubmitting = true;
