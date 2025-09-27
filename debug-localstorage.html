@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Clear LocalStorage - Quiz App</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .container { max-width: 600px; margin: 0 auto; }
+        button { padding: 10px 20px; margin: 10px; font-size: 16px; }
+        .success { color: green; }
+        .info { color: blue; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Quiz App - Debug LocalStorage</h1>
+        
+        <h2>État actuel du localStorage:</h2>
+        <div id="localStorage-content"></div>
+        
+        <h2>Actions:</h2>
+        <button onclick="clearLocalStorage()">Effacer tout le localStorage</button>
+        <button onclick="clearUserData()">Effacer seulement les données utilisateur</button>
+        <button onclick="refreshData()">Actualiser l'affichage</button>
+        
+        <div id="messages"></div>
+        
+        <h2>Navigation:</h2>
+        <a href="http://localhost:4200/participant" target="_blank">Ouvrir page participant</a>
+    </div>
+
+    <script>
+        function displayLocalStorage() {
+            const container = document.getElementById('localStorage-content');
+            const keys = Object.keys(localStorage);
+            
+            if (keys.length === 0) {
+                container.innerHTML = '<p class="info">LocalStorage vide</p>';
+                return;
+            }
+            
+            let html = '<ul>';
+            keys.forEach(key => {
+                const value = localStorage.getItem(key);
+                html += `<li><strong>${key}:</strong> ${value}</li>`;
+            });
+            html += '</ul>';
+            container.innerHTML = html;
+        }
+        
+        function clearLocalStorage() {
+            localStorage.clear();
+            displayLocalStorage();
+            showMessage('✅ Tout le localStorage a été effacé', 'success');
+        }
+        
+        function clearUserData() {
+            localStorage.removeItem('userId');
+            localStorage.removeItem('userName');
+            displayLocalStorage();
+            showMessage('✅ Données utilisateur effacées (userId, userName)', 'success');
+        }
+        
+        function refreshData() {
+            displayLocalStorage();
+            showMessage('🔄 Affichage actualisé', 'info');
+        }
+        
+        function showMessage(msg, type) {
+            const container = document.getElementById('messages');
+            container.innerHTML = `<p class="${type}">${msg}</p>`;
+            setTimeout(() => {
+                container.innerHTML = '';
+            }, 3000);
+        }
+        
+        // Afficher au chargement
+        displayLocalStorage();
+    </script>
+</body>
+</html>
