@@ -29,6 +29,12 @@
   </div>
 </div>
 
+<!-- Indicateur de loading discret pour la présentation -->
+<div *ngIf="isLoading" class="loading-bar presentation-loading">
+  <div class="loading-progress"></div>
+  <span class="loading-text">{{ loadingMessage }}</span>
+</div>
+
 <!-- DIAGNOSTIC : Bloc ultra-visible si aucune étape reconnue
 <div *ngIf="!step || (step !== 'lobby' && step !== 'waiting' && step !== 'question' && step !== 'result' && step !== 'end')" style="background:#d32f2f;color:#fff;font-size:1.5em;padding:2em 2em;border-r  </div>
 
@@ -155,8 +161,31 @@
       {{ user.name }}
     </li>
   </ul>
-  <button class="step-btn" (click)="launchGame()" [disabled]="participants.length === 0">Close registration</button>
-  <button class="step-btn" (click)="restartGame()">Reset</button>
+  <div class="button-group">
+    <button class="step-btn" (click)="launchGame()" [disabled]="participants.length === 0">Close registration</button>
+    <button 
+      class="step-btn sync-btn" 
+      (click)="synchronizeWithManagement()" 
+      [disabled]="isSynchronizing"
+      title="Synchroniser avec les modifications côté gestion">
+      <span *ngIf="!isSynchronizing">🔄 Sync Questions</span>
+      <span *ngIf="isSynchronizing" class="sync-loading">⏳ Synchronisation...</span>
+    </button>
+    <button class="step-btn" (click)="restartGame()">Reset</button>
+  </div>
+  
+  <!-- Message de statut de synchronisation -->
+  <div *ngIf="isSynchronizing || synchronizationMessage" class="sync-status-container">
+    <div class="sync-status" [ngClass]="{
+      'sync-in-progress': isSynchronizing && !synchronizationSuccess,
+      'sync-success': synchronizationSuccess,
+      'sync-error': !synchronizationSuccess && synchronizationMessage.includes('❌')
+    }">
+      <div *ngIf="isSynchronizing && !synchronizationSuccess" class="sync-spinner"></div>
+      <span class="sync-message">{{ synchronizationMessage }}</span>
+    </div>
+  </div>
+  
   <div *ngIf="participants.length === 0" class="step-waiting">Waiting for players...</div>
 </div>
 </div>
@@ -230,14 +259,41 @@
       />
     </ng-container>
   </div>
-  <h3 class="step-h3">{{ currentQuestion.text }}</h3>
+  <div class="question-header">
+    <div class="question-number">Question Numéro {{ currentQuestionNumber }}</div>
+    <h3 class="step-h3">{{ currentQuestion.text }}</h3>
+  </div>
   <div class="container-question">
   <div class="timer step-timer" [@stepTransition]>
-    <div class="timer-bar-container">
-      <div class="timer-bar" [ngStyle]="{width: (timerValue / timerMax * 100) + '%'}"></div>
-      <span class="timer-bar-label">{{ timerValue }}s</span>
+    <div class="timer-bar-container" [ngClass]="{'timer-active': timerActive, 'timer-waiting': !timerActive}">
+      <div class="timer-bar" 
+           [ngStyle]="{width: (timerValue / timerMax * 100) + '%'}"
+           [ngClass]="{'timer-bar-active': timerActive}"></div>
+      <span class="timer-bar-label" [ngClass]="{'timer-active': timerActive}">
+        <span *ngIf="timerActive">{{ timerValue }}s</span>
+        <span *ngIf="!timerActive && timerStartedManually">Timer démarré</span>
+        <span *ngIf="!timerActive && !timerStartedManually">En attente</span>
+      </span>
     </div>
-    <button class="step-btn" (click)="forceEndTimer()">Skip</button>
+    
+    <!-- Boutons de contrôle du timer -->
+    <div class="timer-controls" style="display: flex; gap: 10px; margin-top: 10px;">
+      <button 
+        *ngIf="!timerStartedManually" 
+        class="step-btn start-timer-btn" 
+        (click)="startTimerManually(20)"
+        style="background: #28a745; color: white; font-weight: bold;">
+        ▶️ Démarrer Timer (20s)
+      </button>
+      
+      <button 
+        *ngIf="timerStartedManually" 
+        class="step-btn" 
+        (click)="forceEndTimer()"
+        style="background: #dc3545;">
+        ⏭️ Skip
+      </button>
+    </div>
   </div>
    <ul *ngIf="currentQuestion && currentQuestion.options" class="step-list" [@listAnimation]>
     <li *ngFor="let option of currentQuestion.options; let i = index; trackBy: trackByQuestionId" class="step-list-item step-option" style="pointer-events: none; cursor: default;">

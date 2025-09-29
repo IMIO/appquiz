@@ -91,14 +91,28 @@ export class WaitingComponent implements OnDestroy {
       }
       
       if (userId && participants.length === 0 && consecutiveEmptyChecks >= 4 && elapsedTime > 12000) {
-        console.log('[WAITING] ⚠️ Aucun participant trouvé après reset probable, redirection vers login');
-        localStorage.removeItem('userId');
-        localStorage.removeItem('userName');
-        localStorage.removeItem('avatarUrl');
-        localStorage.removeItem('quiz-user');
-        this.cleanup();
-        this.router.navigate(['/login']);
-        return;
+        console.log('[WAITING] ⚠️ Aucun participant trouvé, vérification directe avec le serveur...');
+        
+        // Vérification asynchrone avec le serveur
+        this.verifyUserExistsOnServer(userId).then(userExists => {
+          if (!userExists) {
+            console.log('[WAITING] ❌ Utilisateur confirmé absent du serveur, redirection vers login');
+            localStorage.removeItem('userId');
+            localStorage.removeItem('userName');
+            localStorage.removeItem('avatarUrl');
+            localStorage.removeItem('quiz-user');
+            this.cleanup();
+            this.router.navigate(['/login']);
+          } else {
+            console.log('[WAITING] ✅ Utilisateur trouvé sur le serveur, problème temporaire de synchronisation');
+            // Réinitialiser les compteurs pour continuer l'attente
+            consecutiveEmptyChecks = 0;
+          }
+        }).catch(error => {
+          console.warn('[WAITING] ⚠️ Erreur vérification serveur, patience supplémentaire...', error);
+        });
+        
+        return; // Sortir de cette vérification en attendant le résultat async
       }
       
       lastParticipantCount = participants.length;
@@ -120,6 +134,16 @@ export class WaitingComponent implements OnDestroy {
         console.log('[WAITING] ℹ️ Aucun participant encore, attente... (vérification ' + consecutiveEmptyChecks + ')');
       }
     });
+  }
+
+  private async verifyUserExistsOnServer(userId: string): Promise<boolean> {
+    try {
+      const serverParticipants = await this.quizService.fetchParticipantsFromServer();
+      return serverParticipants.some(p => p.id === userId);
+    } catch (error) {
+      console.error('[WAITING] Erreur lors de la vérification serveur:', error);
+      return false; // En cas d'erreur, considérer que l'utilisateur n'existe pas
+    }
   }
 
   private cleanup(): void {

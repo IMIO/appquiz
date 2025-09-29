@@ -1,10 +1,11 @@
 import { User } from './models/user.model';
-import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
+import { Component, OnInit, ChangeDetectorRef, OnDestroy } from '@angular/core';
 import { Subscription, interval, take } from 'rxjs';
 import { Question } from './models/question.model';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import { QuizService, QuizStep } from './services/quiz-secure.service';
+import { WebSocketTimerService } from './services/websocket-timer.service';
 import { environment } from '../environments/environment';
 
 @Component({
@@ -14,48 +15,9 @@ import { environment } from '../environments/environment';
   templateUrl: './quiz.component.html',
   styleUrls: ['./quiz.component.css']
 })
-export class QuizComponent implements OnInit {
-  syncSelectedAnswerFromServer() {
-    // Ne pas écraser l'état restauré 
-    const savedData = localStorage.getItem(this.PLAYER_STATE_KEY);
-    if (savedData) {
-      try {
-        const playerState = JSON.parse(savedData);
-        if (playerState.currentIndex === this.currentIndex && playerState.answerSubmitted) {
-          console.log('[SYNC] État restauré préservé, pas de synchronisation serveur');
-          return;
-        }
-      } catch (error) {
-        console.error('[SYNC] Erreur lecture état pour sync:', error);
-      }
-    }
-    
-    // TODO: Logique de synchronisation avec le serveur si nécessaire
-    console.log('[SYNC] Synchronisation avec serveur (pas d\'état restauré)');
-  }
-
-  updateTimerValue() {
-    // Logique simplifiée : décrémenter de 1 seconde à chaque appel
-    if (this.timerValue > 0) {
-      this.timerValue--;
-      this.timerPercent = Math.round((this.timerValue / this.timerMax) * 100);
-      this.timerActive = this.timerValue > 0;
-
-      // Reduced timer logging to prevent spam
-      if (this.timerValue % 5 === 0 || this.timerValue <= 3) { // Log every 5 seconds or last 3 seconds
-        console.log('[TIMER] Décrémentation:', {
-          timerValue: this.timerValue,
-          timerPercent: this.timerPercent,
-          timerActive: this.timerActive
-        });
-      }
-    } else {
-      this.timerActive = false;
-      this.timerValue = 0;
-      this.timerPercent = 0;
-      console.log('[TIMER] Temps écoulé, timer arrêté');
-    }
-  }
+export class QuizComponent implements OnInit, OnDestroy {
+  
+  // Propriétés d'état du quiz
   public answerSubmitted: boolean = false;
   private justSubmitted: boolean = false;
   leaderboard: User[] = [];
@@ -66,147 +28,62 @@ export class QuizComponent implements OnInit {
   selectedAnswerIndex: number | null = null;
   isAnswerCorrect: boolean | null = null;
   quizFinished = false;
+  
+  // Système de loading pour les transitions synchronisées
+  isLoading: boolean = false;
+  loadingMessage: string = '';
+  loadingType: string = '';
+  
+  // Timer properties
   timerValue: number = 15;
   timerMax: number = 15;
   timerPercent: number = 100;
   timerActive: boolean = false;
   waitingForStart: boolean = false;
   private timerQuestionIndex: number = -1;
-  private questionStartTime: number = 0;
+  public questionStartTime: number = 0; // Public pour le template
   private timerCountdownSub?: Subscription;
+  
+  // Souscriptions WebSocket
+  private websocketTimerSub?: Subscription;
+  private stepTransitionSub?: Subscription;
+  private stepActivationSub?: Subscription;
+  private questionsSyncSub?: Subscription;
   private quizStateUnsub?: () => void;
   private lastQuestionIndex: number = -1;
   private lastStep: QuizStep | null = null;
+  
+  // Données utilisateur
   userId: string = '';
   userName: string = '';
   step: QuizStep = 'lobby';
+  webSocketStep: string | null = null;  // ✅ AJOUT: Étape reçue via WebSocket
   answers: any[] = [];
   personalScore: { good: number, bad: number, none: number } = { good: 0, bad: 0, none: 0 };
   totalScore: number = 0;
   questionResults: { good: number, bad: number, none: number }[] = [];
+  private scoredQuestions: Set<number> = new Set(); // Pour éviter la double incrémentation
   answersSub?: Subscription;
+
+  // ✅ PROTECTION VOTE: Tracker les questions déjà répondues
+  public answeredQuestions: Set<number> = new Set();
 
   // Clé de stockage pour l'état du joueur
   private readonly PLAYER_STATE_KEY = 'quiz_player_state';
 
-  constructor(private quizService: QuizService, private router: Router, private cdr: ChangeDetectorRef) { }
-
-  public get totalQuestions(): number {
-    return this.quizService.getQuestions().length;
-  }
-  get goodAnswersCount(): number {
-    return this.questionResults.filter(r => r.good).length;
-  }
-  get badAnswersCount(): number {
-    return this.questionResults.filter(r => r.bad).length;
-  }
-  getTotalGoodAnswersTime(): number {
-    return this.goodAnswersTimes.reduce((sum, t) => sum + t, 0);
-  }
-
-  /**
-   * Sauvegarder l'état du joueur dans localStorage
-   */
-  private savePlayerState(): void {
-    try {
-      const playerState = {
-        totalScore: this.totalScore,
-        questionResults: this.questionResults,
-        goodAnswersTimes: this.goodAnswersTimes,
-        currentIndex: this.currentIndex,
-        timerQuestionIndex: this.timerQuestionIndex,
-        questionStartTime: this.questionStartTime,
-        answerSubmitted: this.answerSubmitted,
-        selectedAnswerIndex: this.selectedAnswerIndex,
-        isAnswerCorrect: this.isAnswerCorrect,
-        step: this.step,
-        answers: this.answers,
-        personalScore: this.personalScore,
-        lastActivity: Date.now()
-      };
-      
-      localStorage.setItem(this.PLAYER_STATE_KEY, JSON.stringify(playerState));
-      console.log('[PLAYER-STATE] État sauvegardé:', playerState);
-    } catch (error) {
-      console.error('[PLAYER-STATE] Erreur sauvegarde:', error);
-    }
-  }
-
-  /**
-   * Restaurer l'état du joueur depuis localStorage
-   */
-  private restorePlayerState(): boolean {
-    try {
-      const savedData = localStorage.getItem(this.PLAYER_STATE_KEY);
-      if (!savedData) return false;
-
-      const playerState = JSON.parse(savedData);
-      
-      // Vérifier que la sauvegarde n'est pas trop ancienne (30 minutes)
-      const maxAge = 30 * 60 * 1000;
-      const age = Date.now() - (playerState.lastActivity || 0);
-      if (age > maxAge) {
-        console.log('[PLAYER-STATE] Sauvegarde trop ancienne, suppression');
-        localStorage.removeItem(this.PLAYER_STATE_KEY);
-        return false;
-      }
-
-      // Restaurer les données importantes
-      this.questionResults = playerState.questionResults || [];
-      this.goodAnswersTimes = playerState.goodAnswersTimes || [];
-      this.currentIndex = playerState.currentIndex || 0;
-      this.timerQuestionIndex = playerState.timerQuestionIndex || -1;
-      this.questionStartTime = playerState.questionStartTime || 0;
-      this.answerSubmitted = playerState.answerSubmitted || false;
-      this.selectedAnswerIndex = playerState.selectedAnswerIndex;
-      this.isAnswerCorrect = playerState.isAnswerCorrect;
-      this.answers = playerState.answers || [];
-      this.personalScore = playerState.personalScore || { good: 0, bad: 0, none: 0 };
-
-      // Recalculer le score total à partir des résultats restaurés
-      this.totalScore = this.questionResults.reduce((sum, r) => sum + (r?.good || 0), 0);
-
-      console.log('[PLAYER-STATE] État restauré:', {
-        totalScore: this.totalScore,
-        questionResults: this.questionResults.length,
-        questionResultsData: this.questionResults,
-        currentIndex: this.currentIndex,
-        answerSubmitted: this.answerSubmitted,
-        selectedAnswerIndex: this.selectedAnswerIndex
-      });
-
-      return true;
-    } catch (error) {
-      console.error('[PLAYER-STATE] Erreur restauration:', error);
-      localStorage.removeItem(this.PLAYER_STATE_KEY);
-      return false;
-    }
-  }
-
-  /**
-   * Calculer le temps de timer restant en fonction du temps du serveur
-   */
-  private calculateSyncedTimer(): void {
-    if (this.questionStartTime && this.step === 'question') {
-      const elapsed = Date.now() - this.questionStartTime;
-      const maxTime = this.timerMax * 1000;
-      const remaining = Math.max(0, maxTime - elapsed);
-      
-      this.timerValue = Math.ceil(remaining / 1000);
-      this.timerPercent = (remaining / maxTime) * 100;
-      
-      console.log('[TIMER-SYNC] Timer synchronisé:', {
-        elapsed: elapsed,
-        remaining: remaining,
-        timerValue: this.timerValue,
-        timerPercent: this.timerPercent
-      });
-    }
-  }
+  constructor(
+    private quizService: QuizService, 
+    private router: Router, 
+    private cdr: ChangeDetectorRef,
+    private websocketTimerService: WebSocketTimerService
+  ) { }
 
   ngOnInit(): void {
     this.avatarUrl = localStorage.getItem('avatarUrl');
     this.quizService.initQuestions();
+    
+    // S'abonner aux changements de questions
+    this.subscribeToQuestionsChanges();
     
     // Restaurer l'état du joueur s'il existe
     const stateRestored = this.restorePlayerState();
@@ -215,449 +92,872 @@ export class QuizComponent implements OnInit {
     }
     
     this.subscribeAnswers();
-    
-    // Détecter les resets complets par disparition des participants (VERSION RENFORCÉE)
-    let lastParticipantCount = 0;
-    let hasSeenParticipants = false; // S'assurer qu'on a vu des participants avant
-    
-    this.quizService.getParticipants$().subscribe((participants: User[]) => {
-      const userId = localStorage.getItem('userId');
+
+    // ✅ S'abonner aux mises à jour WebSocket du timer
+    this.websocketTimerSub = this.websocketTimerService.getCountdown().subscribe(timerState => {
+      console.log('[PLAYER-TIMER-WS] Timer state reçu:', {
+        questionStartTime: timerState.questionStartTime,
+        timeRemaining: timerState.timeRemaining,
+        isActive: timerState.isActive,
+        step: timerState.step,  // ✅ NOUVEAU: Étape reçue via WebSocket
+        localStep: this.step
+      });
       
-      // Marquer qu'on a vu des participants (seulement si > 0)
-      if (participants.length > 0) {
-        hasSeenParticipants = true;
+      // ✅ CORRECTION: Sauvegarder et utiliser l'étape reçue du serveur via WebSocket
+      if (timerState.step) {
+        this.webSocketStep = timerState.step;
       }
+      const currentStep = this.webSocketStep || this.step;
       
-      // Détecter reset SEULEMENT si on a vu des participants ET qu'ils disparaissent tous
-      if (hasSeenParticipants && lastParticipantCount > 0 && participants.length === 0 && userId) {
-        console.log('[QUIZ] 🔄 Reset complet potentiel détecté (participants: ' + lastParticipantCount + ' → 0)');
+      // ✅ CORRECTION: Permettre aux joueurs en retard de savoir qu'une question était/est active
+      // Même si on arrive pendant 'result', on doit pouvoir identifier qu'une question était en cours
+      if (timerState.questionStartTime && timerState.questionStartTime > 0) {
+        this.questionStartTime = timerState.questionStartTime;
+        const oldTimerValue = this.timerValue;
+        this.timerValue = timerState.timeRemaining;
+        this.timerPercent = (timerState.timeRemaining / (timerState.timerMax || 20)) * 100;
+        this.timerActive = timerState.isActive;
+        this.timerMax = timerState.timerMax;
         
-        // Délai de confirmation pour éviter les faux positifs
-        setTimeout(() => {
-          this.quizService.getParticipants$().pipe(take(1)).subscribe((recheck: User[]) => {
-            if (recheck.length === 0) {
-              console.log('[QUIZ] 🔄 Reset confirmé après délai, redirection vers login');
-              localStorage.removeItem('userId');
-              localStorage.removeItem('userName');
-              localStorage.removeItem('avatarUrl');
-              localStorage.removeItem(this.PLAYER_STATE_KEY); // Nettoyer l'état du joueur
-              this.router.navigate(['/login']);
-            } else {
-              console.log('[QUIZ] ℹ️ Fausse alerte reset, participants revenus:', recheck.length);
-            }
-          });
-        }, 2000); // 2 secondes de délai de confirmation
-        return;
+        console.log('[PLAYER-TIMER-WS] ✅ Timer activé, questionStartTime mis à jour:', {
+          questionStartTime: this.questionStartTime,
+          canPlay: this.canPlay,
+          timeRemaining: this.timerValue,
+          currentStep: currentStep,
+          stepFromWS: timerState.step,
+          webSocketStep: this.webSocketStep,
+          localStep: this.step
+        });
+        
+        // Forcer la détection de changements pour réactiver les boutons
+        this.cdr.detectChanges();
+        
+        // Gestion de l'expiration automatique
+        if (this.timerValue <= 0 && this.timerActive) {
+          this.handleTimerExpired();
+        }
+        
+        console.log('🔄 WebSocket Timer Update (manuel démarré):', {
+          serverStartTime: timerState.questionStartTime,
+          timeRemaining: timerState.timeRemaining,
+          isActive: timerState.isActive,
+          oldValue: oldTimerValue,
+          newValue: this.timerValue
+        });
+      } else {
+        // Timer pas encore démarré manuellement OU questionStartTime invalide, rester en attente
+        this.timerActive = false;
+        this.timerValue = timerState.timerMax || 20;
+        this.timerPercent = 100;
+        this.questionStartTime = 0; // Force à 0 peu importe la valeur reçue
+        console.log('⏸️ Timer en attente - questionStartTime reçu:', timerState.questionStartTime, 'forcé à 0, canPlay =', this.canPlay);
+      }
+    });
+
+    // ✅ S'abonner aux transitions d'étapes synchronisées via WebSocket
+    this.stepTransitionSub = this.websocketTimerService.getStepTransitions().subscribe(transitionData => {
+      console.log('[STEP-WS] Transition reçue:', transitionData);
+      this.showLoadingForTransition(transitionData.fromStep as QuizStep, transitionData.toStep as QuizStep);
+    });
+
+    this.stepActivationSub = this.websocketTimerService.getStepActivations().subscribe(activationData => {
+      console.log('[STEP-WS] Activation reçue:', activationData);
+      this.step = activationData.step as QuizStep;
+      this.isLoading = false;
+      
+      // Actions spécifiques aux étapes après activation synchronisée
+      this.handleStepActivation(activationData.step as QuizStep);
+      
+      this.cdr.detectChanges();
+    });
+
+    // ✅ S'abonner aux notifications de synchronisation des questions
+    // NOTE: Maintenant géré au niveau du service pour persistance
+    /*
+    this.questionsSyncSub = this.websocketTimerService.getQuestionsSync().subscribe(async syncData => {
+      console.log('[QUESTIONS-WS] Synchronisation reçue:', syncData);
+      
+      // Gestion structure imbriquée (comme côté présentation)
+      let actionValue = syncData.action;
+      const rawData = syncData as any;
+      if (!actionValue && rawData.data && rawData.data.action) {
+        actionValue = rawData.data.action;
+        console.log('[QUESTIONS-WS] Action extraite de structure imbriquée:', actionValue);
       }
       
-      lastParticipantCount = participants.length;
+      console.log('[QUESTIONS-WS] Action finale:', actionValue);
+      
+      if (actionValue === 'reload') {
+        try {
+          console.log('[QUESTIONS-WS] Rechargement des questions demandé...');
+          
+          // Forcer le rechargement des questions
+          await this.quizService.reloadQuestions();
+          
+          // Mettre à jour la question courante
+          const newCurrentQuestion = this.quizService.getCurrentQuestion(this.currentIndex);
+          if (newCurrentQuestion) {
+            this.currentQuestion = newCurrentQuestion;
+            console.log('[QUESTIONS-WS] Question courante mise à jour:', {
+              index: this.currentIndex,
+              text: newCurrentQuestion.text?.substring(0, 50) + '...'
+            });
+          }
+          
+          this.cdr.detectChanges();
+        } catch (error) {
+          console.error('[QUESTIONS-WS] Erreur lors du rechargement des questions:', error);
+        }
+      }
     });
-    
+    */
+
+    // AJOUT: Vérification périodique des questions (solution de contournement)
+    this.startPeriodicQuestionsCheck();
+
+    // Fallback pour les changements d'étapes sans WebSocket
     this.quizService.getStep().subscribe((step: QuizStep) => {
-      // Éviter les redéclenchements inutiles
       if (this.step === step) {
         return;
       }
-
-      console.log('[STEP] Changement d\'étape de', this.step, 'vers', step);
+      console.log('[STEP-FALLBACK] Changement d\'étape direct:', this.step, '->', step);
       this.step = step;
-      if (step === 'lobby') {
-        console.log('[QUIZ] Reset détecté, nettoyage et redirection vers login');
-        
-        // Nettoyer le localStorage
-        localStorage.removeItem('userId');
-        localStorage.removeItem('userName');
-        localStorage.removeItem('avatarUrl');
-        localStorage.removeItem(this.PLAYER_STATE_KEY); // Nettoyer l'état du joueur
-        
-        // Nettoyer les données locales et rediriger
-        this.router.navigate(['/login']);
-        this.totalScore = 0;
-        this.questionResults = [];
-        this.personalScore = { good: 0, bad: 0, none: 0 };
-        this.goodAnswersTimes = [];
-        this.selectedAnswerIndex = null;
-        this.answerSubmitted = false;
-        this.quizFinished = false;
-      }
-      if (step === 'end') {
-        this.quizFinished = true;
-        this.stopTimer();
-      }
-      if (step === 'result') {
-        this.timerActive = false;
-        this.stopTimer();
-        this.syncSelectedAnswerFromServer();
-      }
-      if (step === 'question') {
-        this.currentQuestion = this.quizService.getCurrentQuestion(this.currentIndex);
-
-        // FORCER la réinitialisation si on vient de result (question suivante)
-        const comingFromResult = this.lastStep === 'result';
-
-        // Une nouvelle question = changement d'index OU transition depuis result/waiting/lobby vers question
-        const isNewQuestion = this.lastQuestionIndex !== this.currentIndex ||
-                             comingFromResult ||
-                             this.lastStep === 'waiting' ||
-                             this.lastStep === 'lobby' ||
-                             this.lastStep === null;
-
-        // Vérifier si on a un état restauré pour cette question
-        const savedData = localStorage.getItem(this.PLAYER_STATE_KEY);
-        let hasRestoredState = false;
-        
-        if (savedData) {
-          try {
-            const playerState = JSON.parse(savedData);
-            hasRestoredState = playerState.currentIndex === this.currentIndex && playerState.answerSubmitted;
-          } catch (error) {
-            console.error('[QUESTION] Erreur lecture état:', error);
-          }
-        }
-
-        if ((isNewQuestion || comingFromResult) && !hasRestoredState) {
-          // Nouvelle question : réinitialiser seulement si pas d'état restauré
-          this.answerSubmitted = false;
-          this.justSubmitted = false;
-          this.selectedAnswerIndex = null;
-          this.isAnswerCorrect = null;
-          this.lastQuestionIndex = this.currentIndex;
-
-          console.log('[QUESTION] NOUVELLE question détectée - Réinitialisation:', {
-            currentIndex: this.currentIndex,
-            lastQuestionIndex: this.lastQuestionIndex,
-            lastStep: this.lastStep,
-            newStep: step,
-            comingFromResult,
-            answerSubmitted: this.answerSubmitted
-          });
-        } else {
-          // Même question OU état restauré : préserver l'état
-          const shouldPreserveState = this.answerSubmitted && this.selectedAnswerIndex !== null;
-
-          if (!shouldPreserveState && !hasRestoredState) {
-            this.answerSubmitted = false;
-            this.justSubmitted = false;
-            this.selectedAnswerIndex = null;
-            this.isAnswerCorrect = null;
-          }
-
-          console.log('[QUESTION] État préservé (même question ou restauré):', {
-            currentIndex: this.currentIndex,
-            answerSubmitted: this.answerSubmitted,
-            selectedAnswerIndex: this.selectedAnswerIndex,
-            hasRestoredState
-          });
-        }
-
-        // Mettre à jour lastStep
-        this.lastStep = step;
-
-        // Démarrer le timer seulement si pas déjà actif
-        if (!this.timerActive || this.timerQuestionIndex !== this.currentIndex) {
-          this.startTimer();
-        }
-        
-        // Sauvegarder l'état après changement d'étape
-        this.savePlayerState();
-      } else {
-        this.stopTimer();
-        // Mettre à jour lastStep pour les autres étapes aussi
-        this.lastStep = step;
-      }
+      this.handleStepActivation(step);
     });
+    
+    // Check forcé périodique pour détecter les resets (toutes les 5 secondes)
+    setInterval(async () => {
+      try {
+        const currentStep = await this.quizService.forceCheckState();
+        if (currentStep === 'lobby' && this.step !== 'lobby') {
+          console.log('[FORCE-CHECK] Reset détecté via check périodique, redirection vers lobby');
+          this.step = 'lobby';
+          this.handleStepActivation('lobby');
+        }
+      } catch (error) {
+        // Ignorer les erreurs de check périodique
+      }
+    }, 5000);
+    
+    // Gestion des changements d'index de question
     this.userId = localStorage.getItem('userId') || '';
     this.userName = localStorage.getItem('userName') || '';
     this.quizService.getCurrentIndex().subscribe(idx => {
-      // Éviter de redéclencher si même index
       if (this.currentIndex === idx) {
-        // Reduced logging to prevent console spam
-        if (Math.random() < 0.01) { // Only log 1% of the time
-          console.log('[INDEX] Même index, pas de changement nécessaire');
-        }
         return;
       }
-
-      console.log('[INDEX] Changement vers nouvelle question - Réinitialisation complète:', {
-        oldIndex: this.currentIndex,
-        newIndex: idx,
-        oldAnswerSubmitted: this.answerSubmitted,
-        oldSelectedAnswer: this.selectedAnswerIndex
-      });
-
+      console.log('[INDEX] Changement vers nouvelle question:', this.currentIndex, '->', idx);
       this.currentIndex = idx;
       this.currentQuestion = this.quizService.getCurrentQuestion(idx);
-
-      console.log('[INDEX] Question récupérée pour index', idx, ':', {
-        question: this.currentQuestion ? {
-          id: this.currentQuestion.id,
-          text: this.currentQuestion.text.substring(0, 50) + '...'
-        } : 'NULL',
-        totalQuestions: this.quizService.getQuestions().length
+      
+      // Reset states pour nouvelle question
+      this.answerSubmitted = false;
+      this.justSubmitted = false;
+      this.selectedAnswerIndex = null;
+      this.isAnswerCorrect = null;
+      this.questionStartTime = 0; // IMPORTANT: Réinitialiser le timer pour nouvelle question
+      this.timerActive = false;
+      
+      console.log('[INDEX] États réinitialisés pour nouvelle question:', {
+        currentIndex: this.currentIndex,
+        selectedAnswerIndex: this.selectedAnswerIndex,
+        answerSubmitted: this.answerSubmitted,
+        questionStartTime: this.questionStartTime
       });
-
-      // Forcer la détection de changement pour l'affichage
+      
+      // ✅ NOUVEAU: Forcer la détection de changements après reset
       this.cdr.detectChanges();
-
-      // Réinitialiser SEULEMENT si pas d'état restauré pour cette question
-      const savedData = localStorage.getItem(this.PLAYER_STATE_KEY);
-      let shouldResetAnswer = true;
       
-      if (savedData) {
-        try {
-          const playerState = JSON.parse(savedData);
-          // Ne pas réinitialiser si on a une réponse sauvegardée pour cette question
-          if (playerState.currentIndex === idx && playerState.answerSubmitted) {
-            shouldResetAnswer = false;
-            console.log('[INDEX] État restauré préservé pour question', idx);
-          }
-        } catch (error) {
-          console.error('[INDEX] Erreur lecture état sauvegardé:', error);
-        }
-      }
-      
-      if (shouldResetAnswer) {
-        this.answerSubmitted = false;
-        this.justSubmitted = false;
-        this.selectedAnswerIndex = null;
-        this.isAnswerCorrect = null;
-        console.log('[INDEX] Réinitialisation pour nouvelle question:', idx);
-      } else {
-        console.log('[INDEX] État préservé pour question avec réponse:', {
-          currentIndex: this.currentIndex,
-          answerSubmitted: this.answerSubmitted,
-          selectedAnswerIndex: this.selectedAnswerIndex
-        });
-      }
-
-      // Si on est dans l'étape question, redémarrer le timer
-      if (this.step === 'question') {
-        this.startTimer();
-      }
-      
-      // Sauvegarder l'état après changement d'index
       this.savePlayerState();
     });
+  }
+
+  // S'abonner aux changements de questions
+  private subscribeToQuestionsChanges() {
+    const questionsSub = this.quizService.questions$.subscribe(questions => {
+      if (questions.length > 0) {
+        console.log(`[PLAYER-QUESTIONS] Nouvelle liste de questions reçue: ${questions.length} questions`);
+        
+        // Mettre à jour la question courante si elle a changé
+        const newCurrentQuestion = this.quizService.getCurrentQuestion(this.currentIndex);
+        if (newCurrentQuestion && 
+            (!this.currentQuestion || this.currentQuestion.id !== newCurrentQuestion.id)) {
+          
+          console.log(`[PLAYER-QUESTIONS] Question ${this.currentIndex} mise à jour:`, {
+            ancien: this.currentQuestion?.text?.substring(0, 50) + '...',
+            nouveau: newCurrentQuestion.text?.substring(0, 50) + '...'
+          });
+          
+          this.currentQuestion = newCurrentQuestion;
+          
+          // Reset l'état de la question si on était en cours de réponse
+          if (this.step === 'question' && !this.answerSubmitted) {
+            this.selectedAnswerIndex = null;
+            this.isAnswerCorrect = null;
+          }
+        }
+      }
+    });
     
-    // Recalculer le score total seulement si pas d'état restauré
-    if (!stateRestored) {
-      this.totalScore = this.questionResults.reduce((sum, r) => sum + (r?.good || 0), 0);
-    }
+    // Pas besoin de gérer la souscription car elle sera automatiquement nettoyée à la destruction du composant
   }
 
   private subscribeAnswers() {
     if (this.answersSub) this.answersSub.unsubscribe();
-    this.answersSub = this.quizService.getAllAnswersForUser$(this.userId).subscribe(allAnswers => {
-      this.answers = allAnswers;
+    this.answersSub = this.quizService.getAnswers$(this.currentIndex).subscribe(answers => {
+      this.answers = answers;
     });
   }
 
   startTimer() {
-    console.log('[TIMER] Démarrage timer pour question', this.currentIndex);
-
-    // Éviter de redémarrer si déjà actif pour la même question
-    if (this.timerActive && this.timerQuestionIndex === this.currentIndex && this.timerCountdownSub) {
-      console.log('[TIMER] Timer déjà actif pour cette question, ignorer');
-      return;
-    }
-
     this.stopTimer();
-
-    // Marquer le temps de début de la question (pour synchronisation)
-    this.questionStartTime = Date.now();
-    
-    // Si on a une sauvegarde récente, ajuster le temps de début
-    const savedData = localStorage.getItem(this.PLAYER_STATE_KEY);
-    if (savedData) {
-      try {
-        const playerState = JSON.parse(savedData);
-        if (playerState.questionStartTime && playerState.timerQuestionIndex === this.currentIndex) {
-          // Utiliser le temps de début sauvegardé pour rester synchronisé
-          this.questionStartTime = playerState.questionStartTime;
-        }
-      } catch (error) {
-        console.error('[TIMER] Erreur lors de la synchronisation:', error);
-      }
-    }
-
-    // Initialiser le timer à sa valeur maximale
+    this.timerActive = true;
     this.timerValue = this.timerMax;
     this.timerPercent = 100;
-    this.timerActive = true;
     this.timerQuestionIndex = this.currentIndex;
-
-    // Calculer le timer synchronisé immédiatement
-    this.calculateSyncedTimer();
-
-    console.log('[TIMER] Timer initialisé:', {
-      timerValue: this.timerValue,
-      timerMax: this.timerMax,
-      timerActive: this.timerActive,
-      questionStartTime: this.questionStartTime
-    });
-
-    // Démarrer l'intervalle de décrémentation
-    this.timerCountdownSub = interval(1000).subscribe(() => {
-      if (this.currentIndex !== this.timerQuestionIndex) {
-        console.log('[TIMER] Changement de question détecté, arrêt du timer');
-        this.stopTimer();
-        return;
-      }
-
-      if (this.timerActive) {
-        this.calculateSyncedTimer(); // Utiliser la synchronisation au lieu d'updateTimerValue
-      }
-    });
-
-    console.log('[TIMER] Timer démarré avec interval de 1000ms et synchronisation');
+    this.questionStartTime = Date.now();
     
-    // Sauvegarder l'état après démarrage du timer
-    this.savePlayerState();
+    console.log('[TIMER] Timer démarré pour question', this.currentIndex);
   }
 
   stopTimer() {
     if (this.timerCountdownSub) {
       this.timerCountdownSub.unsubscribe();
-      this.timerCountdownSub = undefined;
     }
+    this.timerActive = false;
+    console.log('[TIMER] Timer arrêté');
   }
 
-  selectAnswer(index: number) {
-    console.log('[SELECT] Tentative de sélection:', {
-      index,
-      timerActive: this.timerActive,
-      answerSubmitted: this.answerSubmitted,
-      currentIndex: this.currentIndex,
-      step: this.step
-    });
-
-    if (!this.timerActive || this.answerSubmitted) {
-      console.log('[SELECT] Sélection bloquée - timerActive:', this.timerActive, 'answerSubmitted:', this.answerSubmitted);
+  private handleTimerExpired(): void {
+    console.log('[TIMER] Timer expiré !');
+    if (this.answerSubmitted || !this.timerActive) {
       return;
     }
 
-    console.log('[SELECT] Sélection de la réponse:', index);
-    this.selectedAnswerIndex = index;
-    this.isAnswerCorrect = this.currentQuestion?.correctIndex === index;
-
-    // Sauvegarder l'état après sélection
-    this.savePlayerState();
-
-    // Laisser la réponse visuellement sélectionnée avant de soumettre
-    setTimeout(() => {
-      this.submitAnswer(index);
-    }, 100);
+    this.timerActive = false;
+    this.stopTimer();
+    
+    // Auto-submit sans réponse si pas encore soumis
+    if (!this.answerSubmitted) {
+      this.selectAnswer(-1); // -1 = pas de réponse
+    }
+    
+    // ✅ NOUVEAU: Forcer l'affichage des résultats côté joueur
+    console.log('[TIMER-EXPIRED] Forcer affichage résultats côté joueur');
+    this.forceShowResults();
   }
 
-  ngOnDestroy(): void {
-    if (this.quizStateUnsub) this.quizStateUnsub();
-    this.stopTimer();
+  selectAnswer(index: number) {
+    // ✅ PROTECTION VOTE: Vérifier si déjà répondu à cette question
+    if (this.answeredQuestions.has(this.currentIndex)) {
+      console.log('[VOTE-PROTECTION] ❌ Question déjà répondue, vote bloqué côté frontend');
+      return;
+    }
+    
+    // Logs de débogage pour comprendre pourquoi les boutons ne fonctionnent pas
+    console.log('[SELECT] Tentative sélection:', {
+      index: index,
+      answerSubmitted: this.answerSubmitted,
+      questionStartTime: this.questionStartTime,
+      step: this.step,
+      canPlay: this.canPlay,
+      currentIndex: this.currentIndex,
+      alreadyAnswered: this.answeredQuestions.has(this.currentIndex)
+    });
+    
+    if (this.answerSubmitted) {
+      console.log('[SELECT] Bloqué - réponse déjà soumise');
+      return;
+    }
+
+    console.log('[SELECT] Réponse sélectionnée:', index);
+    this.selectedAnswerIndex = index;
+    
+    // ✅ DEBUG: Forcer la détection de changements pour s'assurer que les classes CSS sont appliquées
+    this.cdr.detectChanges();
+    
+    console.log('[SELECT] État après sélection:', {
+      selectedAnswerIndex: this.selectedAnswerIndex,
+      step: this.step,
+      webSocketStep: this.webSocketStep,
+      currentIndex: this.currentIndex,
+      answerSubmitted: this.answerSubmitted
+    });
+    
+    if (this.currentQuestion) {
+      this.isAnswerCorrect = index === this.currentQuestion.correctIndex;
+      console.log('[SELECT] Réponse correcte?', this.isAnswerCorrect);
+    }
+
+    this.submitAnswer(index);
   }
 
   async submitAnswer(answerIndex: number) {
     if (this.answerSubmitted) {
-      console.log('[DEBUG] Tentative de soumission multiple bloquée');
-      return; // Empêche les soumissions multiples
+      console.log('[VOTE-PROTECTION] ❌ Tentative de vote multiple bloquée côté frontend');
+      return;
     }
 
-    console.log('[DEBUG] Soumission de la réponse', answerIndex);
     this.answerSubmitted = true;
     this.justSubmitted = true;
 
+    console.log('[SUBMIT] ✅ AVANT soumission - selectedAnswerIndex:', this.selectedAnswerIndex, 'answerIndex:', answerIndex);
+
     try {
       await this.quizService.submitAnswer(this.userId, answerIndex, this.userName, this.currentIndex);
-      console.log('[DEBUG] Réponse soumise avec succès - selectedAnswerIndex conservé:', this.selectedAnswerIndex);
-    } catch (error) {
-      console.error('[DEBUG] Erreur lors de la soumission:', error);
-      // En cas d'erreur, permettre une nouvelle tentative mais conserver la sélection
+      console.log('[SUBMIT] ✅ Réponse soumise avec succès');
+      
+      // ✅ PROTECTION VOTE: Marquer cette question comme répondue
+      this.answeredQuestions.add(this.currentIndex);
+      console.log('[VOTE-PROTECTION] Question', this.currentIndex, 'marquée comme répondue');
+      
+      // ✅ DEBUG CRITIQUE: Vérifier que selectedAnswerIndex est toujours correct
+      console.log('[SUBMIT] ✅ APRÈS soumission - selectedAnswerIndex:', this.selectedAnswerIndex, 'devrait être:', answerIndex);
+      
+    } catch (error: any) {
+      console.error('[SUBMIT] Erreur lors de la soumission:', error);
+      
+      // ✅ PROTECTION: Gérer spécifiquement le cas du vote déjà effectué
+      if (error.message === 'ALREADY_VOTED') {
+        console.log('[VOTE-PROTECTION] ⚠️ Vote déjà effectué pour cette question - maintenir answerSubmitted = true');
+        // Ne PAS remettre answerSubmitted à false car l'utilisateur a effectivement déjà voté
+        alert('Vous avez déjà voté pour cette question !');
+        return;
+      }
+      
+      // Pour toute autre erreur, permettre une nouvelle tentative
       this.answerSubmitted = false;
       return;
     }
 
-    // Removed redundant getAnswers$ subscription that was causing console spam
+    // Ne PAS calculer le score immédiatement - attendre l'étape 'result'
+    console.log('[SUBMIT] Réponse soumise, score sera calculé lors de la révélation des résultats');
 
-    if (
-      this.currentQuestion &&
-      answerIndex === this.currentQuestion.correctIndex &&
-      this.questionStartTime > 0
-    ) {
-      // ... logique de calcul du temps ...
+    this.savePlayerState();
+  }
+
+  // Calculer le score pour la question courante (appelé lors de la révélation des résultats)
+  private calculateScoreForCurrentQuestion() {
+    // Vérifier si le score a déjà été calculé pour cette question
+    if (this.scoredQuestions.has(this.currentIndex)) {
+      console.log('[SCORE] Score déjà calculé pour la question', this.currentIndex, ', ignorer');
+      return;
     }
 
-    if (this.currentQuestion) {
-      let result;
-      if (answerIndex === this.currentQuestion.correctIndex) {
-        result = { good: 1, bad: 0, none: 0 };
-      } else if (answerIndex === -1) {
-        result = { good: 0, bad: 0, none: 1 };
-      } else {
-        result = { good: 0, bad: 1, none: 0 };
-      }
-      const updatedResults = [...this.questionResults];
-      updatedResults[this.currentIndex] = result;
-      this.questionResults = updatedResults;
-      this.totalScore = this.questionResults.reduce((sum, r) => sum + (r?.good || 0), 0);
-      this.personalScore = result;
+    if (this.currentQuestion && this.selectedAnswerIndex !== null && this.selectedAnswerIndex >= 0) {
+      const isCorrect = this.selectedAnswerIndex === this.currentQuestion.correctIndex;
       
-      // Sauvegarder l'état après soumission de la réponse
-      this.savePlayerState();
+      if (isCorrect) {
+        this.totalScore++;
+        console.log('[SCORE] Point ajouté lors de la révélation des résultats:', this.totalScore);
+      } else {
+        console.log('[SCORE] Réponse incorrecte, pas de point ajouté');
+      }
+
+      // Marquer que le score a été calculé pour cette question
+      this.scoredQuestions.add(this.currentIndex);
+    } else {
+      console.log('[SCORE] Aucune réponse ou réponse invalide, pas de point ajouté');
+      // Même si pas de réponse, marquer comme calculé pour éviter les re-calculs
+      this.scoredQuestions.add(this.currentIndex);
     }
   }
 
-  nextQuestion() {
-    if (this.currentIndex >= (this.questionResults.length - 1)) {
+  // Méthode pour recalculer le score lors de la restauration (autorise le recalcul)
+  private recalculateScoreForQuestion(questionIndex: number, userAnswerIndex: number): boolean {
+    const question = this.quizService.getCurrentQuestion(questionIndex);
+    
+    if (question && userAnswerIndex === question.correctIndex) {
+      console.log(`[RESTORE-CALC] Question ${questionIndex} correcte`);
+      return true;
+    } else {
+      console.log(`[RESTORE-CALC] Question ${questionIndex} incorrecte ou invalide`);
+      return false;
+    }
+  }
+
+  // Système de loading pour les transitions synchronisées
+  private showLoadingForTransition(fromStep: QuizStep, toStep: QuizStep) {
+    // Affichage loading seulement pour les transitions importantes
+    if (this.shouldShowLoadingForTransition(fromStep, toStep)) {
+      this.isLoading = true;
+      this.loadingType = this.getTransitionType(fromStep, toStep);
+      this.loadingMessage = this.getLoadingMessage(this.loadingType);
+      console.log('[LOADING] Transition:', fromStep, '->', toStep, 'Type:', this.loadingType);
+    }
+  }
+
+  private shouldShowLoadingForTransition(fromStep: QuizStep, toStep: QuizStep): boolean {
+    // Loading seulement pour les transitions majeures
+    const majorTransitions = [
+      'lobby->waiting',
+      'waiting->question', 
+      'question->result',
+      'result->question',
+      'result->end'
+    ];
+    
+    const transitionKey = `${fromStep}->${toStep}`;
+    return majorTransitions.includes(transitionKey);
+  }
+
+  private getTransitionType(fromStep: QuizStep, toStep: QuizStep): string {
+    if (toStep === 'question') return 'question-start';
+    if (toStep === 'result') return 'question-result';
+    if (toStep === 'waiting') return 'next-question';
+    if (toStep === 'end') return 'quiz-end';
+    return 'transition';
+  }
+
+  private getLoadingMessage(type: string): string {
+    switch (type) {
+      case 'question-start': return 'Question suivante...';
+      case 'question-result': return 'Résultats...';
+      case 'next-question': return 'Préparation...';
+      case 'quiz-end': return 'Terminé !';
+      default: return 'Synchronisation...';
+    }
+  }
+
+  // Gestion des actions spécifiques lors de l'activation synchronisée des étapes
+  private handleStepActivation(step: QuizStep) {
+    console.log('[STEP-ACTIVATION] Traitement de l\'étape:', step);
+    
+    if (step === 'lobby') {
+      console.log('[QUIZ] Reset détecté, nettoyage et redirection vers login');
+      localStorage.removeItem('userId');
+      localStorage.removeItem('userName');
+      localStorage.removeItem('avatarUrl');
+      localStorage.removeItem(this.PLAYER_STATE_KEY);
+      
+      this.router.navigate(['/login']);
+      this.totalScore = 0;
+      this.questionResults = [];
+      this.scoredQuestions.clear(); // Nettoyer le suivi des scores
+      this.answeredQuestions.clear(); // ✅ PROTECTION VOTE: Nettoyer les questions répondues
+      this.personalScore = { good: 0, bad: 0, none: 0 };
+      this.goodAnswersTimes = [];
+      this.selectedAnswerIndex = null;
+      this.answerSubmitted = false;
+      this.quizFinished = false;
+    } else if (step === 'end') {
       this.quizFinished = true;
+      this.stopTimer();
+    } else if (step === 'result') {
+      this.timerActive = false;
+      this.stopTimer();
+      
+      // Calculer le score maintenant que les résultats sont révélés
+      this.calculateScoreForCurrentQuestion();
+    } else if (step === 'question') {
+      this.currentQuestion = this.quizService.getCurrentQuestion(this.currentIndex);
+      // IMPORTANT: Réinitialiser le timer pour chaque nouvelle question
+      this.questionStartTime = 0;
+      this.timerActive = false;
+      console.log('[STEP-ACTIVATION] Question activée, timer réinitialisé, questionStartTime = 0');
+    }
+    
+    this.savePlayerState();
+  }
+
+  // Sauvegarde et restauration de l'état du joueur
+  private savePlayerState() {
+    const playerState = {
+      userId: this.userId,
+      userName: this.userName,
+      currentIndex: this.currentIndex,
+      step: this.step,
+      selectedAnswerIndex: this.selectedAnswerIndex,
+      answerSubmitted: this.answerSubmitted,
+      isAnswerCorrect: this.isAnswerCorrect,
+      totalScore: this.totalScore,
+      personalScore: this.personalScore,
+      scoredQuestions: Array.from(this.scoredQuestions),
+      answeredQuestions: Array.from(this.answeredQuestions), // ✅ PROTECTION VOTE: Sauvegarder questions répondues
+      timestamp: Date.now()
+    };
+
+    try {
+      localStorage.setItem(this.PLAYER_STATE_KEY, JSON.stringify(playerState));
+      console.log('[SAVE-STATE] État sauvegardé:', {
+        currentIndex: playerState.currentIndex,
+        selectedAnswerIndex: playerState.selectedAnswerIndex,
+        answerSubmitted: playerState.answerSubmitted,
+        answeredQuestions: this.answeredQuestions.size
+      });
+    } catch (error) {
+      console.error('[SAVE-STATE] Erreur sauvegarde état:', error);
     }
   }
 
-  fetchQuestionStartTime(idx: number): Promise<void> {
-    console.log('[SYNC] Début fetchQuestionStartTime pour question', idx);
-    return fetch(`${environment.apiUrl.replace('/api', '')}/api/quiz-state`)
-      .then((response) => response.json())
-      .then((data) => {
-        console.log('[SYNC] fetchQuestionStartTime - Réponse serveur:', data);
-        const now = Date.now();
+  private restorePlayerState(): boolean {
+    try {
+      const savedData = localStorage.getItem(this.PLAYER_STATE_KEY);
+      if (!savedData) return false;
 
-        // Synchronisation stricte : récupération du timerMax si disponible
-        if (data && typeof data.timerMax !== 'undefined' && data.timerMax > 0) {
-          this.timerMax = data.timerMax;
-          console.log('[SYNC] timerMax serveur utilisé:', this.timerMax);
+      const playerState = JSON.parse(savedData);
+      
+      // Vérifier la validité de l'état (pas trop ancien)
+      const maxAge = 30 * 60 * 1000; // 30 minutes
+      if (Date.now() - playerState.timestamp > maxAge) {
+        localStorage.removeItem(this.PLAYER_STATE_KEY);
+        return false;
+      }
+
+      // Restaurer l'état de base
+      this.userId = playerState.userId || '';
+      this.userName = playerState.userName || '';
+      const savedQuestionIndex = playerState.currentIndex || 0;
+      this.currentIndex = savedQuestionIndex;
+      
+      // ✅ CORRECTION: Ne restaurer selectedAnswerIndex que si on est sur la même question
+      if (savedQuestionIndex === this.currentIndex) {
+        // ✅ CORRECTION TYPE: S'assurer que selectedAnswerIndex est un nombre valide ou null
+        const savedAnswerIndex = playerState.selectedAnswerIndex;
+        if (typeof savedAnswerIndex === 'number' && savedAnswerIndex >= 0) {
+          this.selectedAnswerIndex = savedAnswerIndex;
         } else {
-          this.timerMax = 15;
-          console.log('[SYNC] timerMax par défaut utilisé:', this.timerMax);
+          this.selectedAnswerIndex = null;
         }
+        
+        this.answerSubmitted = playerState.answerSubmitted || false;
+        this.isAnswerCorrect = playerState.isAnswerCorrect || null;
+      } else {
+        // Question différente - remettre à zéro
+        this.selectedAnswerIndex = null;
+        this.answerSubmitted = false;
+        this.isAnswerCorrect = null;
+      }
+      
+      this.personalScore = playerState.personalScore || { good: 0, bad: 0, none: 0 };
+      this.scoredQuestions = new Set(playerState.scoredQuestions || []);
+      this.answeredQuestions = new Set(playerState.answeredQuestions || []); // ✅ PROTECTION VOTE: Restaurer questions répondues
 
-        if (data && typeof data.questionStartTime !== 'undefined') {
-          if (data.questionStartTime > 0) {
-            this.questionStartTime = data.questionStartTime;
-            console.log('[SYNC] Timestamp serveur utilisé:', this.questionStartTime);
-
-            // Compensation : si le timer démarre avec >2s de retard, on recale à timerMax
-            const elapsed = Math.floor((now - this.questionStartTime) / 1000);
-            if (elapsed > 2) {
-              console.warn('[SYNC][COMPENSATION] Timer joueur recalé à timerMax (retard détecté)', {elapsed, timerMax: this.timerMax});
-              this.questionStartTime = now;
-              // Ne pas redémarrer le timer ici, on laisse la logique normale s'en charger
-            }
-          } else {
-            this.questionStartTime = now;
-            console.log('[SYNC] Timestamp local utilisé (serveur <= 0):', this.questionStartTime);
-          }
-        } else {
-          this.questionStartTime = now;
-          console.log('[SYNC] Timestamp local utilisé (pas de questionStartTime):', this.questionStartTime);
-        }
-
-        // Mise à jour immédiate du timer après synchronisation
-        this.updateTimerValue();
-        console.log('[SYNC] Synchronisation terminée, timer mis à jour');
-      })
-      .catch((e: unknown) => {
-        this.questionStartTime = Date.now();
-        this.timerMax = 15;
-        console.log('[SYNC] Erreur fetch, timestamp local utilisé:', this.questionStartTime, e);
-        this.updateTimerValue();
+      console.log('[RESTORE-STATE] État de base restauré:', {
+        currentIndex: this.currentIndex,
+        answerSubmitted: this.answerSubmitted,
+        userId: this.userId,
+        answeredQuestions: this.answeredQuestions.size
       });
+
+      // Récupérer les réponses du serveur pour recalculer le score correct
+      if (this.userId) {
+        this.restoreScoreFromServer();
+      } else {
+        this.totalScore = playerState.totalScore || 0;
+      }
+
+      return true;
+    } catch (error) {
+      console.error('[RESTORE-STATE] Erreur restauration état:', error);
+      localStorage.removeItem(this.PLAYER_STATE_KEY);
+      return false;
+    }
+  }
+
+  private async restoreScoreFromServer() {
+    try {
+      console.log('[RESTORE-SCORE] Récupération des réponses du serveur pour recalculer le score...');
+      
+      // Attendre que les questions soient chargées
+      await this.waitForQuestionsToLoad();
+      
+      const userAnswers = await this.quizService.getUserAnswers(this.userId);
+      console.log('[RESTORE-SCORE] Réponses brutes récupérées:', userAnswers);
+      
+      let calculatedScore = 0;
+      const newScoredQuestions = new Set<number>();
+
+      for (const answer of userAnswers) {
+        const question = this.quizService.getCurrentQuestion(answer.questionIndex);
+        console.log(`[RESTORE-SCORE] Question ${answer.questionIndex}:`, {
+          question: question?.text?.substring(0, 50) + '...',
+          userAnswerIndex: answer.answerIndex,
+          correctIndex: question?.correctIndex,
+          isCorrect: answer.answerIndex === question?.correctIndex,
+          currentQuestionIndex: this.currentIndex
+        });
+        
+        // ✅ CORRECTION: Ne compter les points que pour les questions déjà terminées (result révélés)
+        // Si c'est la question courante et qu'on n'est pas encore à l'étape 'result', ne pas compter le point
+        if (answer.questionIndex === this.currentIndex && this.step !== 'result' && this.step !== 'end') {
+          console.log(`[RESTORE-SCORE] Question ${answer.questionIndex} est la question courante et pas encore à l'étape result, point non compté`);
+          // Marquer comme ayant une réponse mais sans scorer pour l'instant
+          // Le point sera ajouté quand on atteindra l'étape 'result'
+          continue;
+        }
+        
+        if (question && answer.answerIndex === question.correctIndex) {
+          calculatedScore++;
+          newScoredQuestions.add(answer.questionIndex);
+          console.log(`[RESTORE-SCORE] Question ${answer.questionIndex} correcte et terminée, score: ${calculatedScore}`);
+        } else if (question) {
+          // Marquer comme traitée même si incorrecte (pour éviter de la traiter plusieurs fois)
+          newScoredQuestions.add(answer.questionIndex);
+          console.log(`[RESTORE-SCORE] Question ${answer.questionIndex} incorrecte mais terminée`);
+        }
+      }
+
+      this.totalScore = calculatedScore;
+      this.scoredQuestions = newScoredQuestions;
+
+      console.log(`[RESTORE-SCORE] Score final recalculé: ${this.totalScore}/${userAnswers.length}`);
+      console.log(`[RESTORE-SCORE] Questions scorées:`, Array.from(this.scoredQuestions));
+      console.log(`[RESTORE-SCORE] Étape actuelle: ${this.step}, Question courante: ${this.currentIndex}`);
+
+      // Sauvegarder l'état mis à jour
+      this.savePlayerState();
+
+    } catch (error) {
+      console.error('[RESTORE-SCORE] Erreur lors de la restauration du score:', error);
+      // En cas d'erreur, utiliser le score sauvegardé localement
+      const savedData = localStorage.getItem(this.PLAYER_STATE_KEY);
+      if (savedData) {
+        const playerState = JSON.parse(savedData);
+        this.totalScore = playerState.totalScore || 0;
+        console.log('[RESTORE-SCORE] Utilisation du score local sauvegardé:', this.totalScore);
+      }
+    }
+  }
+
+  private async waitForQuestionsToLoad(): Promise<void> {
+    return new Promise((resolve) => {
+      const checkQuestions = () => {
+        if (this.quizService.getQuestions().length > 0) {
+          console.log('[RESTORE-SCORE] Questions chargées, nombre:', this.quizService.getQuestions().length);
+          resolve();
+        } else {
+          console.log('[RESTORE-SCORE] En attente du chargement des questions...');
+          setTimeout(checkQuestions, 100);
+        }
+      };
+      checkQuestions();
+    });
+  }
+
+  get totalQuestions(): number {
+    return this.quizService.getQuestions().length;
+  }
+
+  get currentQuestionNumber(): string {
+    const questionNum = (this.currentIndex + 1).toString().padStart(2, '0');
+    const totalQuestions = this.totalQuestions.toString().padStart(2, '0');
+    return `${questionNum} sur ${totalQuestions}`;
+  }
+
+  // ✅ NOUVEAU: Forcer l'affichage des résultats côté joueur
+  private forceShowResults(): void {
+    console.log('[FORCE-RESULTS] Passage forcé à l\'étape result côté joueur');
+    
+    // Changer localement l'étape pour afficher les résultats
+    this.step = 'result';
+    this.webSocketStep = 'result';
+    
+    // Calculer le score pour la question courante
+    this.calculateScoreForCurrentQuestion();
+    
+    // Forcer la détection de changements
+    this.cdr.detectChanges();
+    
+    // Sauvegarder l'état
+    this.savePlayerState();
+  }
+
+  // ✅ NOUVEAU: Forcer le reset des états si incohérence détectée
+  private lastResetIndex: number = -1; // Pour éviter les appels répétés
+  
+  public forceResetIfNeeded(): string {
+    // Éviter les appels répétés pour le même index
+    if (this.lastResetIndex === this.currentIndex) {
+      return '';
+    }
+    
+    // Si selectedAnswerIndex n'est pas null mais qu'on n'a pas encore répondu à cette question
+    if (this.selectedAnswerIndex !== null && !this.answeredQuestions.has(this.currentIndex)) {
+      console.log('[FORCE-RESET] Incohérence détectée - reset forcé:', {
+        selectedAnswerIndex: this.selectedAnswerIndex,
+        currentIndex: this.currentIndex,
+        hasAnswered: this.answeredQuestions.has(this.currentIndex)
+      });
+      
+      this.selectedAnswerIndex = null;
+      this.answerSubmitted = false;
+      this.isAnswerCorrect = null;
+      this.lastResetIndex = this.currentIndex;
+      this.cdr.detectChanges();
+      return '';
+    }
+    
+    // ✅ NOUVEAU: Si on a répondu mais selectedAnswerIndex est vide, restaurer depuis le serveur
+    if (this.selectedAnswerIndex === null && this.answeredQuestions.has(this.currentIndex)) {
+      console.log('[FORCE-RESTORE] Question répondue mais selectedAnswerIndex null - restauration depuis serveur');
+      this.restoreSelectedAnswerFromServer();
+      this.lastResetIndex = this.currentIndex;
+      return '';
+    }
+    
+    return '';
+  }
+
+  // ✅ NOUVEAU: Restaurer selectedAnswerIndex depuis le serveur pour les questions déjà répondues
+  private async restoreSelectedAnswerFromServer(): Promise<void> {
+    if (!this.userId || !this.answeredQuestions.has(this.currentIndex)) {
+      return;
+    }
+
+    console.log('[RESTORE-SELECTION] Tentative de restauration de la sélection depuis le serveur pour question', this.currentIndex);
+    
+    try {
+      const userAnswers = await this.quizService.getUserAnswers(this.userId);
+      const answerForCurrentQuestion = userAnswers.find(a => a.questionIndex === this.currentIndex);
+      
+      if (answerForCurrentQuestion) {
+        // ✅ CORRECTION TYPE: S'assurer que answerIndex est un nombre valide
+        const answerIndex = answerForCurrentQuestion.answerIndex;
+        if (typeof answerIndex === 'number' && answerIndex >= 0) {
+          this.selectedAnswerIndex = answerIndex;
+        } else {
+          console.warn('[RESTORE-SELECTION] ⚠️ answerIndex invalide:', answerIndex, typeof answerIndex);
+          this.selectedAnswerIndex = null;
+        }
+        
+        this.answerSubmitted = true;
+        this.isAnswerCorrect = answerForCurrentQuestion.answerIndex === this.currentQuestion?.correctIndex;
+        
+        this.cdr.detectChanges();
+        this.savePlayerState();
+        
+        // Vérification finale pour s'assurer que la valeur est correctement assignée
+        setTimeout(() => {
+          if ((this.selectedAnswerIndex as any) === '') {
+            const answerIndex = answerForCurrentQuestion.answerIndex;
+            if (typeof answerIndex === 'number' && answerIndex >= 0) {
+              this.selectedAnswerIndex = answerIndex;
+              this.cdr.detectChanges();
+            }
+          }
+        }, 100);
+      }
+    } catch (error) {
+      console.error('[RESTORE-SELECTION] ❌ Erreur restauration depuis serveur:', error);
+    }
+  }
+
+  // ✅ NOUVEAU: Obtenir l'étape active (priorité au WebSocket)
+  get activeStep(): QuizStep {
+    return (this.webSocketStep as QuizStep) || this.step;
+  }
+
+  // ✅ NOUVEAU: Vérifier si on est en étape question ou résultat
+  get isQuestionOrResultStep(): boolean {
+    const active = this.activeStep;
+    return active === 'question' || active === 'result';
+  }
+
+  // Vérifier si le joueur peut jouer (seulement quand le timer est démarré par le maître)
+  // ✅ CORRECTION TYPE: Nettoyer selectedAnswerIndex si invalide
+  private sanitizeSelectedAnswerIndex(): void {
+    const value = this.selectedAnswerIndex as any;
+    
+    if (this.selectedAnswerIndex !== null && 
+        (typeof this.selectedAnswerIndex !== 'number' || 
+         this.selectedAnswerIndex < 0 || 
+         value === '' || 
+         isNaN(this.selectedAnswerIndex as any))) {
+      
+      // Si on a répondu à cette question, restaurer depuis le serveur
+      if (this.answeredQuestions.has(this.currentIndex) && this.answerSubmitted) {
+        this.restoreSelectedAnswerFromServer();
+      } else {
+        this.selectedAnswerIndex = null;
+      }
+      
+      this.cdr.detectChanges();
+    }
+  }
+
+  get canPlay(): boolean {
+    // ✅ CORRECTION TYPE: Nettoyer selectedAnswerIndex si invalide
+    this.sanitizeSelectedAnswerIndex();
+    
+    // ✅ PROTECTION VOTE: Ne pas permettre de jouer si déjà répondu à cette question
+    if (this.answeredQuestions.has(this.currentIndex)) {
+      return false;
+    }
+    
+    // ✅ CORRECTION TIMER: Les joueurs ne peuvent jouer QUE si le timer est démarré côté maître
+    const activeStep = this.webSocketStep || this.step;
+    const isQuestionPhase = activeStep === 'question';
+    const timerStarted = this.questionStartTime > 0 && this.timerActive;
+    
+    // Permettre de jouer SEULEMENT si:
+    // - En phase question ET
+    // - Timer démarré côté maître ET
+    // - Pas encore répondu
+    return !this.answerSubmitted && 
+           isQuestionPhase && 
+           timerStarted &&
+           this.currentQuestion !== null;
+  }
+
+  // AJOUT: Vérification périodique des questions (solution de contournement au WebSocket manqué)
+  private periodicQuestionsInterval: any;
+  private lastKnownQuestionsCount = 0;
+
+  private startPeriodicQuestionsCheck() {
+    // Démarrer la vérification toutes les 5 secondes
+    this.periodicQuestionsInterval = setInterval(async () => {
+      try {
+        // Obtenir le nombre actuel de questions
+        const currentQuestions = await this.quizService.questions$.pipe(take(1)).toPromise();
+        const currentQuestionsCount = currentQuestions?.length || 0;
+        
+        // Vérifier s'il y a eu un changement
+        if (currentQuestionsCount !== this.lastKnownQuestionsCount && this.lastKnownQuestionsCount > 0) {
+          console.log('[PERIODIC-CHECK] Changement détecté dans les questions:', {
+            ancien: this.lastKnownQuestionsCount,
+            nouveau: currentQuestionsCount
+          });
+          
+          // Recharger les questions
+          await this.quizService.reloadQuestions();
+          
+          // Mettre à jour la question courante
+          const newCurrentQuestion = this.quizService.getCurrentQuestion(this.currentIndex);
+          if (newCurrentQuestion) {
+            this.currentQuestion = newCurrentQuestion;
+            console.log('[PERIODIC-CHECK] Question courante mise à jour');
+          }
+          
+          this.cdr.detectChanges();
+        }
+        
+        this.lastKnownQuestionsCount = currentQuestionsCount;
+        
+      } catch (error) {
+        console.error('[PERIODIC-CHECK] Erreur lors de la vérification périodique:', error);
+      }
+    }, 5000); // Toutes les 5 secondes
+    
+    // Initialiser le compteur avec les questions actuelles
+    this.quizService.questions$.pipe(take(1)).subscribe((questions: Question[]) => {
+      this.lastKnownQuestionsCount = questions?.length || 0;
+    });
+  }
+
+  ngOnDestroy(): void {
+    if (this.quizStateUnsub) this.quizStateUnsub();
+    if (this.websocketTimerSub) this.websocketTimerSub.unsubscribe();
+    if (this.stepTransitionSub) this.stepTransitionSub.unsubscribe();
+    if (this.stepActivationSub) this.stepActivationSub.unsubscribe();
+    if (this.questionsSyncSub) this.questionsSyncSub.unsubscribe();
+    if (this.answersSub) this.answersSub.unsubscribe();
+    this.stopTimer();
+    
+    // AJOUT: Nettoyer la vérification périodique
+    if (this.periodicQuestionsInterval) {
+      clearInterval(this.periodicQuestionsInterval);
+      console.log('[PERIODIC-CHECK] Interval de vérification arrêté');
+    }
   }
 }
-// Fin de la classe QuizComponent

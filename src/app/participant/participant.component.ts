@@ -3,7 +3,7 @@ import { Component, OnInit, ChangeDetectionStrategy, ChangeDetectorRef, OnDestro
 import { Router } from '@angular/router';
 import { QuizService, QuizStep } from '../services/quiz-secure.service';
 import { User } from '../models/user.model';
-import { TimerService } from '../services/timer.service';
+import { TimerService, TimerState } from '../services/timer.service';
 import { Subscription, interval } from 'rxjs';
 import { CommonModule } from '@angular/common';
 import { environment } from '../../environments/environment';
@@ -27,6 +27,8 @@ export class Participant implements OnInit {
   totalScore: number = 0;
   totalQuestions: number = 0;
   step: QuizStep = 'lobby';
+  private previousStep: QuizStep = 'lobby';
+  private hasReceivedFirstStep = false;
   leaderboard: User[] = [];
   personalScore: { good: number, bad: number, none: number } = { good: 0, bad: 0, none: 0 };
   questionResults: { good: number, bad: number, none: number }[] = [];
@@ -37,7 +39,7 @@ export class Participant implements OnInit {
   timerMax: number = 20; // Durée du timer en secondes, synchronisée avec timerValue
   hasAnswered: boolean = false;
 
-  constructor(private quizService: QuizService, private timerService: TimerService) {}
+  constructor(private quizService: QuizService, private timerService: TimerService, private cdr: ChangeDetectorRef) {}
 
   ngOnInit(): void {
     this.userId = localStorage.getItem('userId') || '';
@@ -46,16 +48,36 @@ export class Participant implements OnInit {
     this.totalQuestions = this.quizService.getQuestions().length;
 
     this.quizService.getStep().subscribe((step: QuizStep) => {
-      console.log('[DEBUG][PARTICIPANT][STEP] step:', step, '| currentIndex:', this.currentIndex);
+      console.log('[DEBUG][PARTICIPANT][STEP] step:', step, '| currentIndex:', this.currentIndex, '| previousStep:', this.previousStep);
+      
+      // Détecter si le quiz a été réinitialisé par l'admin
+      // Reset détecté si on revient à 'lobby' après avoir été dans un autre état
+      if (step === 'lobby' && this.hasReceivedFirstStep && this.previousStep !== 'lobby' && this.userId) {
+        console.log('[RESET][DETECTION] Reset détecté - redirection vers /login');
+        console.log('[RESET][DETECTION] Détails:', { step, previousStep: this.previousStep, hasReceivedFirstStep: this.hasReceivedFirstStep, userId: this.userId });
+        // Nettoyer le localStorage
+        localStorage.removeItem('userId');
+        localStorage.removeItem('userName');
+        localStorage.removeItem('avatarUrl');
+        localStorage.removeItem('quiz-user');
+        // Rediriger vers la page d'inscription
+        window.location.href = '/login';
+        return;
+      }
+      
+      // Marquer qu'on a reçu le premier step et sauvegarder l'état précédent
+      if (!this.hasReceivedFirstStep) {
+        this.hasReceivedFirstStep = true;
+        console.log('[DEBUG][PARTICIPANT][STEP] Premier step reçu:', step);
+      }
+      this.previousStep = this.step;
       this.step = step;
+      
       if (step === 'question') {
         this.currentQuestion = this.quizService.getCurrentQuestion(this.currentIndex);
-        console.log('[DEBUG][PARTICIPANT][STEP] startTimer() called');
-        // Synchronisation forcée du timestamp à chaque passage à l'étape question
-        this.fetchQuestionStartTime(this.currentIndex).then(() => {
-          console.log('[DEBUG][PARTICIPANT][STEP] questionStartTime après fetch:', this.questionStartTime);
-          this.startTimer();
-        });
+        console.log('[DEBUG][PARTICIPANT][STEP] startTimer() called - utilisation service centralisé');
+        // Plus besoin de fetchQuestionStartTime - le service centralisé gère tout
+        this.startTimer();
         this.hasAnswered = false;
       } else {
         this.stopTimer();
@@ -66,13 +88,11 @@ export class Participant implements OnInit {
       this.currentIndex = idx;
       this.currentQuestion = this.quizService.getCurrentQuestion(idx);
       this.hasAnswered = false; // Réinitialise la possibilité de répondre à chaque nouvelle question
-      this.questionStartTime = 0; // Force la réinitialisation du timer
-      // Synchronisation forcée du timestamp à chaque changement d'index si on est sur une question
+      // Plus besoin de questionStartTime local - le service centralisé gère tout
+      // Plus besoin de synchronisation forcée - le service centralisé est déjà synchronisé
       if (this.step === 'question') {
-        this.fetchQuestionStartTime(idx).then(() => {
-          console.log('[DEBUG][PARTICIPANT][INDEX] questionStartTime après fetch:', this.questionStartTime);
-          this.startTimer();
-        });
+        console.log('[DEBUG][PARTICIPANT][INDEX] Utilisation service centralisé pour timer');
+        this.startTimer();
       }
     });
     if (this.answersSub) this.answersSub.unsubscribe();
@@ -108,84 +128,62 @@ export class Participant implements OnInit {
   startTimer() {
     this.stopTimer();
     this.timerQuestionIndex = this.currentIndex;
-    this.updateTimerValue();
-    this.timerCountdownSub = interval(1000).subscribe(() => {
-      // Si l'index de question a changé, on relance le timer
-      if (this.currentIndex !== this.timerQuestionIndex) {
-        this.timerQuestionIndex = this.currentIndex;
-        this.updateTimerValue();
+    
+    console.log('🕐 [PARTICIPANT] Écoute du timer centralisé (pas de démarrage de sync)');
+    
+    // S'abonner aux mises à jour du timer centralisé (la présentation gère la synchronisation)
+    this.timerCountdownSub = this.timerService.getCountdown().subscribe((timerState: TimerState) => {
+      const countdown = timerState.countdownToStart || 0;
+      
+      if (countdown > 0) {
+        // Mode countdown avant démarrage
+        this.timerValue = countdown;
+        this.timerMax = countdown;
+        this.waitingForStart = true;
+        console.log(`⏳ [PARTICIPANT] Countdown: Question démarre dans ${countdown}s`);
       } else {
-        this.updateTimerValue();
+        // Mode timer normal
+        this.timerValue = timerState.timeRemaining;
+        this.timerMax = timerState.timerMax;
+        this.waitingForStart = !timerState.isActive && timerState.questionStartTime === null;
+        console.log(`🕐 [PARTICIPANT] Timer: ${timerState.timeRemaining}s/${timerState.timerMax}s, active: ${timerState.isActive}`);
+      }
+      
+      // Forcer la détection des changements pour mise à jour UI immédiate
+      if (this.cdr) {
+        this.cdr.detectChanges();
+      }
+      
+      if (timerState.timeRemaining <= 0 && timerState.isActive === false && !this.hasAnswered) {
+        console.log('🕐 [PARTICIPANT] Timer fini, marquer comme répondu');
+        this.hasAnswered = true;
       }
     });
+    
+    // Log de l'état initial
+    const currentState = this.timerService.getCurrentState();
+    console.log(`🕐 [PARTICIPANT] État initial: ${currentState.timeRemaining}s/${currentState.timerMax}s, active: ${currentState.isActive}`);
   }
 
-  /** Abonnement temps réel au timestamp de début de question via API SQLite */
-  async listenToQuestionStartTime(idx: number) {
-    if (this.quizStateUnsub) this.quizStateUnsub();
-
-    console.log('[INFO] Listening to question start time for index:', idx);
-    console.log('[DEBUG][LISTEN] FINAL FIX - Appel fetchQuestionStartTime...');
-    // Appel immédiat pour récupérer le timestamp
-    try {
-      await this.fetchQuestionStartTime(idx);
-      console.log('[DEBUG][LISTEN] fetchQuestionStartTime terminé avec succès');
-    } catch (e) {
-      console.error('[ERROR][LISTEN] Échec fetchQuestionStartTime:', e);
-    }
+  /** DEPRECATED: Remplacée par le service timer centralisé */
+  async listenToQuestionStartTime_DEPRECATED(idx: number) {
+    console.warn('[DEPRECATED] listenToQuestionStartTime appelée - utiliser le service timer centralisé');
+    // Cette méthode ne fait plus rien - le service centralisé gère tout
+    return;
   }
 
-  private updateTimerValue() {
-    const now = Date.now();
-    if (!this.questionStartTime || this.questionStartTime <= 0) {
-      this.waitingForStart = true;
-      this.timerValue = null as any;
-      console.log('[DEBUG][PARTICIPANT][TIMER] WAITING | currentIndex:', this.currentIndex, '| questionStartTime:', this.questionStartTime, '| now:', now);
-      return;
-    }
-    this.waitingForStart = false;
-    const elapsed = Math.floor((now - this.questionStartTime) / 1000);
-    this.timerValue = Math.max(20 - elapsed, 0);
-    this.timerMax = 20;
-    console.log('[DEBUG][PARTICIPANT][TIMER] TICK | currentIndex:', this.currentIndex, '| questionStartTime:', this.questionStartTime, '| now:', now, '| timerValue:', this.timerValue, '| waitingForStart:', this.waitingForStart);
-    if (this.timerValue <= 0) {
-      this.hasAnswered = true;
-      this.stopTimer();
-    }
+  // DEPRECATED: Remplacée par le service timer centralisé
+  private updateTimerValue_DEPRECATED() {
+    console.warn('[DEPRECATED] updateTimerValue appelée - utiliser le service timer centralisé');
+    // Cette méthode ne fait plus rien - le service centralisé gère tout
+    return;
   }
 
-  /** Récupère le timestamp de début de la question courante via l'API */
-  async fetchQuestionStartTime(idx: number) {
-    console.log('[DEBUG][FETCH] Début fetchQuestionStartTime pour index:', idx);
-    try {
-      // Récupération du timestamp via l'API HTTP
-      console.log(`[DEBUG][FETCH] Appel API ${environment.apiUrl.replace('/api', '')}/api/quiz-state pour index:`, idx);
-      const response = await fetch(`${environment.apiUrl.replace('/api', '')}/api/quiz-state`);
-      console.log('[DEBUG][FETCH] Réponse reçue, status:', response.status);
-      const data = await response.json();
-      console.log('[DEBUG][FETCH] Data parsée:', data);
-      if (data && typeof data.questionStartTime !== 'undefined') {
-        console.log('[DEBUG][PARTICIPANT][API] questionStartTime reçu du serveur:', data.questionStartTime);
-        if (data.questionStartTime > 0) {
-          this.questionStartTime = data.questionStartTime;
-          console.log('[DEBUG][PARTICIPANT][API] questionStartTime utilisé:', this.questionStartTime, '- Now:', Date.now());
-        } else {
-          this.questionStartTime = Date.now();
-          console.log('[DEBUG][PARTICIPANT][API] Pas de timestamp serveur (>0), utilisation de maintenant:', this.questionStartTime);
-        }
-        this.updateTimerValue();
-      } else {
-        // Si pas de timestamp, utiliser le timestamp actuel
-        this.questionStartTime = Date.now();
-        console.log('[DEBUG][PARTICIPANT][API] Pas de champ questionStartTime, utilisation de maintenant:', this.questionStartTime);
-        this.updateTimerValue();
-      }
-    } catch (e) {
-      console.error('[ERROR][FETCH] Erreur récupération questionStartTime:', e);
-      // En cas d'erreur, utiliser le timestamp actuel pour débloquer
-      this.questionStartTime = Date.now();
-      this.updateTimerValue();
-    }
+  /** DEPRECATED: Remplacée par le service timer centralisé */
+  async fetchQuestionStartTime_DEPRECATED(idx: number) {
+    console.warn('[DEPRECATED] fetchQuestionStartTime appelée - utiliser le service timer centralisé');
+    // Cette méthode ne fait plus rien - le service centralisé gère tout
+    return;
   }
 
   stopTimer() {
@@ -193,6 +191,8 @@ export class Participant implements OnInit {
       this.timerCountdownSub.unsubscribe();
       this.timerCountdownSub = undefined;
     }
+    // Note: Ne pas arrêter la synchronisation serveur ici car d'autres composants peuvent en avoir besoin
+    console.log('🕐 [PARTICIPANT] Arrêt écoute timer');
   }
 
   ngOnDestroy(): void {

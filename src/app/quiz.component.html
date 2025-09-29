@@ -1,5 +1,10 @@
 
 <!-- Interface joueur harmonisée avec le style maître du jeu -->
+ur de loading discret -->
+<div *ngIf="isLoading" class="loading-bar">
+  <div class="loading-progress"></div>
+  <span class="loading-text">{{ loadingMessage }}</span>
+</div>
 
 <!-- Étapes simplifiées -->
 <div *ngIf="step === 'lobby'" class="player-step-banner lobby">
@@ -34,44 +39,81 @@
     <span>Answer before time runs out!</span>
   </div> -->
 
-  <!-- Titre de la question -->
-  <h2 class="question-title">{{ currentQuestion.text }}</h2>
-
-  <!-- Timer (style maître du jeu) -->
-  <div class="timer" *ngIf="step === 'question'">
-    <div *ngIf="waitingForStart" class="timer-waiting">Waiting for start...</div>
-    <ng-container *ngIf="!waitingForStart">
-      <div class="timer-bar-container" *ngIf="timerValue > 0 && timerMax > 0">
-        <div class="timer-bar" [ngStyle]="{width: (timerValue / timerMax * 100) + '%'}"></div>
-        <span class="timer-bar-label">{{ timerValue }}s</span>
-      </div>
-      <div *ngIf="timerValue <= 0" class="player-timer-end">⏰ Time's up!</div>
-    </ng-container>
+  <!-- Titre de la question avec numéro -->
+  <div class="question-header">
+    <div class="question-number">Question Numéro {{ currentQuestionNumber }}</div>
+    <h2 class="question-title">{{ currentQuestion.text }}</h2>
   </div>
 
-  <!-- Options de réponse (style maître du jeu) -->
+  <!-- Timer unifié - Toujours visible pendant les questions -->
+  <div class="timer step-timer" *ngIf="step === 'question' || (currentQuestion && step !== 'result')">
+    <div class="timer-bar-container" [ngClass]="{'timer-active': timerActive && questionStartTime > 0, 'timer-waiting': !timerActive || questionStartTime <= 0}">
+      <div class="timer-bar" 
+           [ngStyle]="{width: questionStartTime > 0 ? (timerValue / timerMax * 100) + '%' : '100%'}"
+           [ngClass]="{'timer-bar-active': timerActive && questionStartTime > 0}"></div>
+      <span class="timer-bar-label" [ngClass]="{'timer-active': timerActive && questionStartTime > 0}">
+        <span *ngIf="timerActive && questionStartTime > 0">{{ timerValue }}s</span>
+        <span *ngIf="questionStartTime > 0 && !timerActive">Timer arrêté</span>
+      </span>
+    </div>
+    
+    <!-- Message unifié d'attente pour les joueurs -->
+    <div *ngIf="questionStartTime <= 0" style="margin-top: 10px; padding: 12px; background: #fff3cd; border-radius: 6px; font-size: 0.95em; color: #856404; text-align: center;">
+      ⏳ En attente du démarrage du timer par le maître du jeu...<br>
+      <small style="opacity: 0.8; margin-top: 4px; display: block;">Les réponses seront activées une fois le timer lancé</small>
+    </div>
+    
+  </div>
+
+        <!-- Options de réponses -->
   <ul class="options-list">
     <li *ngFor="let option of currentQuestion.options; let i = index">
       <button
         class="option-btn"
         (click)="selectAnswer(i)"
-        [disabled]="!timerActive || answerSubmitted || step === 'result'"
-        [class.option-correct]="step === 'result' && i === currentQuestion.correctIndex"
-        [class.option-incorrect]="step === 'result' && selectedAnswerIndex === i && i !== currentQuestion.correctIndex"
-        [class.option-selected]="selectedAnswerIndex === i && (step === 'question' || answerSubmitted)"
+        [disabled]="!canPlay || activeStep === 'result'"
+        [class.option-correct]="(activeStep === 'result' || activeStep === 'waiting') && i === currentQuestion.correctIndex"
+        [class.option-incorrect]="(activeStep === 'result' || activeStep === 'waiting') && selectedAnswerIndex === i && i !== currentQuestion.correctIndex"
+        [class.option-selected]="selectedAnswerIndex === i && isQuestionOrResultStep"
       >
-        <span *ngIf="selectedAnswerIndex === i && (step === 'question' || answerSubmitted)" class="option-selected-icon">👉</span>
+
+
+        <span *ngIf="selectedAnswerIndex === i && isQuestionOrResultStep" class="option-selected-icon">👉</span>
         {{ option }}
-        <span *ngIf="step === 'result' && i === currentQuestion.correctIndex" style="margin-left: auto; color: #43a047; font-weight: bold;">✓</span>
+        <span *ngIf="(activeStep === 'result' || activeStep === 'waiting') && i === currentQuestion.correctIndex" style="margin-left: auto; color: #43a047; font-weight: bold;">✓</span>
+        <span *ngIf="(activeStep === 'result' || activeStep === 'waiting') && selectedAnswerIndex === i && i !== currentQuestion.correctIndex" style="margin-left: auto; color: #c62828; font-weight: bold;">✗</span>
       </button>
     </li>
   </ul>
 
-  <!-- Résultat -->
-  <div *ngIf="step === 'result'">
+  <!-- Résultat avec informations détaillées -->
+  <div *ngIf="activeStep === 'result'" class="result-section">
+    <!-- Affichage du résultat de la réponse du joueur -->
+    <div class="player-result-banner">
+      <div *ngIf="selectedAnswerIndex !== null && selectedAnswerIndex >= 0" class="answer-feedback">
+        <div *ngIf="isAnswerCorrect" class="correct-feedback">
+          ✅ <strong>Bonne réponse !</strong>
+        </div>
+        <div *ngIf="isAnswerCorrect === false" class="incorrect-feedback">
+          ❌ <strong>Réponse incorrecte</strong>
+        </div>
+      </div>
+      <div *ngIf="selectedAnswerIndex === null || selectedAnswerIndex < 0" class="no-answer-feedback">
+        ⏰ <strong>Temps écoulé - Aucune réponse</strong>
+      </div>
+    </div>
+    
+    <!-- Affichage de la bonne réponse -->
+    <div class="correct-answer-display">
+      <h4>💡 La bonne réponse était :</h4>
+      <div class="correct-answer-text" *ngIf="currentQuestion && currentQuestion.correctIndex !== undefined">
+        {{ currentQuestion.options[currentQuestion.correctIndex] }}
+      </div>
+    </div>
+    
     <div class="player-step-banner result">
-      <b>📊 RESULT</b><br>
-      <span>Waiting for next question...</span>
+      <b>📊 RÉSULTATS</b><br>
+      <span>En attente de la question suivante...</span>
     </div>
   </div>
 </div>
