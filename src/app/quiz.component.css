@@ -1,53 +1,39 @@
-/* ===== SYSTÈME DE LOADING POUR LES TRANSITIONS ===== */
+/* ===== INDICATEUR DE LOADING DISCRET ===== */
 
-.loading-overlay {
+.loading-bar {
   position: fixed;
   top: 0;
   left: 0;
   width: 100%;
-  height: 100%;
-  background: rgba(0, 0, 0, 0.8);
+  background: rgba(33, 150, 243, 0.9);
+  color: white;
+  padding: 8px 16px;
   display: flex;
-  justify-content: center;
   align-items: center;
-  z-index: 9999;
+  justify-content: center;
+  z-index: 1000;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  font-size: 0.9rem;
 }
 
-.loading-content {
-  background: white;
-  padding: 2rem;
-  border-radius: 15px;
-  text-align: center;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-  max-width: 400px;
-  width: 90%;
-}
-
-.loading-spinner {
-  width: 50px;
-  height: 50px;
-  border: 4px solid #f3f3f3;
-  border-top: 4px solid #08B0EC;
+.loading-progress {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top: 2px solid white;
   border-radius: 50%;
   animation: spin 1s linear infinite;
-  margin: 0 auto 1rem auto;
+  margin-right: 12px;
+  flex-shrink: 0;
+}
+
+.loading-text {
+  font-weight: 500;
 }
 
 @keyframes spin {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
-}
-
-.loading-content h2 {
-  color: #333;
-  margin: 1rem 0 0.5rem 0;
-  font-size: 1.5rem;
-}
-
-.loading-content p {
-  color: #666;
-  margin: 0;
-  font-size: 1rem;
 }
 
 /* ===== HARMONISATION AVEC LE STYLE MAÎTRE DU JEU ===== */
@@ -151,16 +137,28 @@
 }
 
 /* Titre de question (style maître du jeu) */
+.question-header {
+  text-align: center;
+  margin: 0.7em 0 0.3em 0;
+}
+
+.question-number {
+  font-size: 0.95em;
+  font-weight: 600;
+  color: #1976d2;
+  margin-bottom: 0.3em;
+  letter-spacing: 0.5px;
+}
+
 .question-title {
   color: #232526;
-  margin: 0.7em 0 0.3em 0;
+  margin: 0;
   font-weight: 600;
   font-size: 1.2em;
-  text-align: center;
 }
 
 /* Timer container (style maître du jeu) */
-.timer {
+.timer, .step-timer {
   background: #F1F1F1;
   color: #1976d2;
   border-radius: 8px;
@@ -169,6 +167,30 @@
   font-size: 1.1em;
   width: 100%;
   text-align: center;
+}
+
+/* États visuels du timer (identiques à la présentation) */
+.timer-bar-container.timer-active {
+  background: #E3F2FD;
+  box-shadow: 0 0 10px rgba(33, 150, 243, 0.3);
+}
+
+.timer-bar-container.timer-waiting {
+  background: #FFF3E0;
+  box-shadow: 0 0 10px rgba(255, 152, 0, 0.2);
+}
+
+/* Timer actif avec animation */
+.timer-bar.timer-bar-active {
+  background: linear-gradient(90deg, #4CAF50 0%, #2196F3 50%, #FF5722 100%);
+  box-shadow: 0 0 8px rgba(33, 150, 243, 0.5);
+}
+
+/* Label quand le timer est actif */
+.timer-bar-label.timer-active {
+  color: #fff;
+  text-shadow: 0 2px 8px #1976d2aa;
+  font-size: 1.2em;
 }
 
 /* Options list (style maître du jeu) */
@@ -209,6 +231,55 @@
   position: relative;
 }
 
+/* ✅ NOUVEAU: Préserver l'apparence des boutons sélectionnés même désactivés - SPÉCIFICITÉ MAXIMALE */
+button.option-btn:disabled.option-selected {
+  background: #1976d2 !important;
+  color: #fff !important;
+  border-color: #1976d2 !important;
+  cursor: not-allowed !important;
+  opacity: 1 !important;
+  transform: none !important;
+}
+
+button.option-btn:disabled.option-selected:hover {
+  background: #1976d2 !important;
+  color: #fff !important;
+  border-color: #1976d2 !important;
+}
+
+.option-btn:disabled.option-selected {
+  background: #1976d2 !important;
+  color: #fff !important;
+  border-color: #1976d2 !important;
+  cursor: not-allowed;
+}
+
+.option-btn:disabled.option-correct {
+  background: #2e7d32 !important;
+  border-color: #2e7d32 !important;
+  color: #fff !important;
+  font-weight: bold;
+  box-shadow: 0 4px 12px rgba(46, 125, 50, 0.4), 0 0 0 3px #4caf50;
+  border-width: 3px;
+  border-style: solid;
+  outline: 2px solid #4caf50;
+  outline-offset: 2px;
+  cursor: not-allowed;
+}
+
+.option-btn:disabled.option-incorrect {
+  background: #c62828 !important;
+  color: #fff !important;
+  border-color: #c62828 !important;
+  font-weight: bold;
+  box-shadow: 0 4px 12px rgba(198, 40, 40, 0.4), 0 0 0 3px #f44336;
+  border-width: 3px;
+  border-style: dashed;
+  outline: 2px dashed #f44336;
+  outline-offset: 2px;
+  cursor: not-allowed;
+}
+
 .option-btn:disabled::after {
   content: '🔒';
   position: absolute;
@@ -216,7 +287,13 @@
   top: 50%;
   transform: translateY(-50%);
   font-size: 1em;
-  color: #999;
+}
+
+/* ✅ NOUVEAU: Pas d'icône de verrouillage sur les boutons avec statut (sélectionné, correct, incorrect) */
+.option-btn:disabled.option-selected::after,
+.option-btn:disabled.option-correct::after,
+.option-btn:disabled.option-incorrect::after {
+  display: none;
 }
 
 /* États des boutons de réponse */
@@ -266,6 +343,27 @@
   position: absolute;
   left: 10px;
   font-size: 1.2em;
+}
+
+/* ✅ NOUVEAU: Styles pour les réponses sélectionnées pendant l'étape result */
+.option-btn.option-selected.option-correct,
+.option-btn:disabled.option-selected.option-correct {
+  /* La réponse sélectionnée était correcte - garder le style correct avec une bordure bleue en plus */
+  background: #2e7d32 !important;
+  border: 3px solid #1976d2 !important;
+  box-shadow: 0 4px 12px rgba(46, 125, 50, 0.4), 0 0 0 2px #1976d2, 0 0 0 5px #4caf50;
+  color: #fff !important;
+  cursor: not-allowed;
+}
+
+.option-btn.option-selected.option-incorrect,
+.option-btn:disabled.option-selected.option-incorrect {
+  /* La réponse sélectionnée était incorrecte - ajouter une bordure bleue pour montrer qu'elle était sélectionnée */
+  background: #c62828 !important;
+  border: 3px solid #1976d2 !important;
+  box-shadow: 0 4px 12px rgba(198, 40, 40, 0.4), 0 0 0 2px #1976d2, 0 0 0 5px #f44336;
+  color: #fff !important;
+  cursor: not-allowed;
 }
 
 /* Animations pour les réponses */
@@ -321,6 +419,72 @@
   color: #666;
   font-style: italic;
   text-align: center;
+}
+
+/* Section résultats améliorée */
+.result-section {
+  width: 100%;
+  margin: 1em 0;
+}
+
+.player-result-banner {
+  background: #f8f9fa;
+  border-radius: 8px;
+  padding: 1em;
+  margin-bottom: 1em;
+  text-align: center;
+}
+
+.correct-feedback {
+  color: #1b5e20;
+  font-size: 1.2em;
+  background: rgba(76, 175, 80, 0.1);
+  padding: 0.8em;
+  border-radius: 8px;
+  border-left: 4px solid #2e7d32;
+}
+
+.incorrect-feedback {
+  color: #b71c1c;
+  font-size: 1.2em;
+  background: rgba(244, 67, 54, 0.1);
+  padding: 0.8em;
+  border-radius: 8px;
+  border-left: 4px solid #c62828;
+}
+
+.no-answer-feedback {
+  color: #e65100;
+  font-size: 1.2em;
+  background: rgba(255, 152, 0, 0.1);
+  padding: 0.8em;
+  border-radius: 8px;
+  border-left: 4px solid #f57c00;
+}
+
+.correct-answer-display {
+  background: rgba(76, 175, 80, 0.05);
+  border: 2px solid #4caf50;
+  border-radius: 8px;
+  padding: 1em;
+  margin: 1em 0;
+  text-align: center;
+}
+
+.correct-answer-display h4 {
+  color: #2e7d32;
+  margin: 0 0 0.5em 0;
+  font-size: 1.1em;
+}
+
+.correct-answer-text {
+  background: #4caf50;
+  color: white;
+  padding: 0.8em 1.2em;
+  border-radius: 6px;
+  font-weight: bold;
+  font-size: 1.1em;
+  box-shadow: 0 2px 4px rgba(76, 175, 80, 0.3);
 }
 
 /* Score details */

@@ -13,6 +13,8 @@ import { QRCodeComponent } from 'angularx-qrcode';
 import { AdminAuthService } from '../services/admin-auth.service';
 import { Router } from '@angular/router';
 import { WebSocketTimerService } from '../services/websocket-timer.service';
+import { HttpClient } from '@angular/common/http';
+import { environment } from '../../environments/environment';
 
 @Component({
   selector: 'app-presentation',
@@ -102,7 +104,7 @@ export class PresentationComponent implements OnInit, OnDestroy {
 
   private async initializeNewGame() {
     // Appel unique dans le contexte Angular pour éviter les warnings
-    this.quizService.initQuestions();
+    await this.quizService.initQuestions();
     // Forcer l'étape lobby au démarrage
     this.step = 'lobby';
     this.quizService.setStep('lobby');
@@ -129,6 +131,91 @@ export class PresentationComponent implements OnInit, OnDestroy {
     //     console.warn('[DIAGNOSTIC][step] Valeur non reconnue :', this.step);
     //   }
     // }, 2000);
+  }
+
+  // Méthode pour synchroniser avec les modifications côté gestion
+  async synchronizeWithManagement(): Promise<void> {
+    console.log('[PRESENTATION] Synchronisation avec les modifications côté gestion...');
+    
+    // Démarrer l'état de synchronisation
+    this.isSynchronizing = true;
+    this.synchronizationSuccess = false;
+    this.synchronizationMessage = 'Synchronisation en cours...';
+    
+    try {
+      // Étape 1: Synchroniser les questions et reset les données
+      this.synchronizationMessage = 'Rechargement des questions...';
+      await this.quizService.synchronizeAfterChanges();
+      
+      // Étape 2: Déclencher la synchronisation côté joueur via WebSocket
+      this.synchronizationMessage = 'Notification des joueurs...';
+      await this.triggerPlayerQuestionsSync();
+      
+      // Étape 3: Réinitialiser l'état local
+      this.synchronizationMessage = 'Réinitialisation de l\'état local...';
+      await new Promise(resolve => setTimeout(resolve, 500)); // Délai pour l'UX
+      
+      this.currentIndex = 0;
+      this.currentQuestion = this.quizService.getCurrentQuestion(0);
+      this.leaderboard = [];
+      this.questionStartTimes = {};
+      this.goodAnswersTimesByUser = {};
+      
+      // Étape 4: Retourner au lobby
+      this.synchronizationMessage = 'Retour au lobby...';
+      this.step = 'lobby';
+      this.quizService.setStep('lobby');
+      
+      // Succès
+      this.synchronizationMessage = '✅ Synchronisation terminée avec succès !';
+      this.synchronizationSuccess = true;
+      
+      console.log('[PRESENTATION] Synchronisation terminée, retour au lobby');
+      
+      // Masquer le message de succès après 3 secondes
+      setTimeout(() => {
+        this.isSynchronizing = false;
+        this.synchronizationMessage = '';
+        this.synchronizationSuccess = false;
+      }, 3000);
+      
+    } catch (error) {
+      console.error('[PRESENTATION] Erreur lors de la synchronisation:', error);
+      
+      // Affichage d'erreur
+      this.synchronizationMessage = '❌ Erreur lors de la synchronisation';
+      this.synchronizationSuccess = false;
+      
+      // Masquer le message d'erreur après 5 secondes
+      setTimeout(() => {
+        this.isSynchronizing = false;
+        this.synchronizationMessage = '';
+      }, 5000);
+    }
+  }
+
+  // Méthode pour déclencher la synchronisation des questions côté joueur
+  private async triggerPlayerQuestionsSync(): Promise<void> {
+    try {
+      console.log('[PRESENTATION] Déclenchement sync questions via WebSocket...');
+      console.log('[PRESENTATION] URL appelée:', `${this.apiUrl}/quiz/sync-questions`);
+      
+      const response = await firstValueFrom(
+        this.http.post<any>(`${this.apiUrl}/quiz/sync-questions`, {})
+      );
+      
+      console.log('[PRESENTATION] Réponse serveur sync questions:', response);
+      
+      if (response?.success) {
+        console.log('[PRESENTATION] Sync questions WebSocket déclenchée avec succès');
+      } else {
+        console.warn('[PRESENTATION] Réponse inattendue du serveur pour sync questions:', response);
+      }
+      
+    } catch (error) {
+      console.error('[PRESENTATION] Erreur lors du déclenchement sync questions:', error);
+      // Ne pas faire échouer toute la synchronisation pour cette erreur
+    }
   }
 
   ngOnDestroy() {
@@ -190,6 +277,11 @@ export class PresentationComponent implements OnInit, OnDestroy {
   // Contrôle manuel du timer
   timerStartedManually: boolean = false;
 
+  // État de synchronisation des questions
+  isSynchronizing: boolean = false;
+  synchronizationMessage: string = '';
+  synchronizationSuccess: boolean = false;
+
   // Propriétés pour la photo de groupe
   cameraStream: MediaStream | null = null;
   cameraActive: boolean = false;
@@ -220,13 +312,26 @@ export class PresentationComponent implements OnInit, OnDestroy {
     return this.currentIndex === (this.quizService.getQuestions().length - 1) && this.step !== 'end';
   }
 
+  get totalQuestions(): number {
+    return this.quizService.getQuestions().length;
+  }
+
+  get currentQuestionNumber(): string {
+    const questionNum = (this.currentIndex + 1).toString().padStart(2, '0');
+    const totalQuestions = this.totalQuestions.toString().padStart(2, '0');
+    return `${questionNum} sur ${totalQuestions}`;
+  }
+
+  private readonly apiUrl = environment.apiUrl;
+
   constructor(
     public quizService: QuizService, 
     private timerService: TimerService, 
     private cdr: ChangeDetectorRef,
     public adminAuthService: AdminAuthService,
     private router: Router,
-    private websocketTimerService: WebSocketTimerService
+    private websocketTimerService: WebSocketTimerService,
+    private http: HttpClient
   ) {
     // Initialiser les souscriptions immédiatement pour assurer la synchronisation
     this.initializeSubscriptions();
@@ -248,6 +353,27 @@ export class PresentationComponent implements OnInit, OnDestroy {
     
     console.log('🔄 Initialisation des souscriptions...');
     
+    // ✅ S'abonner aux changements de questions
+    const questionsSub = this.quizService.questions$.subscribe(questions => {
+      if (questions.length > 0) {
+        console.log(`[PRESENTATION-QUESTIONS] Nouvelle liste de questions reçue: ${questions.length} questions`);
+        
+        // Mettre à jour la question courante si elle a changé
+        const newCurrentQuestion = this.quizService.getCurrentQuestion(this.currentIndex);
+        if (newCurrentQuestion && 
+            (!this.currentQuestion || this.currentQuestion.id !== newCurrentQuestion.id)) {
+          
+          console.log(`[PRESENTATION-QUESTIONS] Question ${this.currentIndex} mise à jour:`, {
+            ancien: this.currentQuestion?.text?.substring(0, 50) + '...',
+            nouveau: newCurrentQuestion.text?.substring(0, 50) + '...'
+          });
+          
+          this.currentQuestion = newCurrentQuestion;
+        }
+      }
+    });
+    this.subscriptions.push(questionsSub);
+    
     // ✅ S'abonner aux transitions d'étapes synchronisées via WebSocket
     const stepTransitionSub = this.websocketTimerService.getStepTransitions().subscribe(transitionData => {
       console.log('[PRESENTATION][STEP-WS] Transition reçue:', transitionData);
@@ -257,11 +383,22 @@ export class PresentationComponent implements OnInit, OnDestroy {
 
     const stepActivationSub = this.websocketTimerService.getStepActivations().subscribe(activationData => {
       console.log('[PRESENTATION][STEP-WS] Activation reçue:', activationData);
+      
+      // Gestion structure imbriquée
+      let stepValue = activationData.step;
+      const rawData = activationData as any;
+      if (!stepValue && rawData.data && rawData.data.step) {
+        stepValue = rawData.data.step;
+        console.log('[PRESENTATION][STEP-WS] Étape extraite de structure imbriquée:', stepValue);
+      }
+      
+      console.log('[PRESENTATION][STEP-WS] Étape finale:', stepValue);
+      
       this.isLoading = false;
-      this.step = activationData.step as QuizStep;
+      this.step = stepValue as QuizStep;
       
       // Actions spécifiques aux étapes après activation synchronisée
-      this.handleStepActivationPresentation(activationData.step as QuizStep);
+      this.handleStepActivationPresentation(stepValue as QuizStep);
       
       this.refresh();
       this.cdr.detectChanges();
@@ -726,18 +863,26 @@ export class PresentationComponent implements OnInit, OnDestroy {
     
     try {
       // Utilise les méthodes du service HTTP
-      console.log('[RESET] 1. Passage à l\'étape lobby...');
-      await this.quizService.setStep('lobby');
-      console.log('[RESET] 1. ✅ Étape lobby définie');
-      
-      console.log('[RESET] 2. Suppression des participants...');
+      console.log('[RESET] 1. Suppression des participants...');
       await this.quizService.resetParticipants();
-      console.log('[RESET] 2. ✅ Participants supprimés');
+      console.log('[RESET] 1. ✅ Participants supprimés');
+      
+      console.log('[RESET] 2. Reset des réponses...');
+      await this.quizService.resetAllAnswers();
+      console.log('[RESET] 2. ✅ Réponses supprimées');
+      
+      console.log('[RESET] 3. Passage forcé à l\'étape lobby...');
+      // Double appel pour s'assurer de la propagation WebSocket
+      await this.quizService.setStep('lobby');
+      // Petit délai pour laisser le temps au WebSocket de traiter
+      await new Promise(resolve => setTimeout(resolve, 500));
+      await this.quizService.setStep('lobby'); // Second appel pour forcer
+      console.log('[RESET] 3. ✅ Étape lobby définie et rediffusée');
       
       console.log('[INFO] Quiz reset via HTTP API');
       alert('Quiz réinitialisé. Tous les participants et réponses ont été supprimés.');
       
-      console.log('[RESET] 3. Réinitialisation locale de l\'état...');
+      console.log('[RESET] 4. Réinitialisation locale de l\'état...');
       // Réinitialisation locale de l'état du composant
       this.step = 'lobby';
       this.currentIndex = 0;
@@ -747,7 +892,7 @@ export class PresentationComponent implements OnInit, OnDestroy {
       this.participants = []; // Vider aussi les participants locaux
       this.imageLoaded = false; // Reset image state
       this.resultImageLoaded = false; // Reset result image state
-      console.log('[RESET] 3. ✅ État local réinitialisé');
+      console.log('[RESET] 4. ✅ État local réinitialisé');
       
     } catch (error) {
       console.error('[RESET] ❌ Erreur lors de la réinitialisation:', error);
@@ -1301,10 +1446,10 @@ export class PresentationComponent implements OnInit, OnDestroy {
 
   private getLoadingMessage(type: string): string {
     switch (type) {
-      case 'question-start': return 'Synchronisation des écrans...';
-      case 'question-result': return 'Calcul des résultats...';
-      case 'next-question': return 'Préparation de la question...';
-      case 'quiz-end': return 'Quiz terminé !';
+      case 'question-start': return 'Synchronisation...';
+      case 'question-result': return 'Résultats...';
+      case 'next-question': return 'Préparation...';
+      case 'quiz-end': return 'Terminé !';
       default: return 'Synchronisation...';
     }
   }

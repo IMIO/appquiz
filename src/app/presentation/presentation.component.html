@@ -29,13 +29,10 @@
   </div>
 </div>
 
-<!-- Écran de loading pour synchronisation avec les joueurs -->
-<div *ngIf="isLoading" class="loading-overlay presentation-loading">
-  <div class="loading-content">
-    <div class="loading-spinner master"></div>
-    <h2>{{ loadingMessage }}</h2>
-    <p>Les écrans des joueurs se préparent...</p>
-  </div>
+<!-- Indicateur de loading discret pour la présentation -->
+<div *ngIf="isLoading" class="loading-bar presentation-loading">
+  <div class="loading-progress"></div>
+  <span class="loading-text">{{ loadingMessage }}</span>
 </div>
 
 <!-- DIAGNOSTIC : Bloc ultra-visible si aucune étape reconnue
@@ -164,8 +161,31 @@
       {{ user.name }}
     </li>
   </ul>
-  <button class="step-btn" (click)="launchGame()" [disabled]="participants.length === 0">Close registration</button>
-  <button class="step-btn" (click)="restartGame()">Reset</button>
+  <div class="button-group">
+    <button class="step-btn" (click)="launchGame()" [disabled]="participants.length === 0">Close registration</button>
+    <button 
+      class="step-btn sync-btn" 
+      (click)="synchronizeWithManagement()" 
+      [disabled]="isSynchronizing"
+      title="Synchroniser avec les modifications côté gestion">
+      <span *ngIf="!isSynchronizing">🔄 Sync Questions</span>
+      <span *ngIf="isSynchronizing" class="sync-loading">⏳ Synchronisation...</span>
+    </button>
+    <button class="step-btn" (click)="restartGame()">Reset</button>
+  </div>
+  
+  <!-- Message de statut de synchronisation -->
+  <div *ngIf="isSynchronizing || synchronizationMessage" class="sync-status-container">
+    <div class="sync-status" [ngClass]="{
+      'sync-in-progress': isSynchronizing && !synchronizationSuccess,
+      'sync-success': synchronizationSuccess,
+      'sync-error': !synchronizationSuccess && synchronizationMessage.includes('❌')
+    }">
+      <div *ngIf="isSynchronizing && !synchronizationSuccess" class="sync-spinner"></div>
+      <span class="sync-message">{{ synchronizationMessage }}</span>
+    </div>
+  </div>
+  
   <div *ngIf="participants.length === 0" class="step-waiting">Waiting for players...</div>
 </div>
 </div>
@@ -239,7 +259,10 @@
       />
     </ng-container>
   </div>
-  <h3 class="step-h3">{{ currentQuestion.text }}</h3>
+  <div class="question-header">
+    <div class="question-number">Question Numéro {{ currentQuestionNumber }}</div>
+    <h3 class="step-h3">{{ currentQuestion.text }}</h3>
+  </div>
   <div class="container-question">
   <div class="timer step-timer" [@stepTransition]>
     <div class="timer-bar-container" [ngClass]="{'timer-active': timerActive, 'timer-waiting': !timerActive}">

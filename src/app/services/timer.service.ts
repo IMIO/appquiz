@@ -10,6 +10,7 @@ export interface TimerState {
   questionStartTime: number | null;
   countdownToStart?: number; // Compte à rebours avant démarrage
   syncTimestamp?: number; // Timestamp de synchronisation pour alignement forcé
+  step?: string | null; // ✅ AJOUT: Étape actuelle du quiz reçue via WebSocket
 }
 
 @Injectable({ providedIn: 'root' })
@@ -21,7 +22,8 @@ export class TimerService {
     isActive: false,
     questionStartTime: null,
     countdownToStart: 0,
-    syncTimestamp: 0
+    syncTimestamp: 0,
+    step: null // ✅ AJOUT: Étape initiale
   };
   private syncInterval?: Subscription;
   private tickInterval?: Subscription;

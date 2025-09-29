@@ -91,6 +91,27 @@ function broadcastStepTransition(fromStep, toStep, loadingDuration = 2000) {
   }, loadingDuration);
 }
 
+// Fonction pour broadcaster les changements de questions
+function broadcastQuestionsSync() {
+  const message = JSON.stringify({
+    type: 'questions-sync',
+    data: {
+      timestamp: Date.now(),
+      action: 'reload'
+    }
+  });
+  
+  clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(message);
+    } else {
+      clients.delete(client);
+    }
+  });
+  
+  console.log(`🔄 Questions sync broadcast vers ${clients.size} clients`);
+}
+
 // Timer serveur qui broadcast en temps réel toutes les 100ms
 let serverTimerInterval;
 
@@ -110,8 +131,9 @@ function startServerTimer() {
         let timeRemaining = 0;
         let isTimerActive = false;
         let countdownToStart = 0;
+        let shouldBroadcast = false;
         
-        if (row?.questionStartTime && row?.questionStartTime > 0 && row?.step === 'question') {
+        if (row?.questionStartTime && row?.questionStartTime > 0) {
           const timeDiff = row.questionStartTime - serverTime;
           
           if (timeDiff > 0) {
@@ -119,18 +141,34 @@ function startServerTimer() {
             countdownToStart = Math.ceil(timeDiff / 1000);
             isTimerActive = false;
             timeRemaining = countdownToStart;
+            shouldBroadcast = row.step === 'question';
           } else {
-            // Timer actif
+            // Timer actif ou expiré
             const elapsedMs = serverTime - row.questionStartTime;
             const elapsedSeconds = elapsedMs / 1000;
             const preciseRemaining = Math.max(0, TIMER_MAX - elapsedSeconds);
             timeRemaining = Math.floor(preciseRemaining);
             isTimerActive = preciseRemaining > 0;
             countdownToStart = 0;
+            shouldBroadcast = true; // Toujours broadcaster quand le timer a été démarré
+            
+            // Timer expiré - basculer automatiquement vers 'result'
+            if (!isTimerActive && timeRemaining <= 0 && row.step === 'question') {
+              console.log('⏰ Timer expiré, basculement automatique vers result');
+              db.run('UPDATE quiz_state SET step = ? WHERE id = 1', ['result'], (updateErr) => {
+                if (updateErr) {
+                  console.error('❌ Erreur basculement vers result:', updateErr);
+                } else {
+                  console.log('✅ Basculement automatique vers result réussi');
+                  // ✅ NOUVEAU: Broadcaster immédiatement la transition d'étape
+                  broadcastStepTransition('question', 'result', 500); // Transition rapide de 500ms
+                }
+              });
+            }
           }
           
-          // Broadcaster seulement si timer actif ou countdown
-          if (isTimerActive || countdownToStart > 0) {
+          // Broadcaster l'état du timer
+          if (shouldBroadcast) {
             broadcastTimerUpdate({
               timeRemaining: timeRemaining,
               timerMax: TIMER_MAX,
@@ -141,15 +179,19 @@ function startServerTimer() {
               step: row.step,
               currentQuestionIndex: row.currentQuestionIndex
             });
-          } else if (!isTimerActive && timeRemaining <= 0 && row.step === 'question') {
-            // ✅ Timer expiré - basculer automatiquement vers 'result'
-            console.log('⏰ Timer expiré, basculement automatique vers result');
-            db.run('UPDATE quiz_state SET step = ? WHERE id = 1', ['result'], (updateErr) => {
-              if (updateErr) {
-                console.error('❌ Erreur basculement vers result:', updateErr);
-              } else {
-                console.log('✅ Basculement automatique vers result réussi');
-              }
+          }
+        } else {
+          // Aucun timer démarré - broadcaster l'état par défaut si on est en étape question
+          if (row.step === 'question') {
+            broadcastTimerUpdate({
+              timeRemaining: TIMER_MAX,
+              timerMax: TIMER_MAX,
+              isTimerActive: false,
+              countdownToStart: 0,
+              serverTime: serverTime,
+              questionStartTime: null, // Timer pas encore démarré
+              step: row.step,
+              currentQuestionIndex: row.currentQuestionIndex
             });
           }
         }
@@ -413,15 +455,35 @@ app.post('/api/answers', (req, res) => {
     return res.status(400).json({ error: 'Données manquantes' });
   }
 
-  db.run('INSERT INTO answers (questionIndex, userId, userName, answerIndex) VALUES (?, ?, ?, ?)',
-    [questionIndex, userId, userName, answerIndex],
-    function(err) {
+  // ✅ PROTECTION: Vérifier si l'utilisateur a déjà voté pour cette question
+  db.get('SELECT id FROM answers WHERE questionIndex = ? AND userId = ?',
+    [questionIndex, userId],
+    (err, existingAnswer) => {
       if (err) {
-        console.error('Erreur soumission réponse:', err);
-        res.status(500).json({ error: 'Erreur serveur' });
-      } else {
-        res.json({ success: true, answerId: this.lastID });
+        console.error('Erreur vérification réponse existante:', err);
+        return res.status(500).json({ error: 'Erreur serveur' });
       }
+
+      if (existingAnswer) {
+        console.log(`❌ Vote rejeté - L'utilisateur ${userId} a déjà voté pour la question ${questionIndex}`);
+        return res.status(400).json({ 
+          error: 'Vous avez déjà voté pour cette question',
+          alreadyAnswered: true 
+        });
+      }
+
+      // Insérer la réponse si pas de doublon
+      db.run('INSERT INTO answers (questionIndex, userId, userName, answerIndex) VALUES (?, ?, ?, ?)',
+        [questionIndex, userId, userName, answerIndex],
+        function(err) {
+          if (err) {
+            console.error('Erreur soumission réponse:', err);
+            res.status(500).json({ error: 'Erreur serveur' });
+          } else {
+            console.log(`✅ Vote accepté - Utilisateur ${userId} a voté ${answerIndex} pour la question ${questionIndex}`);
+            res.json({ success: true, answerId: this.lastID });
+          }
+        });
     });
 });
 
@@ -559,7 +621,17 @@ app.put('/api/quiz-state', (req, res) => {
           // Broadcaster la transition d'étape synchronisée si l'étape a changé
           if (step && step !== oldStep) {
             console.log(`🔄 Changement d'étape détecté: ${oldStep} -> ${step}`);
-            broadcastStepTransition(oldStep, step, 2000); // 2 secondes de loading
+            
+            // ✅ NOUVEAU: Transitions plus rapides pour certains cas
+            let loadingDuration = 2000; // 2 secondes par défaut
+            
+            // Transitions rapides pour l'affichage des résultats (skip, timer expiré)
+            if (step === 'result' && oldStep === 'question') {
+              loadingDuration = 300; // 300ms seulement pour l'affichage immédiat des résultats
+              console.log(`⚡ Transition rapide question->result (${loadingDuration}ms)`);
+            }
+            
+            broadcastStepTransition(oldStep, step, loadingDuration);
           }
           
           res.json({ success: true });
@@ -755,6 +827,26 @@ app.post('/api/quiz/reset', (req, res) => {
         }
       });
   });
+});
+
+// Endpoint pour déclencher la synchronisation des questions
+app.post('/api/quiz/sync-questions', async (req, res) => {
+  try {
+    console.log('🔄 Déclenchement synchronisation questions via WebSocket');
+    
+    // Broadcaster la notification de synchronisation
+    broadcastQuestionsSync();
+    
+    res.json({ 
+      success: true, 
+      message: 'Questions synchronization broadcast sent',
+      timestamp: Date.now()
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur synchronisation questions:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 // Obtenir le leaderboard

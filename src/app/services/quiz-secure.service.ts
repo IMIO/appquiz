@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core';
-import { BehaviorSubject, Observable, firstValueFrom, interval, timer, concat } from 'rxjs';
+import { BehaviorSubject, Observable, firstValueFrom, interval, timer, concat, Subscription } from 'rxjs';
 import { map, switchMap, catchError, distinctUntilChanged, tap } from 'rxjs/operators';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { Question } from '../models/question.model';
@@ -7,6 +7,7 @@ import { User } from '../models/user.model';
 import { of } from 'rxjs';
 import { environment } from '../../environments/environment';
 import { GamePersistenceService } from './game-persistence.service';
+import { WebSocketTimerService } from './websocket-timer.service';
 
 export type QuizStep = 'lobby' | 'waiting' | 'question' | 'result' | 'end';
 
@@ -22,9 +23,19 @@ export class QuizService {
 
   // Cache pour éviter les logs répétitifs
   private lastStep: QuizStep | null = null;
+  
+  // AJOUT: Souscription WebSocket persistante pour questions sync
+  private questionsSyncSub?: Subscription;
 
-  constructor(private http: HttpClient, private persistenceService: GamePersistenceService) {
+  constructor(
+    private http: HttpClient, 
+    private persistenceService: GamePersistenceService,
+    private websocketTimerService: WebSocketTimerService  // AJOUT: Injection WebSocket service
+  ) {
     this.initQuestions();
+    
+    // AJOUT: Souscription WebSocket persistante
+    this.initWebSocketQuestionsSync();
   }
 
   // Headers standard (pas d'authentification requise avec SQLite)
@@ -37,6 +48,18 @@ export class QuizService {
   // Chargement des questions via l'API SQLite
   async initQuestions() {
     if (this.questionsLoaded) return;
+    return this.loadQuestions();
+  }
+
+  // Forcer le rechargement des questions (utilisé après modifications côté gestion)
+  async reloadQuestions(): Promise<Question[]> {
+    console.log('[SERVICE] Rechargement forcé des questions...');
+    this.questionsLoaded = false;
+    return this.loadQuestions();
+  }
+
+  // Méthode privée pour charger les questions
+  private async loadQuestions(): Promise<Question[]> {
     this.questionsLoaded = true;
 
     console.log('[SERVICE] Chargement des questions...');
@@ -52,10 +75,14 @@ export class QuizService {
       this.questionsSubject.next(this.questions);
 
       console.log(`[SERVICE] ${this.questions.length} questions chargées avec succès`);
+      console.log('[SERVICE] Questions:', this.questions.map(q => ({ id: q.id, text: q.text.substring(0, 50) + '...' })));
+      
+      return this.questions;
     } catch (error) {
       console.error('[SERVICE] Erreur chargement questions:', error);
       this.questions = [];
       this.questionsSubject.next([]);
+      return [];
     }
   }
 
@@ -69,6 +96,26 @@ export class QuizService {
       );
     } catch (error) {
       console.error('Erreur reset answers:', error);
+    }
+  }
+
+  // Synchronisation complète après modifications côté gestion
+  async synchronizeAfterChanges(): Promise<void> {
+    console.log('[SERVICE] Synchronisation après modifications côté gestion...');
+    
+    try {
+      // 1. Recharger les questions
+      const newQuestions = await this.reloadQuestions();
+      
+      // 2. Reset les réponses si nécessaire (les anciennes réponses peuvent ne plus correspondre)
+      await this.resetAllAnswers();
+      
+      // 3. Notifier tous les composants abonnés
+      this.questionsSubject.next(newQuestions);
+      
+      console.log('[SERVICE] Synchronisation terminée:', newQuestions.length, 'questions');
+    } catch (error) {
+      console.error('[SERVICE] Erreur lors de la synchronisation:', error);
     }
   }
 
@@ -140,7 +187,7 @@ export class QuizService {
 
   // Observable : état du quiz via polling optimisé
   getStep(): Observable<QuizStep> {
-  return interval(3000).pipe( // Augmenté à 3s pour réduire la charge réseau
+    return interval(1500).pipe( // Réduit à 1.5s pour une meilleure réactivité lors des resets
       switchMap(() =>
         this.http.get<any>(`${this.apiUrl}/quiz-state`, {
           headers: this.getHeaders()
@@ -150,6 +197,7 @@ export class QuizService {
         const currentStep = data?.step as QuizStep || 'lobby';
         // Log uniquement si l'état a changé (débug réduit)
         if (currentStep !== this.lastStep) {
+          console.log(`[SERVICE] Changement d'étape détecté: ${this.lastStep} -> ${currentStep}`);
           this.lastStep = currentStep;
         }
         return currentStep;
@@ -160,6 +208,23 @@ export class QuizService {
         return of(this.lastStep || 'lobby' as QuizStep); // Conserver le dernier état connu au lieu de forcer 'lobby'
       })
     );
+  }
+
+  // Forcer une vérification immédiate de l'état (utile après un reset)
+  async forceCheckState(): Promise<QuizStep> {
+    try {
+      const response = await firstValueFrom(
+        this.http.get<any>(`${this.apiUrl}/quiz-state`, {
+          headers: this.getHeaders()
+        })
+      );
+      const currentStep = response?.step as QuizStep || 'lobby';
+      console.log(`[SERVICE] État forcé récupéré: ${currentStep}`);
+      return currentStep;
+    } catch (error) {
+      console.error('[SERVICE] Erreur lors du check forcé d\'état:', error);
+      return 'lobby';
+    }
   }
 
   // Récupérer l'état complet du jeu (pour la synchronisation du timer)
@@ -362,8 +427,17 @@ export class QuizService {
           headers: this.getHeaders()
         })
       );
-    } catch (error) {
+      console.log('[VOTE-PROTECTION] ✅ Vote accepté par le serveur');
+    } catch (error: any) {
       console.error('Erreur submitAnswer:', error);
+      
+      // ✅ PROTECTION: Gérer le cas où l'utilisateur a déjà voté
+      if (error.status === 400 && error.error?.alreadyAnswered) {
+        console.log('[VOTE-PROTECTION] ❌ Vote rejeté - Utilisateur a déjà voté pour cette question');
+        throw new Error('ALREADY_VOTED');
+      }
+      
+      throw error;
     }
   }
 
@@ -389,6 +463,64 @@ export class QuizService {
         return of([]);
       })
     );
+  }
+
+  // Méthode pour récupérer les réponses d'un utilisateur spécifique
+  async getUserAnswers(userId: string): Promise<any[]> {
+    try {
+      const allAnswers: any[] = [];
+      const nbQuestions = this.questions.length;
+      
+      console.log(`[RESTORE] Récupération réponses pour userId: ${userId}, nbQuestions: ${nbQuestions}`);
+      
+      if (nbQuestions === 0) {
+        console.warn('[RESTORE] Aucune question chargée, impossible de récupérer les réponses');
+        return [];
+      }
+      
+      for (let i = 0; i < nbQuestions; i++) {
+        try {
+          console.log(`[RESTORE] Récupération réponses question ${i}...`);
+          
+          const response = await firstValueFrom(
+            this.http.get<any>(`${this.apiUrl}/answers/${i}`, {
+              headers: this.getHeaders()
+            })
+          );
+          
+          console.log(`[RESTORE] Réponse API question ${i}:`, response);
+          
+          const answers = response?.answers ?? [];
+          console.log(`[RESTORE] Réponses brutes question ${i}:`, answers);
+          
+          const userAnswer = answers.find((a: any) => {
+            const match = String(a.userId) === String(userId);
+            console.log(`[RESTORE] Comparaison userId: "${a.userId}" === "${userId}" => ${match}`);
+            return match;
+          });
+          
+          if (userAnswer) {
+            console.log(`[RESTORE] Réponse trouvée pour question ${i}:`, userAnswer);
+            allAnswers.push({
+              questionIndex: i,
+              answerIndex: userAnswer.answerIndex,
+              timestamp: userAnswer.timestamp
+            });
+          } else {
+            console.log(`[RESTORE] Aucune réponse trouvée pour question ${i}`);
+          }
+        } catch (questionError) {
+          console.error(`[RESTORE] Erreur question ${i}:`, questionError);
+          // Continuer avec les autres questions
+        }
+      }
+      
+      console.log(`[RESTORE] Réponses récupérées pour l'utilisateur ${userId}:`, allAnswers);
+      return allAnswers;
+    } catch (error) {
+      console.error('[RESTORE] Erreur récupération réponses utilisateur:', error);
+      return [];
+    }
   }
 
   countResults(answers: any[], correctIndex: number, participants: any[]): {good: number, bad: number, none: number} {
@@ -558,6 +690,38 @@ export class QuizService {
       totalQuestions: this.questions.length,
       gameStartTime: Date.now(),
       lastActivity: Date.now()
+    });
+  }
+  
+  // AJOUT: Initialiser la souscription WebSocket persistante pour questions sync
+  private initWebSocketQuestionsSync(): void {
+    console.log('[SERVICE-WS] Initialisation de la souscription WebSocket persistante pour questions sync');
+    
+    this.questionsSyncSub = this.websocketTimerService.getQuestionsSync().subscribe(async syncData => {
+      console.log('[SERVICE-WS] Questions sync reçu dans le service:', syncData);
+      
+      // Gestion structure imbriquée (comme côté présentation)
+      let actionValue = (syncData as any).action;
+      const rawData = syncData as any;
+      if (!actionValue && rawData.data && rawData.data.action) {
+        actionValue = rawData.data.action;
+        console.log('[SERVICE-WS] Action extraite de structure imbriquée:', actionValue);
+      }
+      
+      console.log('[SERVICE-WS] Action finale:', actionValue);
+      
+      if (actionValue === 'reload') {
+        try {
+          console.log('[SERVICE-WS] Rechargement des questions demandé par WebSocket...');
+          
+          // Recharger les questions depuis le service
+          await this.reloadQuestions();
+          
+          console.log('[SERVICE-WS] Questions rechargées avec succès via WebSocket');
+        } catch (error) {
+          console.error('[SERVICE-WS] Erreur lors du rechargement des questions via WebSocket:', error);
+        }
+      }
     });
   }
 }
