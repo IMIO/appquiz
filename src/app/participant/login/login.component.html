@@ -1,37 +1,42 @@
-<div class="joueur-container">
+<div class="joueur-bg">
+  <div class="joueur-container">
   <div class="joueur-banner">
-    <span style="font-size:1.3em; margin-right:0.5em;">👤</span> ÉCRAN JOUEUR
-    <div class="joueur-message">Vous êtes sur l'interface <b>JOUEUR</b>.</div>
+    <div class="joueur-title">
+  <img src="../../assets/img/logo-csi.svg" alt="Logo CSI" class="logo-img" />
+</div>
   </div>
-  <h2>Entrez votre pseudo ou identifiant GitHub</h2>
+  <h2>Enter a guest nickname to play</h2>
   <div>
     <input
       type="text"
-      placeholder="Nom ou pseudo"
+      placeholder="Guest nickname"
       [(ngModel)]="name"
       name="name"
       style="margin-bottom:0.5em;"
       [disabled]="isSubmitting"
     />
-    <div style="margin:0.5em 0;">OU</div>
+    <div style="margin:0.5em 0;">or your GitHub username</div>
     <input
+      class="github-input"
       type="text"
-      placeholder="Nom d'utilisateur GitHub"
+      placeholder="GitHub username"
       [(ngModel)]="github"
       name="github"
       (input)="avatarUrl=null"
       style="margin-bottom:0.5em;"
       [disabled]="isSubmitting"
     />
-    <button type="button" (click)="fetchGithubAvatar()" [disabled]="!github.trim() || loadingAvatar || isSubmitting" style="margin-bottom:0.5em;">Récupérer l'avatar</button>
+    <button class="get-button" type="button" (click)="fetchGithubAvatar()" [disabled]="!github.trim() || loadingAvatar || isSubmitting" style="margin-bottom:0.5em;">Get your avatar</button>
     <div *ngIf="avatarUrl" style="margin-bottom:0.5em;">
       <img [src]="avatarUrl" alt="avatar" width="60" height="60" style="border-radius:50%;border:2px solid #ccc;" />
     </div>
     <button 
+      class="join-button"
       type="button" 
       (click)="join($event)" 
       [disabled]="(!name.trim() && (!github.trim() || !avatarUrl)) || isSubmitting">
-      {{ isSubmitting ? 'Inscription en cours...' : 'Rejoindre' }}
+      {{ isSubmitting ? 'Signing up...' : 'Join the game' }}
     </button>
   </div>
+</div>
 </div>

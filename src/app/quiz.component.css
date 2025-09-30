@@ -107,8 +107,8 @@
 
 /* Score banner (style maître du jeu) */
 .score-banner {
-  background: #F1F1F1;
-  color: #000;
+  background: #000;
+  color: #fff;
   border: 1px solid #000;
   border-radius: 8px;
   padding: 1em;
@@ -126,14 +126,14 @@
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  border: 2px solid #1976d2;
+  border: 2px solid #DAE72A;
   background: #fff;
   object-fit: cover;
 }
 
 .score-value {
   font-weight: bold;
-  color: #232526;
+  color: #DAE72A;
 }
 
 /* Titre de question (style maître du jeu) */

@@ -1,14 +1,11 @@
 <div class="login-container">
   <div class="login-card">
     <div class="login-header">
-      <img src="/assets/img/logo-csi.svg" alt="Logo" class="logo" />
-      <h1>Administration Quiz</h1>
-      <p>Accès réservé aux maîtres du jeu</p>
+      <div class="logo"></div>
     </div>
 
     <form (ngSubmit)="onSubmit()" class="login-form">
       <div class="form-group">
-        <label for="pin">Code PIN d'accès</label>
         <input 
           type="password" 
           id="pin"
@@ -38,7 +35,7 @@
     </form>
 
     <div class="login-footer">
-      <p>Besoin d'aide ? Contactez l'administrateur technique</p>
+      <p>Accès réservé aux maîtres du jeu</p>
     </div>
   </div>
 </div>

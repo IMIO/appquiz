@@ -43,17 +43,18 @@
 <!-- Modal pour la photo de groupe -<!-- Barre d'administration admin -->
 <div class="admin-bar">
   <div class="admin-info">
-    <span class="admin-title">👨‍💼 Administration</span>
+    <span class="admin-title">Administration</span>
+    <br />
     <span class="session-info">
       Session : {{ getRemainingTime() }}
     </span>
   </div>
   <div class="admin-actions">
     <button class="admin-btn extend" (click)="extendSession()" title="Prolonger la session de 4 heures">
-      ⏰ Prolonger
+      Prolonger
     </button>
     <button class="admin-btn logout" (click)="logout()" title="Se déconnecter">
-      🚪 Déconnexion
+      Déconnexion
     </button>
   </div>
 </div>
@@ -192,7 +193,10 @@
 
 <!-- WAITING : attente avant la première question -->
 <div *ngIf="step === 'waiting'" class="maitre-step-banner waiting step-block" [@stepTransition]>
-  <div class="step-header">
+  <div class="banner-img"><div class="step-header">
+    <!-- <span class="step-icon">🟢</span> -->
+    <span class="step-title">&nbsp;</span>
+  </div>
     <!-- <span class="step-icon">⏳</span>
     <span class="step-title">[ÉTAPE MAÎTRE] ATTENTE</span> -->
   </div>

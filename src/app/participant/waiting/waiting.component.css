@@ -23,21 +23,42 @@
 }
 
 /* Réutilisation du style joueur global */
+.joueur-bg {
+  background: url(../../../assets/img/bg-ville.jpg) top center no-repeat #000;
+  background-size: cover;
+  padding: 20px;
+  min-height: 100vh;
+}
+
+.joueur-title {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* autres styles */
+}
+.logo-img {
+  width: 250px;
+  height: auto;
+  margin-bottom: 10px;
+  border:none !important;
+  border-radius: 0 !important;
+}
+
 .joueur-container {
-  border-top: 10px solid #232526 !important;
-  background: #F1F1F1 !important;
   min-height: 100vh;
   max-width: 700px;
-  margin: 2rem auto;
+  background: #fff;;
+  margin: 0 auto;
   text-align: center;
-  box-shadow: 0 0 24px rgba(35, 37, 38, 0.2);
   border-radius: 12px;
   position: relative;
   animation: fadeInUp 0.8s ease-out;
+  padding: 0;
 }
+
 .joueur-banner {
   background: linear-gradient(135deg, #232526 0%, #414345 100%) !important;
-  color: #f6d365 !important;
+  color: #DAE72A !important;
   padding: 1.5em 0 1em 0;
   text-align: center;
   font-size: 2em;
@@ -52,7 +73,7 @@
 .joueur-banner .joueur-message {
   font-size: 1em;
   margin-top: 0.7em;
-  color: #f6d365;
+  color: #DAE72A;
   background: rgba(246, 211, 101, 0.15);
   border-radius: 4px;
   padding: 0.2em 1em;
@@ -61,7 +82,7 @@
 .loader { 
   margin: 2rem auto; 
   border: 8px solid #e0e0e0; 
-  border-top: 8px solid #f6d365; 
+  border-top: 8px solid #DAE72A; 
   border-radius: 50%; 
   width: 60px; 
   height: 60px; 

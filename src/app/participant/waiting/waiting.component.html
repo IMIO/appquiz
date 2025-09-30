@@ -1,7 +1,9 @@
-<div class="joueur-container">
+  <div class="joueur-bg">
+  <div class="joueur-container">
   <div class="joueur-banner">
-    <span style="font-size:1.3em; margin-right:0.5em;">👤</span> ÉCRAN JOUEUR
-    <div class="joueur-message">Vous êtes sur l’interface <b>JOUEUR</b>.</div>
+    <div class="joueur-title">
+  <img src="../../assets/img/logo-csi.svg" alt="Logo CSI" class="logo-img" />
+</div>
   </div>
   <ng-container *ngIf="step === 'lobby'">
     <h2>Inscription enregistrée !</h2>
@@ -17,4 +19,5 @@
     <h2>En attente du lancement de la partie...</h2>
     <div class="loader"></div>
   </ng-container>
+</div>
 </div>
