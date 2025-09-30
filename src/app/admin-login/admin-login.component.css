@@ -3,8 +3,7 @@
   display: flex;
   justify-content: center;
   align-items: center;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  padding: 20px;
+  background: linear-gradient(135deg, #3D3D3D 0%, #000000 100%);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
 }
 
@@ -42,10 +41,15 @@
 }
 
 .logo {
-  width: 80px;
-  height: 80px;
+  width: 250px;
+  height: 78px;
   margin-bottom: 20px;
   filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.1));
+  background: url(../../assets/img/logo-quizup.svg) top center no-repeat;
+  content: ''!important;
+  display: block;
+  margin:40px auto 60px;
+  position: relative;
 }
 
 .login-header h1 {
@@ -53,7 +57,7 @@
   font-size: 28px;
   font-weight: 700;
   color: #2c3e50;
-  background: linear-gradient(135deg, #667eea, #764ba2);
+  background: linear-gradient(135deg, #EB028C, #EB028C);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -133,7 +137,7 @@
 .login-btn {
   width: 100%;
   padding: 16px 24px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #EB028C 0%, #B9006D 100%);
   color: white;
   border: none;
   border-radius: 12px;
