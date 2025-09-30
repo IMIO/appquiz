@@ -20,32 +20,56 @@ export class WaitingComponent implements OnDestroy {
   
   private stepSubscription?: Subscription;
   private participantsSubscription?: Subscription;
+  private questionsSyncSubscription?: Subscription;
   private isDestroyed = false;
 
   constructor(private quizService: QuizService, private router: Router) {
-    this.stepSubscription = this.quizService.getStep().subscribe(step => {
+    // Souscription à la synchronisation des questions via WebSocket
+    this.questionsSyncSubscription = this.quizService['websocketTimerService'].getQuestionsSync().subscribe(async syncData => {
+      let actionValue = (syncData as any).action;
+      const rawData = syncData as any;
+      if (!actionValue && rawData.data && rawData.data.action) {
+        actionValue = rawData.data.action;
+      }
+      if (actionValue === 'reload') {
+        try {
+          await this.quizService.reloadQuestions();
+          // Pas besoin de forcer de navigation ici, la liste sera à jour pour la prochaine étape
+        } catch (e) {
+          console.error('[WAITING][WS] Erreur lors du rechargement des questions:', e);
+        }
+      }
+    });
+    this.stepSubscription = this.quizService.getStep().subscribe(async step => {
       if (this.isDestroyed) return;
-      
-      console.log('[WAITING] Changement d\'étape détecté:', step, 'initialStepReceived:', this.initialStepReceived);
       this.step = step;
-      
+      console.log('[WAITING][STEP] step reçu :', step);
+      // Forcer un refresh de l'état du quiz si on reste bloqué
+      if (step !== 'lobby' && step !== 'question') {
+        try {
+          const forcedStep = await this.quizService.forceCheckState();
+          console.log('[WAITING][STEP] forceCheckState() =>', forcedStep);
+          if (forcedStep === 'lobby' && this.initialStepReceived) {
+            this.clearUserSession();
+            this.cleanup();
+            this.router.navigate(['/login']);
+            return;
+          }
+        } catch (e) {
+          console.warn('[WAITING][STEP] Erreur forceCheckState:', e);
+        }
+      }
       if (step === 'question') {
-        console.log('[WAITING] Navigation vers /quiz');
         this.cleanup();
         this.router.navigate(['/quiz']);
-      } else if (step === 'lobby' && this.initialStepReceived) {
-        console.log('[WAITING] Reset détecté (retour à lobby), redirection vers login');
-        localStorage.removeItem('userId');
-        localStorage.removeItem('userName');
-        localStorage.removeItem('avatarUrl');
-        localStorage.removeItem('quiz-user');
-        this.cleanup();
-        this.router.navigate(['/login']);
-      } else if (step === 'lobby' && !this.initialStepReceived) {
-        console.log('[WAITING] État lobby initial normal, pas de redirection');
-        this.initialStepReceived = true;
-      } else if (step !== 'lobby') {
-        this.initialStepReceived = true;
+      } else if (step === 'lobby') {
+        if (this.initialStepReceived) {
+          this.clearUserSession();
+          this.cleanup();
+          this.router.navigate(['/login']);
+        } else {
+          this.initialStepReceived = true;
+        }
       }
     });
     
@@ -59,79 +83,43 @@ export class WaitingComponent implements OnDestroy {
     
     this.participantsSubscription = this.quizService.getParticipants$().subscribe((participants: User[]) => {
       if (this.isDestroyed) return;
-      
       const elapsedTime = Date.now() - this.checkStartTime;
-      console.log('[WAITING] Vérification participants:', {
-        userId,
-        participantsCount: participants.length,
-        participantsIds: participants.map(u => u.id),
-        elapsedTime,
-        minWaitTime: this.minWaitTime,
-        lastParticipantCount,
-        hasSeenParticipants,
-        consecutiveEmptyChecks
-      });
-      
       if (participants.length > 0) {
         hasSeenParticipants = true;
         consecutiveEmptyChecks = 0;
       } else {
         consecutiveEmptyChecks++;
       }
-      
       if (hasSeenParticipants && lastParticipantCount > 0 && participants.length === 0 && elapsedTime > 5000) {
-        console.log('[WAITING] 🔄 Reset complet détecté (participants: ' + lastParticipantCount + ' → 0), redirection vers login');
-        localStorage.removeItem('userId');
-        localStorage.removeItem('userName');
-        localStorage.removeItem('avatarUrl');
-        localStorage.removeItem('quiz-user');
+        this.clearUserSession();
         this.cleanup();
         this.router.navigate(['/login']);
         return;
       }
-      
       if (userId && participants.length === 0 && consecutiveEmptyChecks >= 4 && elapsedTime > 12000) {
-        console.log('[WAITING] ⚠️ Aucun participant trouvé, vérification directe avec le serveur...');
-        
         // Vérification asynchrone avec le serveur
         this.verifyUserExistsOnServer(userId).then(userExists => {
           if (!userExists) {
-            console.log('[WAITING] ❌ Utilisateur confirmé absent du serveur, redirection vers login');
-            localStorage.removeItem('userId');
-            localStorage.removeItem('userName');
-            localStorage.removeItem('avatarUrl');
-            localStorage.removeItem('quiz-user');
+            this.clearUserSession();
             this.cleanup();
             this.router.navigate(['/login']);
           } else {
-            console.log('[WAITING] ✅ Utilisateur trouvé sur le serveur, problème temporaire de synchronisation');
-            // Réinitialiser les compteurs pour continuer l'attente
             consecutiveEmptyChecks = 0;
           }
-        }).catch(error => {
-          console.warn('[WAITING] ⚠️ Erreur vérification serveur, patience supplémentaire...', error);
         });
-        
         return; // Sortir de cette vérification en attendant le résultat async
       }
-      
       lastParticipantCount = participants.length;
-      
       if (userId && participants.length > 0 && !participants.find(u => u.id === userId)) {
         noParticipantCount++;
-        console.log('[WAITING] ⚠️ Participant non trouvé, compteur:', noParticipantCount, 'temps écoulé:', elapsedTime);
-        
         if (noParticipantCount >= 3 && elapsedTime > this.minWaitTime) {
-          console.log('[WAITING] ❌ Redirection vers login après confirmation');
+          this.clearUserSession();
           this.cleanup();
           this.router.navigate(['/login']);
         }
       } else if (userId && participants.find(u => u.id === userId)) {
         noParticipantCount = 0;
         consecutiveEmptyChecks = 0;
-        console.log('[WAITING] ✅ Participant trouvé, reset compteurs');
-      } else if (participants.length === 0 && !hasSeenParticipants) {
-        console.log('[WAITING] ℹ️ Aucun participant encore, attente... (vérification ' + consecutiveEmptyChecks + ')');
       }
     });
   }
@@ -141,7 +129,6 @@ export class WaitingComponent implements OnDestroy {
       const serverParticipants = await this.quizService.fetchParticipantsFromServer();
       return serverParticipants.some(p => p.id === userId);
     } catch (error) {
-      console.error('[WAITING] Erreur lors de la vérification serveur:', error);
       return false; // En cas d'erreur, considérer que l'utilisateur n'existe pas
     }
   }
@@ -156,10 +143,20 @@ export class WaitingComponent implements OnDestroy {
       this.participantsSubscription.unsubscribe();
       this.participantsSubscription = undefined;
     }
+    if (this.questionsSyncSubscription) {
+      this.questionsSyncSubscription.unsubscribe();
+      this.questionsSyncSubscription = undefined;
+    }
   }
 
   ngOnDestroy(): void {
-    console.log('[WAITING] Composant détruit, nettoyage des subscriptions');
     this.cleanup();
+  }
+
+  private clearUserSession(): void {
+    localStorage.removeItem('userId');
+    localStorage.removeItem('userName');
+    localStorage.removeItem('avatarUrl');
+    localStorage.removeItem('quiz-user');
   }
 }

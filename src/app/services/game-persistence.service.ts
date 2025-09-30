@@ -46,7 +46,6 @@ export class GamePersistenceService {
     try {
       gameState.lastActivity = Date.now();
       localStorage.setItem(this.STORAGE_KEY, JSON.stringify(gameState));
-      console.log('🔄 État du jeu sauvegardé:', gameState);
     } catch (error) {
       console.error('❌ Erreur lors de la sauvegarde:', error);
     }
@@ -155,7 +154,6 @@ export class GamePersistenceService {
    */
   clearSavedGameState(): void {
     localStorage.removeItem(this.STORAGE_KEY);
-    console.log('🗑️ État sauvegardé effacé');
   }
 
   /**

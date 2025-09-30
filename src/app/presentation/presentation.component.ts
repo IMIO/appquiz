@@ -56,6 +56,17 @@ import { environment } from '../../environments/environment';
   ]
 })
 export class PresentationComponent implements OnInit, OnDestroy {
+  getImageUrl(url: string | undefined): string {
+    if (!url) return '';
+    if (url.startsWith('http')) return url;
+    // Si c'est un asset statique (dans /assets ou favicon), retourner l'URL telle quelle
+    if (url.startsWith('/assets') || url.startsWith('assets') || url.startsWith('/favicon.ico')) {
+      return url;
+    }
+    // Sinon, préfixer par l'API (pour images uploadées/dynamiques)
+    const apiBase = this.apiUrl.replace(/\/api$/, '');
+    return `${apiBase}${url}`;
+  }
   step: any = 'lobby'; // Typage élargi pour compatibilité template Angular
   showRestoreDialog: boolean = false;
   private minModalDisplayTime = 2000; // Afficher le modal au minimum 2 secondes
@@ -66,71 +77,39 @@ export class PresentationComponent implements OnInit, OnDestroy {
     // D'abord, synchroniser avec l'état du serveur
     try {
       const serverState = await this.quizService.getGameState();
-      console.log('🔄 État du serveur au démarrage:', serverState);
-
       // Si le serveur n'est pas à l'étape lobby, il faut restaurer cet état
       if (serverState && serverState.step && serverState.step !== 'lobby') {
-        console.log('🔄 Partie en cours détectée sur le serveur, synchronisation automatique');
         await this.synchronizeWithServer(serverState);
         return;
       }
-
       // Vérifier s'il y a un état sauvegardé à restaurer
       if (this.quizService.canRestoreGameState()) {
         this.showRestoreDialog = true;
         this.modalStartTime = Date.now();
         this.buttonsEnabled = false;
-
-        console.log('🔄 État sauvegardé détecté, affichage du modal de restauration');
-
-        // Activer les boutons après le temps minimum
         setTimeout(() => {
           this.buttonsEnabled = true;
-          console.log('✅ Boutons du modal activés');
         }, this.minModalDisplayTime);
-
         // NE PAS initialiser tant que l'utilisateur n'a pas choisi
         return;
       }
-
       // Initialisation pour une nouvelle partie
       this.initializeNewGame();
     } catch (error) {
-      console.error('❌ Erreur lors de la synchronisation avec le serveur:', error);
       // En cas d'erreur, continuer avec l'initialisation normale
       this.initializeNewGame();
     }
   }
 
   private async initializeNewGame() {
-    // Appel unique dans le contexte Angular pour éviter les warnings
     await this.quizService.initQuestions();
-    // Forcer l'étape lobby au démarrage
     this.step = 'lobby';
     this.quizService.setStep('lobby');
-    // Initialiser l'état du jeu si c'est une nouvelle partie
     this.quizService.initGameState();
-
-    // CORRECTION : Charger immédiatement les participants depuis le serveur
     try {
-      console.log('🔄 Chargement immédiat des participants depuis le serveur...');
       await this.quizService.fetchParticipantsFromServer();
-      console.log('✅ Participants chargés avec succès');
-    } catch (error) {
-      console.error('❌ Erreur lors du chargement des participants:', error);
-    }
-
-    // Initialiser les souscriptions après l'initialisation
+    } catch (error) {}
     this.initializeSubscriptions();
-
-    // Diagnostic : log ultra-visible
-    console.log('[DEBUG][ngOnInit] step initialisé à', this.step);
-    // Vérification périodique de la synchro step - DÉSACTIVÉ pour réduire les logs
-    // this.diagnosticInterval = setInterval(() => {
-    //   if (!this.step || (this.step !== 'lobby' && this.step !== 'waiting' && this.step !== 'question' && this.step !== 'result' && this.step !== 'end')) {
-    //     console.warn('[DIAGNOSTIC][step] Valeur non reconnue :', this.step);
-    //   }
-    // }, 2000);
   }
 
   // Méthode pour synchroniser avec les modifications côté gestion
@@ -292,7 +271,7 @@ export class PresentationComponent implements OnInit, OnDestroy {
   totalAnswers: number = 0;
   totalGood: number = 0;
   totalBad: number = 0;
-  voters: string[] = [];
+  voters: {id: any, name: any}[] = [];
 
   // Affichage temps formaté (mm:ss si > 60s, sinon ss.s)
   public formatTime(ms: number): string {
@@ -439,7 +418,7 @@ export class PresentationComponent implements OnInit, OnDestroy {
       await this.fetchQuestionStartTimes(); // Rafraîchit les timestamps à chaque question
       this.refresh();
       // Synchro temps réel des votants pour la question courante
-      const votersSub = this.quizService.getVoters$(idx).subscribe(voters => {
+      const votersSub = this.quizService.getVoters$(idx).subscribe((voters: {id: any, name: any}[]) => {
         this.voters = voters;
       });
       this.subscriptions.push(votersSub);
@@ -644,9 +623,44 @@ export class PresentationComponent implements OnInit, OnDestroy {
   }
 
   forceEndTimer() {
-    this.timerValue = 0;
-    this.stopTimer();
-    this.showResult();
+    // Appel backend pour forcer la fin du timer chez tous les joueurs
+    try {
+  this.http.post('/api/quiz/skip-timer', {}, { responseType: 'json' }).subscribe({
+        next: (response) => {
+          console.log('[SKIP-TIMER] Réponse backend (type):', typeof response, response);
+          try {
+            if (response && (response as any).success) {
+              this.timerValue = 0;
+              this.stopTimer();
+              this.showResult();
+            } else {
+              alert('Réponse inattendue du backend : ' + JSON.stringify(response));
+            }
+          } catch (e) {
+            alert('Erreur de parsing de la réponse backend : ' + e);
+          }
+        },
+        error: (err) => {
+          console.error('[SKIP-TIMER] Erreur HTTP :', err);
+          let msg = 'Erreur lors du skip timer : ';
+          if (err.status) msg += `HTTP ${err.status} - `;
+          if (err.error && typeof err.error === 'object') {
+            msg += JSON.stringify(err.error);
+          } else if (err.error) {
+            msg += err.error;
+          } else if (err.message) {
+            msg += err.message;
+          }
+          if (err instanceof ProgressEvent && err.type === 'error') {
+            msg += ' (Erreur réseau/fetch : la connexion a échoué ou a été bloquée par le navigateur)';
+          }
+          alert(msg);
+        }
+      });
+    } catch (e) {
+      alert('Erreur JS lors de l’appel skip-timer : ' + e);
+      console.error('[SKIP-TIMER] Exception JS :', e);
+    }
   }
 
   // ngOnInit fusionné ci-dessus
@@ -879,20 +893,26 @@ export class PresentationComponent implements OnInit, OnDestroy {
       await this.quizService.setStep('lobby'); // Second appel pour forcer
       console.log('[RESET] 3. ✅ Étape lobby définie et rediffusée');
 
+      // Recharger explicitement les participants depuis le serveur
+      console.log('[RESET] 4. Rechargement des participants depuis le serveur...');
+      const participants = await this.quizService.fetchParticipantsFromServer();
+      this.participants = participants || [];
+      this.cdr.detectChanges();
+      console.log('[RESET] 4. ✅ Participants rechargés:', this.participants.length);
+
       console.log('[INFO] Quiz reset via HTTP API');
       alert('Quiz réinitialisé. Tous les participants et réponses ont été supprimés.');
 
-      console.log('[RESET] 4. Réinitialisation locale de l\'état...');
+      console.log('[RESET] 5. Réinitialisation locale de l\'état...');
       // Réinitialisation locale de l'état du composant
       this.step = 'lobby';
       this.currentIndex = 0;
       this.currentQuestion = null;
       this.answersCount = [];
       this.leaderboard = [];
-      this.participants = []; // Vider aussi les participants locaux
       this.imageLoaded = false; // Reset image state
       this.resultImageLoaded = false; // Reset result image state
-      console.log('[RESET] 4. ✅ État local réinitialisé');
+      console.log('[RESET] 5. ✅ État local réinitialisé');
 
     } catch (error) {
       console.error('[RESET] ❌ Erreur lors de la réinitialisation:', error);

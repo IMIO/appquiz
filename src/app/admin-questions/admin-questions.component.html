@@ -70,132 +70,51 @@
           <h4>🖼️ Images associées</h4>
           
           <div class="form-group">
-            <label for="imageUrl">Image de la question :</label>
-            <input 
-              type="text" 
-              id="imageUrl"
-              [(ngModel)]="newQuestion.imageUrl" 
-              class="form-control"
-              placeholder="/assets/img/question1.jpg"
-            >
-            <small class="form-hint">Chemin vers l'image : /assets/img/nom-image.jpg (images dans /public/assets/img/)</small>
+            <label for="imageUpload">Image de la question :</label>
+            <input type="file" id="imageUpload" accept="image/*" (change)="onImageSelected($event, 'imageUrl')">
+            <div *ngIf="selectedImageUrl">
+              <p>Prévisualisation :</p>
+              <img [src]="selectedImageUrl" alt="Aperçu question" style="max-width:200px;max-height:200px;">
+            </div>
           </div>
 
           <div class="form-group">
-            <label for="imageUrlResult">Image du résultat :</label>
-            <input 
-              type="text" 
-              id="imageUrlResult"
-              [(ngModel)]="newQuestion.imageUrlResult" 
-              class="form-control"
-              placeholder="/assets/img/result1.jpg"
-            >
-            <small class="form-hint">Chemin vers l'image de réponse : /assets/img/nom-image.jpg</small>
+            <label for="imageUploadResult">Image du résultat :</label>
+            <input type="file" id="imageUploadResult" accept="image/*" (change)="onImageSelected($event, 'imageUrlResult')">
+            <div *ngIf="selectedImageUrlResult">
+              <p>Prévisualisation :</p>
+              <img [src]="selectedImageUrlResult" alt="Aperçu résultat" style="max-width:200px;max-height:200px;">
+            </div>
           </div>
 
           <div class="form-group">
-            <label for="imageUrlEnd">Image de fin :</label>
-            <input 
-              type="text" 
-              id="imageUrlEnd"
-              [(ngModel)]="newQuestion.imageUrlEnd" 
-              class="form-control"
-              placeholder="/assets/img/end.jpg"
-            >
-            <small class="form-hint">Chemin vers l'image de fin (optionnel) : /assets/img/nom-image.jpg</small>
           </div>
         </div>
 
         <div class="options-section">
           <label>Options de réponse :</label>
           <div class="options-simple">
-            <div class="simple-option">
+            <div class="simple-option" *ngFor="let opt of newQuestion.options; let i = index">
               <div class="option-label-row">
-                <span class="opt-letter">A.</span>
+                <span class="opt-letter">{{ getOptionLabel(i) }}.</span>
                 <input 
                   type="radio" 
-                  id="radio-a"
+                  [id]="'radio-' + getOptionLabel(i).toLowerCase()"
                   name="correctChoice"
-                  (change)="setCorrectOption(0)"
-                  [checked]="newQuestion.correctIndex === 0"
+                  (change)="setCorrectOption(i)"
+                  [checked]="newQuestion.correctIndex === i"
                 >
-                <label for="radio-a">Bonne réponse</label>
+                <label [for]="'radio-' + getOptionLabel(i).toLowerCase()">Bonne réponse</label>
               </div>
               <input 
                 type="text" 
-                id="simple-option-a"
                 class="simple-text-input"
-                placeholder="Tapez l'option A..."
-                (blur)="updateSimpleOption(0, $event)"
-                [value]="newQuestion.options[0]"
+                [placeholder]="'Tapez l\'option ' + getOptionLabel(i) + '...'"
+                (blur)="updateOptionText(i, $event)"
+                [value]="opt?.text || ''"
               >
             </div>
-
-            <div class="simple-option">
-              <div class="option-label-row">
-                <span class="opt-letter">B.</span>
-                <input 
-                  type="radio" 
-                  id="radio-b"
-                  name="correctChoice"
-                  (change)="setCorrectOption(1)"
-                  [checked]="newQuestion.correctIndex === 1"
-                >
-                <label for="radio-b">Bonne réponse</label>
-              </div>
-              <input 
-                type="text" 
-                id="simple-option-b"
-                class="simple-text-input"
-                placeholder="Tapez l'option B..."
-                (blur)="updateSimpleOption(1, $event)"
-                [value]="newQuestion.options[1]"
-              >
-            </div>
-
-            <div class="simple-option">
-              <div class="option-label-row">
-                <span class="opt-letter">C.</span>
-                <input 
-                  type="radio" 
-                  id="radio-c"
-                  name="correctChoice"
-                  (change)="setCorrectOption(2)"
-                  [checked]="newQuestion.correctIndex === 2"
-                >
-                <label for="radio-c">Bonne réponse</label>
-              </div>
-              <input 
-                type="text" 
-                id="simple-option-c"
-                class="simple-text-input"
-                placeholder="Tapez l'option C..."
-                (blur)="updateSimpleOption(2, $event)"
-                [value]="newQuestion.options[2]"
-              >
-            </div>
-
-            <div class="simple-option">
-              <div class="option-label-row">
-                <span class="opt-letter">D.</span>
-                <input 
-                  type="radio" 
-                  id="radio-d"
-                  name="correctChoice"
-                  (change)="setCorrectOption(3)"
-                  [checked]="newQuestion.correctIndex === 3"
-                >
-                <label for="radio-d">Bonne réponse</label>
-              </div>
-              <input 
-                type="text" 
-                id="simple-option-d"
-                class="simple-text-input"
-                placeholder="Tapez l'option D..."
-                (blur)="updateSimpleOption(3, $event)"
-                [value]="newQuestion.options[3]"
-              >
-            </div>
+            <button (click)="addNewOption()" [disabled]="newQuestion.options.length >= 6" class="btn btn-small btn-outline" style="margin-top:8px;">➕ Ajouter une option</button>
           </div>
         </div>
 
@@ -218,19 +137,18 @@
       </div>
 
       <div *ngFor="let question of questions; let i = index" class="question-card">
-        <!-- Mode affichage -->
-        <div class="question-display">
+        <div *ngIf="editingQuestion?.id !== question.id; else editForm" class="question-display">
           <div class="question-header">
             <h3>{{ i + 1 }}. {{ question.text }}</h3>
             <div class="question-actions">
-              <button (click)="deleteQuestion(question)" class="btn btn-small btn-danger">
-                🗑️ Supprimer
-              </button>
+              <button (click)="startEdit(question)" class="btn btn-small btn-primary">✏️ Modifier</button>
+              <button (click)="moveQuestion(i, -1)" class="btn btn-small" [disabled]="i === 0">⬆️ Monter</button>
+              <button (click)="moveQuestion(i, 1)" class="btn btn-small" [disabled]="i === questions.length - 1">⬇️ Descendre</button>
+              <button (click)="deleteQuestion(question)" class="btn btn-small btn-danger">🗑️ Supprimer</button>
             </div>
           </div>
-          
           <!-- Images associées -->
-          <div class="question-images" *ngIf="question.imageUrl || question.imageUrlResult || question.imageUrlEnd">
+          <div class="question-images" *ngIf="question.imageUrl || question.imageUrlResult">
             <div class="images-grid">
               <div *ngIf="question.imageUrl" class="image-preview">
                 <label>Image question :</label>
@@ -242,26 +160,63 @@
                 <img [src]="question.imageUrlResult" alt="Image du résultat" class="preview-img">
                 <small>{{ question.imageUrlResult }}</small>
               </div>
-              <div *ngIf="question.imageUrlEnd" class="image-preview">
-                <label>Image fin :</label>
-                <img [src]="question.imageUrlEnd" alt="Image de fin" class="preview-img">
-                <small>{{ question.imageUrlEnd }}</small>
-              </div>
             </div>
           </div>
-
           <div class="options-display">
             <div 
               *ngFor="let option of question.options; let j = index" 
               class="option-display"
               [class.correct-option]="j === question.correctIndex"
+              style="display: flex; align-items: center; gap: 10px;"
             >
               <span class="option-label">{{ getOptionLabel(j) }}.</span>
-              {{ option }}
+              <ng-container *ngIf="option.imageUrl">
+                <img [src]="option.imageUrl" alt="Image option" style="max-width:48px;max-height:48px;border-radius:6px;">
+              </ng-container>
+              <span>{{ option.text || option }}</span>
               <span *ngIf="j === question.correctIndex" class="correct-badge">✓ Correcte</span>
             </div>
           </div>
         </div>
+        <ng-template #editForm>
+          <div class="question-edit-form" *ngIf="editingQuestion">
+            <div class="form-group">
+              <label>Question :</label>
+              <textarea [(ngModel)]="editingQuestion.text" class="form-control" rows="3"></textarea>
+            </div>
+            <div class="form-group">
+              <label>Image question :</label>
+              <input type="file" accept="image/*" (change)="onEditImageSelected($event, 'imageUrl')">
+              <div *ngIf="editingQuestion.imageUrl">
+                <img [src]="editingQuestion.imageUrl" alt="Aperçu question" style="max-width:120px;max-height:120px;">
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Image résultat :</label>
+              <input type="file" accept="image/*" (change)="onEditImageSelected($event, 'imageUrlResult')">
+              <div *ngIf="editingQuestion.imageUrlResult">
+                <img [src]="editingQuestion.imageUrlResult" alt="Aperçu résultat" style="max-width:120px;max-height:120px;">
+              </div>
+            </div>
+            <div class="options-section">
+              <label>Options de réponse :</label>
+              <div class="options-simple">
+                <div class="simple-option" *ngFor="let opt of editingQuestion.options; let j = index">
+                  <div class="option-label-row">
+                    <span class="opt-letter">{{ getOptionLabel(j) }}.</span>
+                    <input type="radio" name="editCorrectChoice{{editingQuestion.id}}" (change)="editingQuestion.correctIndex = j" [checked]="editingQuestion.correctIndex === j">
+                    <label>Bonne réponse</label>
+                  </div>
+                  <input type="text" class="simple-text-input" [(ngModel)]="opt.text">
+                </div>
+              </div>
+            </div>
+            <div class="edit-actions">
+              <button (click)="saveEdit()" class="btn btn-primary">💾 Sauvegarder</button>
+              <button (click)="cancelEdit()" class="btn btn-secondary">Annuler</button>
+            </div>
+          </div>
+        </ng-template>
       </div>
     </div>
   </div>

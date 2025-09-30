@@ -18,6 +18,16 @@
     <p>Debug: totalQuestions = {{ totalQuestions }}</p>
     <p>Debug: bouton désactivé = {{ currentQuestionIndex >= totalQuestions - 1 }}</p>
   </div>
+
+  <!-- Upload image pour la question courante -->
+  <div class="upload-image">
+    <label for="imageUpload">Uploader une image pour la question :</label>
+    <input type="file" id="imageUpload" accept="image/*" (change)="onImageSelected($event)">
+    <div *ngIf="selectedImageUrl">
+      <p>Prévisualisation :</p>
+      <img [src]="selectedImageUrl" alt="Aperçu" style="max-width:200px;max-height:200px;">
+    </div>
+  </div>
   
   <button (click)="forceEndTimer()">⏩ Passer la fin du timer</button>
   
