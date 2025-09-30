@@ -24,21 +24,41 @@
 }
 
 /* Réutilisation du style joueur global */
+.joueur-bg {
+  background: url(../../../assets/img/bg-ville.jpg) top center no-repeat #000;
+  background-size: cover;
+  padding: 20px;
+  min-height: 100vh;
+}
+
+.joueur-title {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* autres styles */
+}
+.logo-img {
+  width: 250px;
+  height: auto;
+  margin-bottom: 10px;
+  border:none !important;
+  border-radius: 0 !important;
+}
+
 .joueur-container {
-  border-top: 10px solid #232526 !important;
-  background: #F1F1F1 !important;
   min-height: 100vh;
   max-width: 700px;
-  margin: 2rem auto;
+  background: #fff;;
+  margin: 0 auto;
   text-align: center;
-  box-shadow: 0 0 24px rgba(35, 37, 38, 0.2);
   border-radius: 12px;
   position: relative;
   animation: fadeInUp 0.8s ease-out;
+  padding: 0;
 }
 .joueur-banner {
   background: linear-gradient(135deg, #232526 0%, #414345 100%) !important;
-  color: #f6d365 !important;
+  color: #DAE72A !important;
   padding: 1.5em 0 1em 0;
   text-align: center;
   font-size: 2em;
@@ -53,7 +73,7 @@
 .joueur-banner .joueur-message {
   font-size: 1em;
   margin-top: 0.7em;
-  color: #f6d365;
+  color: #DAE72A;
   background: rgba(246, 211, 101, 0.15);
   border-radius: 4px;
   padding: 0.2em 1em;
@@ -74,7 +94,7 @@ input {
 
 input:focus {
   outline: none;
-  border-color: #f6d365;
+  border-color: #DAE72A;
   box-shadow: 0 0 0 3px rgba(246, 211, 101, 0.1);
 }
 
@@ -83,7 +103,7 @@ input::placeholder {
 }
 button { 
   background: #232526;
-  color: #f6d365;
+  color: #DAE72A;
   border: none;
   border-radius: 8px;
   padding: 0.7em 1.5em;
@@ -120,6 +140,29 @@ h2 {
 /* Amélioration de l'avatar */
 img {
   border-radius: 50%;
-  border: 3px solid #f6d365 !important;
+  border: 3px solid #DAE72A !important;
   animation: fadeInUp 0.4s ease-out;
+}
+
+
+.get-button {
+  box-shadow: none;
+  border-radius: 0 10px 10px 0;
+  height: 47px;
+}
+
+.github-input {
+  border-radius: 10px 0 0 10px;
+  border-right: none;
+  max-width: 130px;
+}
+
+.join-button {
+  width: 75%;
+  font-size: 20px;
+  padding: 20px;
+  margin-top: 50px;
+  background: #DAE72A !important;
+  color: #000 !important;
+  box-shadow: none !important;
 }

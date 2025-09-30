@@ -1,6 +1,5 @@
-
+<div class="joueur-bg">
 <!-- Interface joueur harmonisée avec le style maître du jeu -->
-ur de loading discret -->
 <div *ngIf="isLoading" class="loading-bar">
   <div class="loading-progress"></div>
   <span class="loading-text">{{ loadingMessage }}</span>
@@ -53,14 +52,14 @@ ur de loading discret -->
            [ngClass]="{'timer-bar-active': timerActive && questionStartTime > 0}"></div>
       <span class="timer-bar-label" [ngClass]="{'timer-active': timerActive && questionStartTime > 0}">
         <span *ngIf="timerActive && questionStartTime > 0">{{ timerValue }}s</span>
-        <span *ngIf="questionStartTime > 0 && !timerActive">Timer arrêté</span>
+        <span *ngIf="questionStartTime > 0 && !timerActive">Timer stopped</span>
       </span>
     </div>
     
     <!-- Message unifié d'attente pour les joueurs -->
-    <div *ngIf="questionStartTime <= 0" style="margin-top: 10px; padding: 12px; background: #fff3cd; border-radius: 6px; font-size: 0.95em; color: #856404; text-align: center;">
-      ⏳ En attente du démarrage du timer par le maître du jeu...<br>
-      <small style="opacity: 0.8; margin-top: 4px; display: block;">Les réponses seront activées une fois le timer lancé</small>
+    <div *ngIf="questionStartTime <= 0" style="margin-top: 10px; padding: 12px; border-radius: 6px; font-size: 0.95em; color: #000; text-align: center;">
+      ⏳ <br><br>Waiting for the host to start the timer...<br>
+      <small style="opacity: 0.8; margin-top: 4px; display: block;">Answers will be activated once the timer starts</small>
     </div>
     
   </div>
@@ -92,28 +91,28 @@ ur de loading discret -->
     <div class="player-result-banner">
       <div *ngIf="selectedAnswerIndex !== null && selectedAnswerIndex >= 0" class="answer-feedback">
         <div *ngIf="isAnswerCorrect" class="correct-feedback">
-          ✅ <strong>Bonne réponse !</strong>
+          ✅ <strong>Well done !</strong>
         </div>
         <div *ngIf="isAnswerCorrect === false" class="incorrect-feedback">
-          ❌ <strong>Réponse incorrecte</strong>
+          ❌ <strong>Incorrect answer</strong>
         </div>
       </div>
       <div *ngIf="selectedAnswerIndex === null || selectedAnswerIndex < 0" class="no-answer-feedback">
-        ⏰ <strong>Temps écoulé - Aucune réponse</strong>
+        ⏰ <strong>Time's up - No answer</strong>
       </div>
     </div>
     
     <!-- Affichage de la bonne réponse -->
     <div class="correct-answer-display">
-      <h4>💡 La bonne réponse était :</h4>
+      <h4>💡 The answer was :</h4>
       <div class="correct-answer-text" *ngIf="currentQuestion && currentQuestion.correctIndex !== undefined">
         {{ currentQuestion.options[currentQuestion.correctIndex] }}
       </div>
     </div>
     
     <div class="player-step-banner result">
-      <b>📊 RÉSULTATS</b><br>
-      <span>En attente de la question suivante...</span>
+      <b>📊 Results</b><br>
+      <span>Waiting for the next question...</span>
     </div>
   </div>
 </div>
@@ -140,4 +139,5 @@ ur de loading discret -->
       <span style="margin-left: auto; font-weight: bold; color: #232526;">{{ user.score }} / {{ totalQuestions }} pts</span>
     </li>
   </ol>
+</div>
 </div>
