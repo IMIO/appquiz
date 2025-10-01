@@ -16,6 +16,9 @@ export class AdminComponent implements OnInit, OnDestroy {
   totalQuestions = 0;
   private subscriptions: Subscription[] = [];
 
+  selectedImageFile: File | null = null;
+  selectedImageUrl: string | null = null;
+
   constructor(
     private timerService: TimerService,
     private quizService: QuizService
@@ -37,6 +40,42 @@ export class AdminComponent implements OnInit, OnDestroy {
         this.totalQuestions = questions.length;
       })
     );
+  }
+
+  onImageSelected(event: Event) {
+    const input = event.target as HTMLInputElement;
+    if (input.files && input.files[0]) {
+      this.selectedImageFile = input.files[0];
+      const reader = new FileReader();
+      reader.onload = (e: any) => {
+        this.selectedImageUrl = e.target.result;
+      };
+      reader.readAsDataURL(this.selectedImageFile);
+
+      // Upload immédiat dès sélection
+      this.uploadImageToBackend(this.selectedImageFile);
+    } else {
+      this.selectedImageFile = null;
+      this.selectedImageUrl = null;
+    }
+  }
+
+  async uploadImageToBackend(file: File) {
+    try {
+      const url = await this.quizService.uploadQuestionImage(file);
+      console.log('[ADMIN] Image uploadée, URL:', url);
+        // Associer l’URL à la question courante
+        this.selectedImageUrl = url;
+        // Mettre à jour la question courante côté service (si possible)
+        const question = this.quizService.getCurrentQuestion(this.currentQuestionIndex);
+        if (question) {
+          question.imageUrl = url;
+        // Sauvegarder l’URL en base
+        await this.quizService.updateQuestionImageUrl(question.id, url);
+        }
+    } catch (error) {
+      console.error('[ADMIN] Erreur upload image:', error);
+    }
   }
 
   ngOnDestroy() {

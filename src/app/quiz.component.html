@@ -75,10 +75,11 @@
         [class.option-incorrect]="(activeStep === 'result' || activeStep === 'waiting') && selectedAnswerIndex === i && i !== currentQuestion.correctIndex"
         [class.option-selected]="selectedAnswerIndex === i && isQuestionOrResultStep"
       >
-
-
         <span *ngIf="selectedAnswerIndex === i && isQuestionOrResultStep" class="option-selected-icon">👉</span>
-        {{ option }}
+        <ng-container *ngIf="option?.text !== undefined; else stringOption">
+          {{ option.text }}
+        </ng-container>
+        <ng-template #stringOption>{{ option }}</ng-template>
         <span *ngIf="(activeStep === 'result' || activeStep === 'waiting') && i === currentQuestion.correctIndex" style="margin-left: auto; color: #43a047; font-weight: bold;">✓</span>
         <span *ngIf="(activeStep === 'result' || activeStep === 'waiting') && selectedAnswerIndex === i && i !== currentQuestion.correctIndex" style="margin-left: auto; color: #c62828; font-weight: bold;">✗</span>
       </button>
@@ -106,7 +107,10 @@
     <div class="correct-answer-display">
       <h4>💡 The answer was :</h4>
       <div class="correct-answer-text" *ngIf="currentQuestion && currentQuestion.correctIndex !== undefined">
-        {{ currentQuestion.options[currentQuestion.correctIndex] }}
+        <ng-container *ngIf="currentQuestion.options[currentQuestion.correctIndex]?.text !== undefined; else stringCorrectOption">
+          {{ currentQuestion.options[currentQuestion.correctIndex].text }}
+        </ng-container>
+        <ng-template #stringCorrectOption>{{ currentQuestion.options[currentQuestion.correctIndex] }}</ng-template>
       </div>
     </div>
     

@@ -71,6 +71,7 @@
             },
             "development": {
               "buildTarget": "quiz-app:build:development"
+              ,"proxyConfig": "proxy.conf.json"
             }
           },
           "defaultConfiguration": "development"
