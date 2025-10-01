@@ -71,3 +71,6 @@ SECURITY_README.md
 
 # Database files (keep local only)
 quiz.db-*
+
+# Local proxy configuration scripts
+generate-proxy-config.js
