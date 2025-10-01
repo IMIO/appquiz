@@ -13,13 +13,40 @@ import { User } from '../../models/user.model';
   styleUrls: ['./login.component.css']
 })
 export class LoginComponent {
+  private questionsSyncSubscription?: any;
+  resetAvatar() {
+    this.avatarUrl = null;
+  }
   name: string = '';
   github: string = '';
   avatarUrl: string | null = null;
   loadingAvatar = false;
   isSubmitting = false;
 
-  constructor(private quizService: QuizService, private router: Router) {}
+  constructor(private quizService: QuizService, private router: Router) {
+    // Souscription à la synchronisation des questions via WebSocket
+    this.questionsSyncSubscription = this.quizService['websocketTimerService'].getQuestionsSync().subscribe(async syncData => {
+      let actionValue = (syncData as any).action;
+      const rawData = syncData as any;
+      if (!actionValue && rawData.data && rawData.data.action) {
+        actionValue = rawData.data.action;
+      }
+      if (actionValue === 'reload') {
+        try {
+          await this.quizService.reloadQuestions();
+          // Pas besoin de forcer de navigation ici, la liste sera à jour pour la prochaine étape
+        } catch (e) {
+          console.error('[LOGIN][WS] Erreur lors du rechargement des questions:', e);
+        }
+      }
+    });
+  }
+  ngOnDestroy(): void {
+    if (this.questionsSyncSubscription) {
+      this.questionsSyncSubscription.unsubscribe();
+      this.questionsSyncSubscription = undefined;
+    }
+  }
 
   private generateUniqueId(): string {
     // Use crypto.randomUUID if available, otherwise fallback

@@ -2,6 +2,7 @@
 import { Component, OnInit, ChangeDetectionStrategy, ChangeDetectorRef, OnDestroy } from '@angular/core';
 import { Router } from '@angular/router';
 import { QuizService, QuizStep } from '../services/quiz-secure.service';
+import { WebSocketTimerService } from '../services/websocket-timer.service';
 import { User } from '../models/user.model';
 import { TimerService, TimerState } from '../services/timer.service';
 import { Subscription, interval } from 'rxjs';
@@ -15,6 +16,7 @@ import { environment } from '../../environments/environment';
   templateUrl: './participant.html',
   styleUrls: ['./participant.css']
 })
+
 export class Participant implements OnInit {
   private timerQuestionIndex: number = -1;
   waitingForStart: boolean = false;
@@ -39,13 +41,38 @@ export class Participant implements OnInit {
   timerMax: number = 20; // Durée du timer en secondes, synchronisée avec timerValue
   hasAnswered: boolean = false;
 
-  constructor(private quizService: QuizService, private timerService: TimerService, private cdr: ChangeDetectorRef) {}
+  constructor(
+    private quizService: QuizService,
+    private timerService: TimerService,
+    private cdr: ChangeDetectorRef,
+    private router: Router,
+    private websocketTimerService: WebSocketTimerService
+  ) {}
 
   ngOnInit(): void {
+
     this.userId = localStorage.getItem('userId') || '';
     this.userName = localStorage.getItem('userName') || '';
     this.avatarUrl = localStorage.getItem('avatarUrl');
     this.totalQuestions = this.quizService.getQuestions().length;
+
+    // 🔄 Souscription à la synchronisation des questions via WebSocket
+    this.websocketTimerService.getQuestionsSync().subscribe(async syncData => {
+      let actionValue = (syncData as any).action;
+      const rawData = syncData as any;
+      if (!actionValue && rawData.data && rawData.data.action) {
+        actionValue = rawData.data.action;
+      }
+      if (actionValue === 'reload') {
+        try {
+          await this.quizService.reloadQuestions();
+          this.totalQuestions = this.quizService.getQuestions().length;
+          this.cdr.detectChanges();
+        } catch (e) {
+          console.error('[PARTICIPANT][WS] Erreur lors du rechargement des questions:', e);
+        }
+      }
+    });
 
     this.quizService.getStep().subscribe((step: QuizStep) => {
       console.log('[DEBUG][PARTICIPANT][STEP] step:', step, '| currentIndex:', this.currentIndex, '| previousStep:', this.previousStep);
@@ -60,9 +87,9 @@ export class Participant implements OnInit {
         localStorage.removeItem('userName');
         localStorage.removeItem('avatarUrl');
         localStorage.removeItem('quiz-user');
-        // Rediriger vers la page d'inscription
-        window.location.href = '/login';
-        return;
+  // Rediriger vers la page d'inscription (Angular router)
+  this.router.navigate(['/login']);
+  return;
       }
       
       // Marquer qu'on a reçu le premier step et sauvegarder l'état précédent

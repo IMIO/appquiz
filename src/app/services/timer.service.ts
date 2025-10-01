@@ -37,7 +37,7 @@ export class TimerService {
     
     // Essayer WebSocket en priorité
     if (this.useWebSocket) {
-      console.log('🔌 Utilisation WebSocket pour sync temps réel');
+  // ...existing code...
       this.wsTimerService.getCountdown().subscribe(
         (state) => {
           this.currentState = state;
@@ -55,14 +55,14 @@ export class TimerService {
   // Synchronisation ULTRA-rapide avec le serveur toutes les 50ms pour synchronisation parfaite forcée
   startServerSync() {
     if (this.isSyncing) {
-      console.log('🕐 Timer sync déjà actif, ignorer nouvelle demande');
+  // ...existing code...
       return;
     }
     
     this.stopServerSync();
     this.isSyncing = true;
     
-    console.log('🕐 Démarrage synchronisation ULTRA-RAPIDE (fréquence: 50ms)');
+  // ...existing code...
     
     // Synchronisation immédiate
     this.syncWithServer();
@@ -80,7 +80,7 @@ export class TimerService {
     }
     // Plus de tick local - synchronisation serveur uniquement
     this.isSyncing = false;
-    console.log('🕐 Arrêt synchronisation timer ULTRA-fréquente');
+  // ...existing code...
   }
 
   // DEPRECATED: Plus de tick local, synchronisation serveur uniquement
@@ -142,9 +142,9 @@ export class TimerService {
         this.countdown$.next({ ...this.currentState });
         
         if (finalCountdown > 0) {
-          console.log(`⏳ SYNC ALIGNÉE: Question dans ${finalCountdown}s (alignement: ${currentSecond})`);
+          // ...existing code...
         } else {
-          console.log(`🕐 SYNC ALIGNÉE: ${finalTimeRemaining}s restant (alignement: ${currentSecond})`);
+          // ...existing code...
         }
       }
     } catch (error) {
@@ -174,13 +174,13 @@ export class TimerService {
   getCountdown() {
     // Si WebSocket fonctionne, pas besoin de démarrer la sync HTTP
     if (this.useWebSocket) {
-      console.log('🔌 WebSocket actif, sync temps réel automatique');
+  // ...existing code...
       return this.countdown$.asObservable();
     }
     
     // Sinon, fallback vers HTTP comme avant
     if (!this.isSyncing) {
-      console.log('🕐 Fallback HTTP - Démarrage sync ultra-rapide');
+  // ...existing code...
       this.startServerSync();
     }
     return this.countdown$.asObservable();
@@ -193,6 +193,6 @@ export class TimerService {
   // Force la diffusion de l'état actuel à tous les abonnés
   forceUpdate() {
     this.countdown$.next({ ...this.currentState });
-    console.log(`🕐 Timer force update: remaining=${this.currentState.timeRemaining}s, active=${this.currentState.isActive}`);
+  // ...existing code...
   }
 }

@@ -21,6 +21,59 @@ export class QuizService {
   private questionsLoaded = false;
   private readonly apiUrl = environment.apiUrl;
 
+  // Upload image pour une question
+  async uploadQuestionImage(file: File): Promise<string> {
+    const formData = new FormData();
+    formData.append('image', file);
+    try {
+      const response: any = await firstValueFrom(
+        this.http.post(`${this.apiUrl}/upload-image`, formData)
+      );
+      // On suppose que le backend retourne { url: '...' }
+      let url: string = response.url;
+      // Si l'URL commence par l'API définie dans l'environnement, ne garder que le chemin relatif
+      if (url && url.startsWith(this.apiUrl + '/assets/')) {
+        url = url.replace(this.apiUrl, '');
+      }
+      // Idem pour https ou autre domaine (en prod)
+      if (url && url.includes('/assets/')) {
+        const idx = url.indexOf('/assets/');
+        url = url.substring(idx);
+      }
+      return url;
+    } catch (error) {
+      console.error('[SERVICE] Erreur upload image:', error);
+      throw error;
+    }
+  }
+
+  // Mettre à jour l’URL d’image d’une question
+  async updateQuestionImageUrl(questionId: number, imageUrl: string): Promise<void> {
+    try {
+      let safeUrl = imageUrl;
+      // Forcer le chemin relatif si besoin
+      if (safeUrl && safeUrl.startsWith(this.apiUrl + '/assets/')) {
+        safeUrl = safeUrl.replace(this.apiUrl, '');
+      }
+      if (safeUrl && safeUrl.includes('/assets/')) {
+        const idx = safeUrl.indexOf('/assets/');
+        safeUrl = safeUrl.substring(idx);
+      }
+      await firstValueFrom(
+        this.http.patch(`${this.apiUrl}/questions/${questionId}/image`, { imageUrl: safeUrl })
+      );
+      // Mettre à jour localement si besoin
+      const question = this.questions.find(q => q.id === questionId);
+      if (question) {
+        question.imageUrl = safeUrl;
+        this.questionsSubject.next(this.questions);
+      }
+    } catch (error) {
+      console.error('[SERVICE] Erreur update imageUrl:', error);
+      throw error;
+    }
+  }
+
   // Cache pour éviter les logs répétitifs
   private lastStep: QuizStep | null = null;
   
@@ -32,10 +85,7 @@ export class QuizService {
     private persistenceService: GamePersistenceService,
     private websocketTimerService: WebSocketTimerService  // AJOUT: Injection WebSocket service
   ) {
-    this.initQuestions();
-    
-    // AJOUT: Souscription WebSocket persistante
-    this.initWebSocketQuestionsSync();
+  this.initQuestions();
   }
 
   // Headers standard (pas d'authentification requise avec SQLite)
@@ -47,22 +97,24 @@ export class QuizService {
 
   // Chargement des questions via l'API SQLite
   async initQuestions() {
-    if (this.questionsLoaded) return;
-    return this.loadQuestions();
+  if (this.questionsLoaded) return this.questions;
+  return this.loadQuestions();
   }
 
   // Forcer le rechargement des questions (utilisé après modifications côté gestion)
   async reloadQuestions(): Promise<Question[]> {
-    console.log('[SERVICE] Rechargement forcé des questions...');
-    this.questionsLoaded = false;
-    return this.loadQuestions();
+  // ...existing code...
+  this.questionsLoaded = false;
+  this.questions = [];
+  this.questionsSubject.next([]); // Vide la liste pour forcer la MAJ
+  return this.loadQuestions();
   }
 
   // Méthode privée pour charger les questions
   private async loadQuestions(): Promise<Question[]> {
     this.questionsLoaded = true;
 
-    console.log('[SERVICE] Chargement des questions...');
+  // ...existing code...
 
     try {
       const questions: Question[] = await firstValueFrom(
@@ -71,11 +123,10 @@ export class QuizService {
         })
       );
 
-      this.questions = questions.sort((a, b) => a.id - b.id);
-      this.questionsSubject.next(this.questions);
+  this.questions = questions; // Respecter l'ordre du backend
+  this.questionsSubject.next(this.questions);
 
-      console.log(`[SERVICE] ${this.questions.length} questions chargées avec succès`);
-      console.log('[SERVICE] Questions:', this.questions.map(q => ({ id: q.id, text: q.text.substring(0, 50) + '...' })));
+  // ...existing code...
       
       return this.questions;
     } catch (error) {
@@ -101,7 +152,7 @@ export class QuizService {
 
   // Synchronisation complète après modifications côté gestion
   async synchronizeAfterChanges(): Promise<void> {
-    console.log('[SERVICE] Synchronisation après modifications côté gestion...');
+  // ...existing code...
     
     try {
       // 1. Recharger les questions
@@ -113,7 +164,7 @@ export class QuizService {
       // 3. Notifier tous les composants abonnés
       this.questionsSubject.next(newQuestions);
       
-      console.log('[SERVICE] Synchronisation terminée:', newQuestions.length, 'questions');
+  // ...existing code...
     } catch (error) {
       console.error('[SERVICE] Erreur lors de la synchronisation:', error);
     }
@@ -197,7 +248,7 @@ export class QuizService {
         const currentStep = data?.step as QuizStep || 'lobby';
         // Log uniquement si l'état a changé (débug réduit)
         if (currentStep !== this.lastStep) {
-          console.log(`[SERVICE] Changement d'étape détecté: ${this.lastStep} -> ${currentStep}`);
+          // ...existing code...
           this.lastStep = currentStep;
         }
         return currentStep;
@@ -219,7 +270,7 @@ export class QuizService {
         })
       );
       const currentStep = response?.step as QuizStep || 'lobby';
-      console.log(`[SERVICE] État forcé récupéré: ${currentStep}`);
+  // ...existing code...
       return currentStep;
     } catch (error) {
       console.error('[SERVICE] Erreur lors du check forcé d\'état:', error);
@@ -347,7 +398,7 @@ export class QuizService {
   async nextQuestion(currentIndex: number) {
     const nextIndex = currentIndex + 1;
 
-    console.log('[SERVICE] Passage à la question', nextIndex);
+  // ...existing code...
 
     try {
       if (nextIndex < this.questions.length) {
@@ -363,16 +414,16 @@ export class QuizService {
           step: 'question' // TOUJOURS définir le step à 'question' pour toutes les questions
         };
         
-        console.log(`[SERVICE] ⏱️  Question ${nextIndex} programmée pour démarrer dans ${delayMs}ms (${new Date(questionStartTime).toLocaleTimeString()})`);
+  // ...existing code...
         
         const result = await firstValueFrom(
           this.http.put(`${this.apiUrl}/quiz-state`, updateData, {
             headers: this.getHeaders()
           })
         );
-        console.log('[SERVICE] Réponse API:', result);
+  // ...existing code...
       } else {
-        console.log('[SERVICE] Fin du quiz - appel setStep(end)');
+  // ...existing code...
         await this.setStep('end');
       }
     } catch (error) {
@@ -383,28 +434,28 @@ export class QuizService {
   // Ajout d'un participant
   async addParticipant(user: User) {
     try {
-      console.log('[SERVICE] Ajout participant via API:', user);
+  // ...existing code...
       const response = await firstValueFrom(
         this.http.post(`${this.apiUrl}/participants`, user, {
           headers: this.getHeaders()
         })
       );
-      console.log('[SERVICE] ✅ Réponse API addParticipant:', response);
+  // ...existing code...
       
       // Ajouter le participant à la liste locale
       this.participants.push(user);
-      console.log('[SERVICE] ✅ Participant ajouté à la liste locale, total:', this.participants.length);
+  // ...existing code...
       
       // Synchroniser immédiatement avec le serveur pour s'assurer que la liste est à jour
-      console.log('[SERVICE] 🔄 Synchronisation avec le serveur...');
+  // ...existing code...
       await this.fetchParticipantsFromServer();
-      console.log('[SERVICE] ✅ Synchronisation terminée, participants:', this.participants.length);
+  // ...existing code...
       
       // Sauvegarde automatique des participants
       this.persistenceService.updateGameState({
         participants: this.participants
       });
-      console.log('[SERVICE] ✅ État sauvegardé');
+  // ...existing code...
       
     } catch (error) {
       console.error('[SERVICE] ❌ Erreur addParticipant:', error);
@@ -414,7 +465,7 @@ export class QuizService {
 
   // Soumission d'une réponse
   async submitAnswer(userId: string, answerIndex: number, userName: string, questionIndex: number) {
-    console.log('[DEBUG][submitAnswer] userId:', String(userId).trim(), 'answerIndex:', answerIndex, 'userName:', userName, 'questionIndex:', questionIndex);
+  // ...existing code...
 
     try {
       await firstValueFrom(
@@ -427,13 +478,13 @@ export class QuizService {
           headers: this.getHeaders()
         })
       );
-      console.log('[VOTE-PROTECTION] ✅ Vote accepté par le serveur');
+  // ...existing code...
     } catch (error: any) {
       console.error('Erreur submitAnswer:', error);
       
       // ✅ PROTECTION: Gérer le cas où l'utilisateur a déjà voté
       if (error.status === 400 && error.error?.alreadyAnswered) {
-        console.log('[VOTE-PROTECTION] ❌ Vote rejeté - Utilisateur a déjà voté pour cette question');
+  // ...existing code...
         throw new Error('ALREADY_VOTED');
       }
       
@@ -451,16 +502,44 @@ export class QuizService {
       ),
       map((data: any) => {
         const answers = data?.answers ?? [];
-        // Reduced logging frequency to prevent console spam
-        if (Math.random() < 0.1) { // Only log 10% of the time
-          console.log(`[DEBUG][getAnswers$] Question ${questionIndex} API response:`, data);
-          console.log(`[DEBUG][getAnswers$] Extracted answers:`, answers);
-        }
         return answers;
       }),
       catchError((error) => {
-        console.log(`[DEBUG][getAnswers$] Error for question ${questionIndex}:`, error);
+        console.error(`[getAnswers$] Error for question ${questionIndex}:`, error);
         return of([]);
+      })
+    );
+  }
+
+  /**
+   * Observable : liste des votants (utilisateurs ayant répondu) pour une question donnée
+   */
+  getVoters$(questionIndex: number): Observable<{id: any, name: any}[]> {
+    return this.getAnswers$(questionIndex).pipe(
+      map((answers: any[]) => {
+        return answers.map(a => ({
+          id: a.userId,
+          name: a.userName || a.name || 'Anonyme',
+        }));
+      })
+    );
+  }
+
+  /**
+   * Observable : nombre de réponses par option pour une question donnée
+   */
+  getAnswersCount$(questionIndex: number): Observable<number[]> {
+    return this.getAnswers$(questionIndex).pipe(
+      map((answers: any[]) => {
+        const question = this.questions[questionIndex];
+        const nbOptions = question?.options?.length || 4;
+        const counts = Array(nbOptions).fill(0);
+        for (const answer of answers) {
+          if (typeof answer.answerIndex === 'number' && answer.answerIndex >= 0 && answer.answerIndex < nbOptions) {
+            counts[answer.answerIndex]++;
+          }
+        }
+        return counts;
       })
     );
   }
@@ -470,129 +549,37 @@ export class QuizService {
     try {
       const allAnswers: any[] = [];
       const nbQuestions = this.questions.length;
-      
-      console.log(`[RESTORE] Récupération réponses pour userId: ${userId}, nbQuestions: ${nbQuestions}`);
-      
       if (nbQuestions === 0) {
         console.warn('[RESTORE] Aucune question chargée, impossible de récupérer les réponses');
         return [];
       }
-      
       for (let i = 0; i < nbQuestions; i++) {
         try {
-          console.log(`[RESTORE] Récupération réponses question ${i}...`);
-          
           const response = await firstValueFrom(
             this.http.get<any>(`${this.apiUrl}/answers/${i}`, {
               headers: this.getHeaders()
             })
           );
-          
-          console.log(`[RESTORE] Réponse API question ${i}:`, response);
-          
           const answers = response?.answers ?? [];
-          console.log(`[RESTORE] Réponses brutes question ${i}:`, answers);
-          
-          const userAnswer = answers.find((a: any) => {
-            const match = String(a.userId) === String(userId);
-            console.log(`[RESTORE] Comparaison userId: "${a.userId}" === "${userId}" => ${match}`);
-            return match;
-          });
-          
+          const userAnswer = answers.find((a: any) => String(a.userId) === String(userId));
           if (userAnswer) {
-            console.log(`[RESTORE] Réponse trouvée pour question ${i}:`, userAnswer);
             allAnswers.push({
               questionIndex: i,
               answerIndex: userAnswer.answerIndex,
               timestamp: userAnswer.timestamp
             });
-          } else {
-            console.log(`[RESTORE] Aucune réponse trouvée pour question ${i}`);
           }
         } catch (questionError) {
+          // Log d'erreur conservé
           console.error(`[RESTORE] Erreur question ${i}:`, questionError);
-          // Continuer avec les autres questions
         }
       }
-      
-      console.log(`[RESTORE] Réponses récupérées pour l'utilisateur ${userId}:`, allAnswers);
       return allAnswers;
     } catch (error) {
+      // Log d'erreur conservé
       console.error('[RESTORE] Erreur récupération réponses utilisateur:', error);
       return [];
     }
-  }
-
-  countResults(answers: any[], correctIndex: number, participants: any[]): {good: number, bad: number, none: number} {
-    const total = participants.length;
-    let good = 0, bad = 0;
-    const answeredIds = new Set();
-
-    for (const a of answers) {
-      answeredIds.add(a.userId);
-      if (a.answerIndex === correctIndex) good++;
-      else if (a.answerIndex !== -1) bad++;
-    }
-
-    const none = total - answeredIds.size;
-    return { good, bad, none };
-  }
-
-  getVoters$(questionIndex: number): Observable<string[]> {
-    return this.getAnswers$(questionIndex).pipe(
-      map((answers: any[]) => answers.map(a => a.userId))
-    );
-  }
-
-  getAnswersCount$(questionIndex: number): Observable<number[]> {
-    console.log(`[DEBUG][getAnswersCount$] STARTING for question ${questionIndex}`);
-    console.log(`[DEBUG][getAnswersCount$] Questions array:`, this.questions);
-    console.log(`[DEBUG][getAnswersCount$] Question at index ${questionIndex}:`, this.questions[questionIndex]);
-
-    // Utilisation d'un timer avec émission immédiate et puis toutes les 4 secondes
-    return timer(0, 4000).pipe(
-      switchMap(() => {
-        console.log(`[DEBUG][getAnswersCount$] Making API call for question ${questionIndex}`);
-        return this.http.get<any>(`${this.apiUrl}/answers/${questionIndex}`, {
-          headers: this.getHeaders()
-        });
-      }),
-      map((data: any) => {
-        const answers = data?.answers ?? [];
-        console.log(`[DEBUG][getAnswersCount$] Question ${questionIndex} API response:`, data);
-        console.log(`[DEBUG][getAnswersCount$] Question ${questionIndex} received answers:`, answers);
-
-        const question = this.questions[questionIndex];
-        console.log(`[DEBUG][getAnswersCount$] Current question object:`, question);
-
-        const nbOptions = question?.options?.length ?? 0;
-        console.log(`[DEBUG][getAnswersCount$] Question ${questionIndex} has ${nbOptions} options`);
-
-        if (nbOptions === 0) {
-          console.log(`[DEBUG][getAnswersCount$] RETURNING EMPTY ARRAY - no options found`);
-          return [];
-        }
-
-        const counts = Array(nbOptions).fill(0);
-        console.log(`[DEBUG][getAnswersCount$] Initialized counts array:`, counts);
-
-        for (const a of answers) {
-          console.log(`[DEBUG][getAnswersCount$] Processing answer:`, a);
-          if (typeof a.answerIndex === 'number' && a.answerIndex >= 0 && a.answerIndex < nbOptions) {
-            counts[a.answerIndex]++;
-            console.log(`[DEBUG][getAnswersCount$] Incremented count for option ${a.answerIndex}, counts now:`, counts);
-          } else {
-            console.log(`[DEBUG][getAnswersCount$] Invalid answerIndex:`, a.answerIndex);
-          }
-        }
-        console.log(`[DEBUG][getAnswersCount$] Final counts for question ${questionIndex}:`, counts);
-        return counts;
-      }),
-      catchError((error) => {
-        console.log(`[DEBUG][getAnswersCount$] Error for question ${questionIndex}:`, error);
-        return of([]);
-      })
-    );
   }
 
   getLeaderboard(): User[] {
@@ -684,44 +671,13 @@ export class QuizService {
     this.persistenceService.saveGameState({
       step: 'lobby',
       currentQuestionIndex: 0,
-      questionStartTime: 0,
+      questionStartTime: Date.now(),
       participants: [],
       leaderboard: [],
       totalQuestions: this.questions.length,
       gameStartTime: Date.now(),
-      lastActivity: Date.now()
-    });
-  }
-  
-  // AJOUT: Initialiser la souscription WebSocket persistante pour questions sync
-  private initWebSocketQuestionsSync(): void {
-    console.log('[SERVICE-WS] Initialisation de la souscription WebSocket persistante pour questions sync');
-    
-    this.questionsSyncSub = this.websocketTimerService.getQuestionsSync().subscribe(async syncData => {
-      console.log('[SERVICE-WS] Questions sync reçu dans le service:', syncData);
-      
-      // Gestion structure imbriquée (comme côté présentation)
-      let actionValue = (syncData as any).action;
-      const rawData = syncData as any;
-      if (!actionValue && rawData.data && rawData.data.action) {
-        actionValue = rawData.data.action;
-        console.log('[SERVICE-WS] Action extraite de structure imbriquée:', actionValue);
-      }
-      
-      console.log('[SERVICE-WS] Action finale:', actionValue);
-      
-      if (actionValue === 'reload') {
-        try {
-          console.log('[SERVICE-WS] Rechargement des questions demandé par WebSocket...');
-          
-          // Recharger les questions depuis le service
-          await this.reloadQuestions();
-          
-          console.log('[SERVICE-WS] Questions rechargées avec succès via WebSocket');
-        } catch (error) {
-          console.error('[SERVICE-WS] Erreur lors du rechargement des questions via WebSocket:', error);
-        }
-      }
+      lastActivity: Date.now(),
     });
   }
 }
+       

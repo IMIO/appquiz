@@ -102,13 +102,25 @@ export class QuizComponent implements OnInit, OnDestroy {
         step: timerState.step,  // ✅ NOUVEAU: Étape reçue via WebSocket
         localStep: this.step
       });
-      
+
       // ✅ CORRECTION: Sauvegarder et utiliser l'étape reçue du serveur via WebSocket
       if (timerState.step) {
         this.webSocketStep = timerState.step;
       }
       const currentStep = this.webSocketStep || this.step;
-      
+
+      // 🚨 Correction critique : forcer l'arrêt du timer si l'étape n'est plus 'question'
+      if (currentStep !== 'question') {
+        if (this.timerActive) {
+          console.log('[PLAYER-TIMER-WS][FORCE-STOP] Étape != question, arrêt forcé du timer. Étape courante :', currentStep);
+        }
+        this.timerActive = false;
+        this.stopTimer();
+        // On peut garder la valeur du timer pour affichage, mais il ne doit plus tourner ni permettre de jouer
+        this.cdr.detectChanges();
+        return;
+      }
+
       // ✅ CORRECTION: Permettre aux joueurs en retard de savoir qu'une question était/est active
       // Même si on arrive pendant 'result', on doit pouvoir identifier qu'une question était en cours
       if (timerState.questionStartTime && timerState.questionStartTime > 0) {
@@ -118,7 +130,7 @@ export class QuizComponent implements OnInit, OnDestroy {
         this.timerPercent = (timerState.timeRemaining / (timerState.timerMax || 20)) * 100;
         this.timerActive = timerState.isActive;
         this.timerMax = timerState.timerMax;
-        
+
         console.log('[PLAYER-TIMER-WS] ✅ Timer activé, questionStartTime mis à jour:', {
           questionStartTime: this.questionStartTime,
           canPlay: this.canPlay,
@@ -128,15 +140,15 @@ export class QuizComponent implements OnInit, OnDestroy {
           webSocketStep: this.webSocketStep,
           localStep: this.step
         });
-        
+
         // Forcer la détection de changements pour réactiver les boutons
         this.cdr.detectChanges();
-        
+
         // Gestion de l'expiration automatique
         if (this.timerValue <= 0 && this.timerActive) {
           this.handleTimerExpired();
         }
-        
+
         console.log('🔄 WebSocket Timer Update (manuel démarré):', {
           serverStartTime: timerState.questionStartTime,
           timeRemaining: timerState.timeRemaining,
@@ -172,11 +184,8 @@ export class QuizComponent implements OnInit, OnDestroy {
     });
 
     // ✅ S'abonner aux notifications de synchronisation des questions
-    // NOTE: Maintenant géré au niveau du service pour persistance
-    /*
     this.questionsSyncSub = this.websocketTimerService.getQuestionsSync().subscribe(async syncData => {
       console.log('[QUESTIONS-WS] Synchronisation reçue:', syncData);
-      
       // Gestion structure imbriquée (comme côté présentation)
       let actionValue = syncData.action;
       const rawData = syncData as any;
@@ -184,16 +193,12 @@ export class QuizComponent implements OnInit, OnDestroy {
         actionValue = rawData.data.action;
         console.log('[QUESTIONS-WS] Action extraite de structure imbriquée:', actionValue);
       }
-      
       console.log('[QUESTIONS-WS] Action finale:', actionValue);
-      
       if (actionValue === 'reload') {
         try {
           console.log('[QUESTIONS-WS] Rechargement des questions demandé...');
-          
           // Forcer le rechargement des questions
           await this.quizService.reloadQuestions();
-          
           // Mettre à jour la question courante
           const newCurrentQuestion = this.quizService.getCurrentQuestion(this.currentIndex);
           if (newCurrentQuestion) {
@@ -203,14 +208,12 @@ export class QuizComponent implements OnInit, OnDestroy {
               text: newCurrentQuestion.text?.substring(0, 50) + '...'
             });
           }
-          
           this.cdr.detectChanges();
         } catch (error) {
           console.error('[QUESTIONS-WS] Erreur lors du rechargement des questions:', error);
         }
       }
     });
-    */
 
     // AJOUT: Vérification périodique des questions (solution de contournement)
     this.startPeriodicQuestionsCheck();

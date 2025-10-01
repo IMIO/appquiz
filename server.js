@@ -1,4 +1,5 @@
 const express = require('express');
+const multer = require('multer');
 const sqlite3 = require('sqlite3').verbose();
 const cors = require('cors');
 const path = require('path');
@@ -6,6 +7,79 @@ const WebSocket = require('ws');
 const http = require('http');
 
 const app = express();
+// Endpoint pour forcer la fin du timer (skip)
+app.post('/api/quiz/skip-timer', (req, res) => {
+  let responded = false;
+  // Timeout de sécurité : 3 secondes max pour répondre
+  const timeout = setTimeout(() => {
+    if (!responded) {
+      responded = true;
+      console.error('⏰ Timeout /api/quiz/skip-timer');
+      res.status(504).json({ error: 'Timeout serveur' });
+    }
+  }, 3000);
+  try {
+    db.get('SELECT step, currentQuestionIndex FROM quiz_state WHERE id = 1', (err, row) => {
+      if (responded) return;
+      if (err || !row) {
+        clearTimeout(timeout);
+        responded = true;
+        console.error('❌ Erreur lecture état quiz:', err);
+        return res.status(500).json({ error: 'Erreur lecture état quiz' });
+      }
+      if (row.step !== 'question') {
+        clearTimeout(timeout);
+        responded = true;
+        return res.status(400).json({ error: 'Impossible de skip: pas en phase question' });
+      }
+      // Broadcast timer à 0
+      broadcastTimerUpdate({
+        timeRemaining: 0,
+        timerMax: 20,
+        isTimerActive: false,
+        countdownToStart: 0,
+        serverTime: Date.now(),
+        questionStartTime: null,
+        step: row.step,
+        currentQuestionIndex: row.currentQuestionIndex
+      });
+      // Basculer l'étape vers 'result' immédiatement
+      db.run('UPDATE quiz_state SET step = ? WHERE id = 1', ['result'], (updateErr) => {
+        if (responded) return;
+        clearTimeout(timeout);
+        if (updateErr) {
+          responded = true;
+          console.error('❌ Erreur mise à jour étape:', updateErr);
+          return res.status(500).json({ error: 'Erreur mise à jour étape' });
+        }
+        broadcastStepTransition('question', 'result', 300);
+        responded = true;
+        res.json({ success: true });
+      });
+    });
+  } catch (e) {
+    if (!responded) {
+      clearTimeout(timeout);
+      responded = true;
+      console.error('❌ Exception /api/quiz/skip-timer:', e);
+      res.status(500).json({ error: 'Erreur serveur' });
+    }
+  }
+});
+// Configuration du stockage des images
+// Expose le dossier d'images en statique pour le frontend
+app.use('/assets/img', express.static(path.join(__dirname, 'public', 'assets', 'img')));
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, path.join(__dirname, 'public', 'assets', 'img'));
+  },
+  filename: function (req, file, cb) {
+    // Nom unique : timestamp + nom original
+    const uniqueName = Date.now() + '-' + file.originalname.replace(/\s+/g, '_');
+    cb(null, uniqueName);
+  }
+});
+const upload = multer({ storage: storage });
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
@@ -15,16 +89,16 @@ const PORT = process.env.PORT || 3000;
 const clients = new Set();
 
 wss.on('connection', (ws) => {
-  console.log('🔌 Nouveau client WebSocket connecté');
+  // console.log('🔌 Nouveau client WebSocket connecté');
   clients.add(ws);
   
   ws.on('close', () => {
-    console.log('🔌 Client WebSocket déconnecté');
+  // console.log('🔌 Client WebSocket déconnecté');
     clients.delete(ws);
   });
   
   ws.on('error', (error) => {
-    console.error('❌ Erreur WebSocket:', error);
+  console.error('❌ Erreur WebSocket:', error);
     clients.delete(ws);
   });
 });
@@ -44,9 +118,9 @@ function broadcastTimerUpdate(timerData) {
     }
   });
   
-  if (clients.size > 0) {
-    console.log(`📡 Timer broadcast vers ${clients.size} clients: ${timerData.timeRemaining}s`);
-  }
+  // if (clients.size > 0) {
+  //   console.log(`📡 Timer broadcast vers ${clients.size} clients: ${timerData.timeRemaining}s`);
+  // }
 }
 
 // Fonction pour broadcaster les transitions d'étapes avec loading synchronisé
@@ -69,7 +143,7 @@ function broadcastStepTransition(fromStep, toStep, loadingDuration = 2000) {
     }
   });
   
-  console.log(`📡 Step transition broadcast vers ${clients.size} clients: ${fromStep} -> ${toStep}`);
+  // console.log(`📡 Step transition broadcast vers ${clients.size} clients: ${fromStep} -> ${toStep}`);
   
   // Programmer l'activation de la nouvelle étape après le loading
   setTimeout(() => {
@@ -87,7 +161,7 @@ function broadcastStepTransition(fromStep, toStep, loadingDuration = 2000) {
       }
     });
     
-    console.log(`📡 Step activation broadcast vers ${clients.size} clients: ${toStep}`);
+  // console.log(`📡 Step activation broadcast vers ${clients.size} clients: ${toStep}`);
   }, loadingDuration);
 }
 
@@ -109,7 +183,7 @@ function broadcastQuestionsSync() {
     }
   });
   
-  console.log(`🔄 Questions sync broadcast vers ${clients.size} clients`);
+  // console.log(`🔄 Questions sync broadcast vers ${clients.size} clients`);
 }
 
 // Timer serveur qui broadcast en temps réel toutes les 100ms
@@ -155,11 +229,13 @@ function startServerTimer() {
             // Timer expiré - basculer automatiquement vers 'result'
             if (!isTimerActive && timeRemaining <= 0 && row.step === 'question') {
               console.log('⏰ Timer expiré, basculement automatique vers result');
+  // console.log('⏰ Timer expiré, basculement automatique vers result');
               db.run('UPDATE quiz_state SET step = ? WHERE id = 1', ['result'], (updateErr) => {
                 if (updateErr) {
                   console.error('❌ Erreur basculement vers result:', updateErr);
                 } else {
                   console.log('✅ Basculement automatique vers result réussi');
+  // console.log('✅ Basculement automatique vers result réussi');
                   // ✅ NOUVEAU: Broadcaster immédiatement la transition d'étape
                   broadcastStepTransition('question', 'result', 500); // Transition rapide de 500ms
                 }
@@ -215,6 +291,16 @@ app.use(cors({
 
 app.use(express.json());
 
+// Route d’upload d’image
+app.post('/upload-image', upload.single('image'), (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'Aucun fichier reçu' });
+  }
+  // URL accessible depuis le frontend
+  const imageUrl = `/assets/img/${req.file.filename}`;
+  res.json({ url: imageUrl });
+});
+
 // Configuration SQLite
 const dbPath = process.env.NODE_ENV === 'production'
   ? path.join('/db', 'quiz.db')
@@ -225,6 +311,7 @@ const db = new sqlite3.Database(dbPath, (err) => {
     process.exit(1);
   } else {
     console.log('✅ Base de données SQLite connectée:', dbPath);
+  // console.log('✅ Base de données SQLite connectée:', dbPath);
   }
 });
 
@@ -238,8 +325,42 @@ function initDatabase() {
         text TEXT NOT NULL,
         options TEXT NOT NULL, -- JSON array
         correctIndex INTEGER NOT NULL,
-        createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+        createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+        "order" INTEGER DEFAULT NULL
       )`);
+
+      // Ajout du champ 'order' si la table existe déjà (migration douce)
+      db.all("PRAGMA table_info(questions)", (err, columns) => {
+        if (Array.isArray(columns) && !columns.some(col => col.name === 'order')) {
+          db.run('ALTER TABLE questions ADD COLUMN "order" INTEGER DEFAULT NULL');
+        }
+      });
+// Endpoint pour réordonner les questions (admin)
+app.post('/api/admin/questions/reorder', requireAdminAuth, (req, res) => {
+  const { order } = req.body; // Tableau d'IDs dans le nouvel ordre
+  if (!Array.isArray(order) || order.length === 0) {
+    return res.status(400).json({ error: 'Format de l\'ordre invalide' });
+  }
+  // Mettre à jour le champ 'order' pour chaque question
+  const updateQueries = order.map((id, idx) => {
+    return new Promise((resolve, reject) => {
+      db.run('UPDATE questions SET "order" = ? WHERE id = ?', [idx, id], function(err) {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
+  });
+  Promise.all(updateQueries)
+    .then(() => {
+      // Diffuser la synchro questions (pour forcer le reload côté clients)
+      broadcastQuestionsSync();
+      res.json({ success: true, message: 'Ordre des questions mis à jour' });
+    })
+    .catch((err) => {
+      console.error('Erreur update ordre questions:', err);
+      res.status(500).json({ error: 'Erreur serveur lors du réordonnancement' });
+    });
+});
 
       // Table des participants
       db.run(`CREATE TABLE IF NOT EXISTS participants (
@@ -275,35 +396,9 @@ function initDatabase() {
       // Insérer l'état initial du quiz
       db.run(`INSERT OR IGNORE INTO quiz_state (id, step) VALUES (1, 'lobby')`);
 
-      // Insérer les questions par défaut
-      const defaultQuestions = [
-        {
-          id: 1,
-          text: "Quelle est la capitale de la France ?",
-          options: JSON.stringify(["Lyon", "Paris", "Marseille", "Bordeaux"]),
-          correctIndex: 1
-        },
-        {
-          id: 2,
-          text: "Combien font 2 + 2 ?",
-          options: JSON.stringify(["3", "4", "5", "6"]),
-          correctIndex: 1
-        },
-        {
-          id: 3,
-          text: "Quelle est la couleur du ciel par beau temps ?",
-          options: JSON.stringify(["Rouge", "Vert", "Bleu", "Jaune"]),
-          correctIndex: 2
-        }
-      ];
-
-      const insertQuestion = db.prepare(`INSERT OR IGNORE INTO questions (id, text, options, correctIndex) VALUES (?, ?, ?, ?)`);
-      defaultQuestions.forEach(q => {
-        insertQuestion.run(q.id, q.text, q.options, q.correctIndex);
-      });
-      insertQuestion.finalize();
-
-      console.log('✅ Base de données initialisée avec les tables et données par défaut');
+      // Ne plus insérer de questions par défaut automatiquement
+      console.log('✅ Base de données initialisée avec les tables (sans questions par défaut)');
+  // console.log('✅ Base de données initialisée avec les tables (sans questions par défaut)');
       resolve();
     });
   });
@@ -334,7 +429,7 @@ app.post('/api/auth/token', (req, res) => {
 
 // Obtenir toutes les questions
 app.get('/api/questions', (req, res) => {
-  db.all('SELECT id, text, options, correctIndex, imageUrl, imageUrlResult, imageUrlEnd FROM questions ORDER BY id', (err, rows) => {
+  db.all('SELECT id, text, options, correctIndex, imageUrl, imageUrlResult, imageUrlEnd FROM questions ORDER BY COALESCE("order", id)', (err, rows) => {
     if (err) {
       console.error('Erreur récupération questions:', err);
       res.status(500).json({ error: 'Erreur serveur' });
@@ -353,9 +448,26 @@ app.get('/api/questions', (req, res) => {
   });
 });
 
+// Mettre à jour l’URL d’image d’une question
+app.patch('/api/questions/:id/image', (req, res) => {
+  const questionId = req.params.id;
+  const { imageUrl } = req.body;
+  if (!imageUrl) {
+    return res.status(400).json({ error: 'imageUrl manquant' });
+  }
+  db.run('UPDATE questions SET imageUrl = ? WHERE id = ?', [imageUrl, questionId], function(err) {
+    if (err) {
+      console.error('Erreur mise à jour imageUrl:', err);
+      res.status(500).json({ error: 'Erreur serveur' });
+    } else {
+      res.json({ success: true, id: questionId, imageUrl });
+    }
+  });
+});
+
 // Ajouter une question
 app.post('/api/questions', (req, res) => {
-  const { id, text, options, correctIndex } = req.body;
+  const { id, text, options, correctIndex, imageUrl, imageUrlResult, imageUrlEnd } = req.body;
 
   if (!text || !options || typeof correctIndex !== 'number') {
     return res.status(400).json({ error: 'Données manquantes' });
@@ -363,8 +475,8 @@ app.post('/api/questions', (req, res) => {
 
   const optionsJson = JSON.stringify(options);
 
-  db.run('INSERT OR REPLACE INTO questions (id, text, options, correctIndex) VALUES (?, ?, ?, ?)',
-    [id, text, optionsJson, correctIndex],
+  db.run('INSERT OR REPLACE INTO questions (id, text, options, correctIndex, imageUrl, imageUrlResult, imageUrlEnd) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    [id, text, optionsJson, correctIndex, imageUrl || '', imageUrlResult || '', imageUrlEnd || ''],
     function(err) {
       if (err) {
         console.error('Erreur ajout question:', err);
@@ -372,7 +484,7 @@ app.post('/api/questions', (req, res) => {
       } else {
         res.json({
           success: true,
-          question: { id, text, options, correctIndex }
+          question: { id, text, options, correctIndex, imageUrl, imageUrlResult, imageUrlEnd }
         });
       }
     });
@@ -466,6 +578,7 @@ app.post('/api/answers', (req, res) => {
 
       if (existingAnswer) {
         console.log(`❌ Vote rejeté - L'utilisateur ${userId} a déjà voté pour la question ${questionIndex}`);
+  // console.log(`❌ Vote rejeté - L'utilisateur ${userId} a déjà voté pour la question ${questionIndex}`);
         return res.status(400).json({ 
           error: 'Vous avez déjà voté pour cette question',
           alreadyAnswered: true 
@@ -481,6 +594,7 @@ app.post('/api/answers', (req, res) => {
             res.status(500).json({ error: 'Erreur serveur' });
           } else {
             console.log(`✅ Vote accepté - Utilisateur ${userId} a voté ${answerIndex} pour la question ${questionIndex}`);
+            // console.log(`✅ Vote accepté - Utilisateur ${userId} a voté ${answerIndex} pour la question ${questionIndex}`);
             res.json({ success: true, answerId: this.lastID });
           }
         });
@@ -544,8 +658,10 @@ app.get('/api/quiz-state', (req, res) => {
         // Log pour debugging
         if (countdownToStart > 0) {
           console.log(`⏳ Question démarre dans ${countdownToStart}s`);
+          // console.log(`⏳ Question démarre dans ${countdownToStart}s`);
         } else if (isTimerActive) {
           console.log(`⏱️  Timer actif: ${timeRemaining}s restant`);
+          // console.log(`⏱️  Timer actif: ${timeRemaining}s restant`);
         }
         
         res.json(state);
@@ -577,6 +693,7 @@ app.put('/api/quiz-state', (req, res) => {
         newStartTime = 0; // 0 = timer pas encore démarré manuellement
         oldStartTimes[currentQuestionIndex] = newStartTime;
         console.log('[TIMER] Nouvelle question détectée, timer non démarré (démarrage manuel requis)');
+  // console.log('[TIMER] Nouvelle question détectée, timer non démarré (démarrage manuel requis)');
       }
       
       // IMPORTANT: Forcer la réinitialisation du timer chaque fois qu'on passe à l'étape "question"
@@ -584,6 +701,7 @@ app.put('/api/quiz-state', (req, res) => {
       if (step === 'question') {
         newStartTime = 0;
         console.log('[TIMER] Passage à l\'étape question - timer réinitialisé (démarrage manuel requis)');
+  // console.log('[TIMER] Passage à l\'étape question - timer réinitialisé (démarrage manuel requis)');
       }
       // Construction des champs à mettre à jour
       if (step) {
@@ -621,6 +739,7 @@ app.put('/api/quiz-state', (req, res) => {
           // Broadcaster la transition d'étape synchronisée si l'étape a changé
           if (step && step !== oldStep) {
             console.log(`🔄 Changement d'étape détecté: ${oldStep} -> ${step}`);
+            // console.log(`🔄 Changement d'étape détecté: ${oldStep} -> ${step}`);
             
             // ✅ NOUVEAU: Transitions plus rapides pour certains cas
             let loadingDuration = 2000; // 2 secondes par défaut
@@ -629,6 +748,7 @@ app.put('/api/quiz-state', (req, res) => {
             if (step === 'result' && oldStep === 'question') {
               loadingDuration = 300; // 300ms seulement pour l'affichage immédiat des résultats
               console.log(`⚡ Transition rapide question->result (${loadingDuration}ms)`);
+              // console.log(`⚡ Transition rapide question->result (${loadingDuration}ms)`);
             }
             
             broadcastStepTransition(oldStep, step, loadingDuration);
@@ -645,6 +765,7 @@ app.post('/api/start-timer', (req, res) => {
   const { duration = 20, currentQuestionIndex } = req.body;
   
   console.log('[MANUAL-TIMER] Démarrage manuel du timer:', { duration, currentQuestionIndex });
+  // console.log('[MANUAL-TIMER] Démarrage manuel du timer:', { duration, currentQuestionIndex });
   
   // Mettre à jour la base de données avec le nouveau timestamp
   const questionStartTime = Date.now();
@@ -672,6 +793,7 @@ app.post('/api/start-timer', (req, res) => {
       broadcastTimerUpdate(timerData);
       
       console.log('[MANUAL-TIMER] Timer démarré et diffusé:', timerData);
+  // console.log('[MANUAL-TIMER] Timer démarré et diffusé:', timerData);
       res.json({ 
         success: true, 
         questionStartTime,
@@ -691,7 +813,10 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123'; // À changer e
 // Middleware d'authentification admin
 function requireAdminAuth(req, res, next) {
   const { password } = req.body;
+  console.log(`[AUTH] Tentative connexion admin. Saisi: '${password}', Attendu: '${ADMIN_PASSWORD}'`);
+  // console.log(`[AUTH] Tentative connexion admin. Saisi: '${password}', Attendu: '${ADMIN_PASSWORD}'`);
   if (password !== ADMIN_PASSWORD) {
+    console.warn(`[AUTH] Échec admin. Saisi: '${password}', Attendu: '${ADMIN_PASSWORD}'`);
     return res.status(401).json({ error: 'Mot de passe administrateur incorrect' });
   }
   next();
@@ -699,7 +824,7 @@ function requireAdminAuth(req, res, next) {
 
 // Lister toutes les questions
 app.post('/api/admin/questions', requireAdminAuth, (req, res) => {
-  db.all('SELECT * FROM questions ORDER BY id', (err, rows) => {
+  db.all('SELECT * FROM questions ORDER BY COALESCE("order", id)', (err, rows) => {
     if (err) {
       console.error('Erreur récupération questions:', err);
       res.status(500).json({ error: 'Erreur serveur' });
@@ -715,7 +840,7 @@ app.post('/api/admin/questions', requireAdminAuth, (req, res) => {
 
 // Ajouter une nouvelle question
 app.post('/api/admin/questions/add', requireAdminAuth, (req, res) => {
-  const { text, options, correctIndex } = req.body;
+  const { text, options, correctIndex, imageUrl, imageUrlResult, imageUrlEnd } = req.body;
   
   if (!text || !Array.isArray(options) || options.length < 2 || typeof correctIndex !== 'number') {
     return res.status(400).json({ 
@@ -730,8 +855,8 @@ app.post('/api/admin/questions/add', requireAdminAuth, (req, res) => {
   }
 
   db.run(
-    'INSERT INTO questions (text, options, correctIndex) VALUES (?, ?, ?)',
-    [text, JSON.stringify(options), correctIndex],
+    'INSERT INTO questions (text, options, correctIndex, imageUrl, imageUrlResult, imageUrlEnd) VALUES (?, ?, ?, ?, ?, ?)',
+    [text, JSON.stringify(options), correctIndex, imageUrl || '', imageUrlResult || '', imageUrlEnd || ''],
     function(err) {
       if (err) {
         console.error('Erreur ajout question:', err);
@@ -833,16 +958,28 @@ app.post('/api/quiz/reset', (req, res) => {
 app.post('/api/quiz/sync-questions', async (req, res) => {
   try {
     console.log('🔄 Déclenchement synchronisation questions via WebSocket');
-    
     // Broadcaster la notification de synchronisation
     broadcastQuestionsSync();
-    
-    res.json({ 
-      success: true, 
-      message: 'Questions synchronization broadcast sent',
-      timestamp: Date.now()
+
+    // Appeler le reset juste après la synchro
+    db.serialize(() => {
+      db.run('DELETE FROM participants');
+      db.run('DELETE FROM answers');
+      db.run('UPDATE quiz_state SET step = ?, currentQuestionIndex = ?, questionStartTime = ?, questionStartTimes = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = 1',
+        ['lobby', 0, Date.now(), '{}'],
+        function(err) {
+          if (err) {
+            console.error('Erreur reset quiz après sync:', err);
+            res.status(500).json({ success: false, error: 'Erreur reset quiz après sync' });
+          } else {
+            res.json({
+              success: true,
+              message: 'Questions synchronization broadcast sent + quiz reset',
+              timestamp: Date.now()
+            });
+          }
+        });
     });
-    
   } catch (error) {
     console.error('❌ Erreur synchronisation questions:', error);
     res.status(500).json({ success: false, error: error.message });
@@ -864,7 +1001,8 @@ app.get('/api/leaderboard', (req, res) => {
 // Démarrage du serveur
 async function startServer() {
   try {
-    console.log('[DEBUG] 1. Début de startServer');
+  console.log('[DEBUG] 1. Début de startServer');
+  console.log(`[INFO] Mot de passe admin utilisé : ${ADMIN_PASSWORD}`);
     await initDatabase();
     console.log('[DEBUG] 2. initDatabase terminé');
 
