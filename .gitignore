@@ -70,7 +70,18 @@ HTTP_ERRORS_GUIDE.md
 SECURITY_README.md
 
 # Database files (keep local only)
-quiz.db-*
+# quiz.db-*
 
 # Local proxy configuration scripts
 generate-proxy-config.js
+
+# Test files - not needed in production
+*.spec.ts
+*.spec.js
+*.test.ts
+*.test.js
+/e2e/
+/cypress/
+/tests/
+*.fixture.ts
+*.mock.ts

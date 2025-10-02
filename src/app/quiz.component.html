@@ -21,7 +21,7 @@
   <div class="score-banner">
     <img *ngIf="avatarUrl" [src]="avatarUrl" alt="avatar" class="avatar" />
     <span *ngIf="!avatarUrl" class="avatar">👤</span>
-    <span class="score-label">My Score:</span>
+    <span class="score-label">{{ userName || 'My' }} Score:</span>
     <span class="score-value">{{ totalScore }} / {{ totalQuestions }} pts</span>
   </div>
 
@@ -57,9 +57,14 @@
     </div>
     
     <!-- Message unifié d'attente pour les joueurs -->
-    <div *ngIf="questionStartTime <= 0" style="margin-top: 10px; padding: 12px; border-radius: 6px; font-size: 0.95em; color: #000; text-align: center;">
+    <div *ngIf="questionStartTime <= 0" style="margin-top: 10px; padding: 12px; border-radius: 6px; font-size: 0.95em; color: #000; text-align: center; background-color: #FFF3E0; border: 1px solid #FFE0B2;">
       ⏳ <br><br>Waiting for the host to start the timer...<br>
       <small style="opacity: 0.8; margin-top: 4px; display: block;">Answers will be activated once the timer starts</small>
+    </div>
+    
+    <!-- Message indiquant que le timer est actif -->
+    <div *ngIf="questionStartTime > 0 && timerActive" style="margin-top: 10px; padding: 12px; border-radius: 6px; font-size: 0.95em; color: #000; text-align: center; background-color: #E8F5E9; border: 1px solid #C8E6C9;">
+      ✅ Timer active - You can now select an answer
     </div>
     
   </div>
@@ -74,14 +79,28 @@
         [class.option-correct]="(activeStep === 'result' || activeStep === 'waiting') && i === currentQuestion.correctIndex"
         [class.option-incorrect]="(activeStep === 'result' || activeStep === 'waiting') && selectedAnswerIndex === i && i !== currentQuestion.correctIndex"
         [class.option-selected]="selectedAnswerIndex === i && isQuestionOrResultStep"
+        [class.option-selectable]="canPlay && activeStep === 'question'"
       >
-        <span *ngIf="selectedAnswerIndex === i && isQuestionOrResultStep" class="option-selected-icon">👉</span>
+        <!-- Indicateur de sélection actuelle avec meilleur contraste -->
+        <span *ngIf="selectedAnswerIndex === i && isQuestionOrResultStep" class="option-selected-icon" 
+              style="background-color: rgba(8, 176, 236, 0.2); padding: 2px 4px; border-radius: 3px; margin-right: 5px;">👉</span>
+        
+        <!-- Contenu de l'option -->
         <ng-container *ngIf="option?.text !== undefined; else stringOption">
           {{ option.text }}
         </ng-container>
         <ng-template #stringOption>{{ option }}</ng-template>
-        <span *ngIf="(activeStep === 'result' || activeStep === 'waiting') && i === currentQuestion.correctIndex" style="margin-left: auto; color: #43a047; font-weight: bold;">✓</span>
-        <span *ngIf="(activeStep === 'result' || activeStep === 'waiting') && selectedAnswerIndex === i && i !== currentQuestion.correctIndex" style="margin-left: auto; color: #c62828; font-weight: bold;">✗</span>
+        
+        <!-- Indicateurs de résultat avec meilleur contraste -->
+        <span *ngIf="(activeStep === 'result' || activeStep === 'waiting') && i === currentQuestion.correctIndex" 
+              style="margin-left: auto; color: #2e7d32; font-weight: bold; background-color: rgba(76, 175, 80, 0.2); padding: 2px 6px; border-radius: 4px;">✓</span>
+        <span *ngIf="(activeStep === 'result' || activeStep === 'waiting') && selectedAnswerIndex === i && i !== currentQuestion.correctIndex" 
+              style="margin-left: auto; color: #c62828; font-weight: bold; background-color: rgba(244, 67, 54, 0.2); padding: 2px 6px; border-radius: 4px;">✗</span>
+              
+        <!-- Indicateur que le bouton est sélectionnable avec meilleur contraste -->
+        <span *ngIf="canPlay && activeStep === 'question' && selectedAnswerIndex !== i" 
+              class="selectable-indicator" 
+              style="position: absolute; right: 10px; font-size: 0.9em; color: #08B0EC; font-weight: bold;">⮚</span>
       </button>
     </li>
   </ul>

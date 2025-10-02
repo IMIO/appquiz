@@ -1,4 +1,3 @@
-// ...existing code...
 import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -24,7 +23,6 @@ interface Question {
   styleUrls: ['./admin-questions.component.css']
 })
 export class AdminQuestionsComponent implements OnInit {
-  // ...
   /**
    * Déplace une question dans la liste (vers le haut ou le bas)
    * @param index position actuelle
@@ -63,44 +61,6 @@ export class AdminQuestionsComponent implements OnInit {
     });
   }
 
-  /**
-   * Gestion de l'upload d'image lors de l'édition d'une question
-   */
-  onEditImageSelected(event: Event, type: 'imageUrl' | 'imageUrlResult') {
-    const input = event.target as HTMLInputElement;
-    if (input.files && input.files[0] && this.editingQuestion) {
-      const file = input.files[0];
-      const reader = new FileReader();
-      reader.onload = (e: any) => {
-        if (type === 'imageUrl') this.editingQuestion!.imageUrl = e.target.result;
-        if (type === 'imageUrlResult') this.editingQuestion!.imageUrlResult = e.target.result;
-        this.uploadEditImageToBackend(file, type);
-      };
-      reader.readAsDataURL(file);
-    }
-  }
-
-  async uploadEditImageToBackend(file: File, type: 'imageUrl' | 'imageUrlResult') {
-    try {
-      const formData = new FormData();
-      formData.append('image', file);
-      const apiBase = environment.apiUrl.replace(/\/api$/, '');
-      const response: any = await this.http.post(`${apiBase}/upload-image`, formData).toPromise();
-      if (response && response.url && this.editingQuestion) {
-        const absoluteUrl = response.url.startsWith('http')
-          ? response.url
-          : `${apiBase}${response.url}`;
-        if (type === 'imageUrl') {
-          this.editingQuestion.imageUrl = absoluteUrl;
-        }
-        if (type === 'imageUrlResult') {
-          this.editingQuestion.imageUrlResult = absoluteUrl;
-        }
-      }
-    } catch (error) {
-      this.error = 'Erreur upload image';
-    }
-  }
   questions: Question[] = [];
   loading = false;
   error = '';
@@ -110,51 +70,15 @@ export class AdminQuestionsComponent implements OnInit {
   newQuestion: Question = {
     text: '',
     options: [
-      { text: '', imageUrl: '' },
-      { text: '', imageUrl: '' },
-      { text: '', imageUrl: '' },
-      { text: '', imageUrl: '' }
+      { text: '' },
+      { text: '' },
+      { text: '' },
+      { text: '' }
     ],
     correctIndex: 0,
     imageUrl: '',
     imageUrlResult: ''
   };
-
-  // Pour la preview locale des images d'option
-  optionImagePreviews: (string | null)[] = [null, null, null, null];
-
-  onOptionImageSelected(event: Event, index: number) {
-    const input = event.target as HTMLInputElement;
-    if (input.files && input.files[0]) {
-      const file = input.files[0];
-      const reader = new FileReader();
-      reader.onload = (e: any) => {
-        this.optionImagePreviews[index] = e.target.result;
-        this.uploadOptionImageToBackend(file, index);
-      };
-      reader.readAsDataURL(file);
-    } else {
-      this.optionImagePreviews[index] = null;
-      this.newQuestion.options[index].imageUrl = '';
-    }
-  }
-
-  async uploadOptionImageToBackend(file: File, index: number) {
-    try {
-      const formData = new FormData();
-      formData.append('image', file);
-      const apiBase = environment.apiUrl.replace(/\/api$/, '');
-      const response: any = await this.http.post(`${apiBase}/upload-image`, formData).toPromise();
-      if (response && response.url) {
-        const absoluteUrl = response.url.startsWith('http')
-          ? response.url
-          : `${apiBase}${response.url}`;
-        this.newQuestion.options[index].imageUrl = absoluteUrl;
-      }
-    } catch (error) {
-      console.error('[GESTION] Erreur upload image option:', error);
-    }
-  }
 
   updateOptionText(index: number, event: Event): void {
     const input = event.target as HTMLInputElement;
@@ -166,53 +90,7 @@ export class AdminQuestionsComponent implements OnInit {
     }
   }
 
-  selectedImageFile: File | null = null;
-  selectedImageUrl: string | null = null;
-  selectedImageUrlResult: string | null = null;
-  // Suppression de selectedImageUrlEnd
-
-  onImageSelected(event: Event, type: 'imageUrl' | 'imageUrlResult') {
-    const input = event.target as HTMLInputElement;
-    if (input.files && input.files[0]) {
-      const file = input.files[0];
-      const reader = new FileReader();
-      reader.onload = (e: any) => {
-        // On affiche toujours le DataURL local en preview
-        if (type === 'imageUrl') this.selectedImageUrl = e.target.result;
-        if (type === 'imageUrlResult') this.selectedImageUrlResult = e.target.result;
-        // On lance l’upload mais on ne modifie pas la preview
-        this.uploadImageToBackend(file, type);
-      };
-      reader.readAsDataURL(file);
-    } else {
-      if (type === 'imageUrl') this.selectedImageUrl = null;
-      if (type === 'imageUrlResult') this.selectedImageUrlResult = null;
-    }
-  }
-
-  async uploadImageToBackend(file: File, type: 'imageUrl' | 'imageUrlResult') {
-    try {
-      const formData = new FormData();
-      formData.append('image', file);
-      // Utilise l'URL de l'API depuis l'environnement, en retirant "/api" si présent
-      const apiBase = environment.apiUrl.replace(/\/api$/, '');
-      const response: any = await this.http.post(`${apiBase}/upload-image`, formData).toPromise();
-      if (response && response.url) {
-        // Toujours enregistrer l'URL absolue du backend
-        const absoluteUrl = response.url.startsWith('http')
-          ? response.url
-          : `${apiBase}${response.url}`;
-        if (type === 'imageUrl') {
-          this.newQuestion.imageUrl = absoluteUrl;
-        }
-        if (type === 'imageUrlResult') {
-          this.newQuestion.imageUrlResult = absoluteUrl;
-        }
-      }
-    } catch (error) {
-      console.error('[GESTION] Erreur upload image:', error);
-    }
-  }
+  // Les fonctions d'upload ont été supprimées pour être remplacées par une saisie directe de chemin
   
   // Form pour modification
   editingQuestion: Question | null = null;
@@ -299,10 +177,10 @@ export class AdminQuestionsComponent implements OnInit {
         this.newQuestion = {
           text: '',
           options: [
-            { text: '', imageUrl: '' },
-            { text: '', imageUrl: '' },
-            { text: '', imageUrl: '' },
-            { text: '', imageUrl: '' }
+            { text: '' },
+            { text: '' },
+            { text: '' },
+            { text: '' }
           ],
           correctIndex: 0,
           imageUrl: '',
@@ -320,7 +198,7 @@ export class AdminQuestionsComponent implements OnInit {
   /** Ajoute une option de réponse à la question en cours d'ajout */
   addNewOption() {
     if (this.newQuestion.options.length < 6) {
-      this.newQuestion.options.push({ text: '', imageUrl: '' });
+      this.newQuestion.options.push({ text: '' });
     }
   }
 
@@ -427,5 +305,27 @@ export class AdminQuestionsComponent implements OnInit {
     this.newQuestion.correctIndex = index;
   }
 
-  // plus utilisé, remplacé par updateOptionText
+  /**
+   * Vérifie et formatte le chemin d'une image
+   * @param path Chemin saisi par l'utilisateur
+   * @returns Le chemin formaté correctement
+   */
+  validateImagePath(path: string): string {
+    if (!path) return '';
+    
+    // Si le chemin est déjà formaté correctement, le retourner tel quel
+    if (path.startsWith('/assets/img/')) return path;
+    
+    // Si l'utilisateur a saisi un nom de fichier sans le chemin complet
+    if (!path.includes('/')) {
+      return `/assets/img/${path}`;
+    }
+    
+    // Note sur le fonctionnement des chemins:
+    // - En développement: les images sont servies depuis public/assets/img/
+    // - En production: le serveur est configuré pour servir les images depuis le même chemin virtuel
+    // Dans tous les cas, le chemin d'accès utilisé dans l'application est toujours /assets/img/
+    
+    return path;
+  }
 }

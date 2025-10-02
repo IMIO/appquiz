@@ -32,6 +32,11 @@ export const routes: Routes = [
     path: 'gestion', 
     loadComponent: () => import('./admin-questions/admin-questions.component').then(m => m.AdminQuestionsComponent)
   },
+  {
+    path: 'admin/fix-ids',
+    loadComponent: () => import('./question-id-fixer/question-id-fixer.component').then(m => m.QuestionIdFixerComponent),
+    canActivate: [AdminGuard]
+  },
   { path: '', redirectTo: '/admin-login', pathMatch: 'full' },
   { path: '**', redirectTo: '/admin-login' }
 ];

@@ -1,0 +1,186 @@
+// Fichier généré automatiquement
+import { Component, ChangeDetectorRef, OnInit, AfterViewInit, OnDestroy, ElementRef, ViewChild, HostListener } from '@angular/core';
+import { ActivatedRoute, Router } from '@angular/router';
+import { QuizService } from '../services/quiz.service';
+import { trigger, style, animate, transition } from '@angular/animations';
+import { io, Socket } from 'socket.io-client';
+import { environment } from '../../environments/environment';
+@Component({
+  selector: 'app-presentation',
+  templateUrl: './presentation.component.html',
+  styleUrls: ['./presentation.component.css'],
+  animations: [
+    trigger('stepTransition', [
+      transition(':enter', [
+        style({ opacity: 0, transform: 'translateY(20px)' }),
+        animate('300ms ease-out', style({ opacity: 1, transform: 'translateY(0)' }))
+      ])
+    ])
+  ]
+})
+export class PresentationComponent implements OnInit, AfterViewInit, OnDestroy {
+  // Propriétés requises par le template
+  step: string = 'lobby';
+  questionIndex: number = 0;
+  currentIndex: number = 0;
+  currentQuestion: any = null;
+  timerValue: number = 0;
+  timerMax: number = 20;
+  timerActive: boolean = false;
+  timerStartedManually: boolean = false;
+  voters: any[] = [];
+  totalGood: number = 0;
+  totalBad: number = 0;
+  hideImages: boolean = false;
+  resultImageLoaded: boolean = false;
+  participants: any[] = [];
+  leaderboard: any[] = [];
+  socket: Socket;
+
+  constructor(
+    private router: Router,
+    private route: ActivatedRoute,
+    public quizService: QuizService,
+    private cdRef: ChangeDetectorRef,
+    private el: ElementRef
+  ) {
+    this.socket = io(environment.socketUrl);
+  }
+
+  // Méthodes de cycle de vie
+  ngOnInit() {
+    // Initialisation
+  }
+
+  ngAfterViewInit() {
+    // Post-initialisation du DOM
+  }
+
+  ngOnDestroy() {
+    // Nettoyage
+    if (this.socket) {
+      this.socket.disconnect();
+    }
+  }
+
+  resetQuiz() {
+    // Reset de tous les participants
+    this.resetParticipants();
+
+    // Reset du state pour une nouvelle partie
+    this.step = 'lobby';
+    this.questionIndex = 0;
+    this.currentIndex = 0;
+    this.currentQuestion = null;
+    this.timerValue = 0;
+    this.timerActive = false;
+    this.timerStartedManually = false;
+    this.voters = [];
+    this.totalGood = 0;
+    this.totalBad = 0;
+    this.hideImages = false;
+    this.resultImageLoaded = false;
+    
+    // Notification du changement d'état
+    this.cdRef.detectChanges();
+
+    console.log('Quiz reset complete');
+  }
+
+  resetParticipants() {
+    console.log('Resetting participants...');
+    
+    // Supprime tous les éléments DOM des participants
+    const participantElements = document.querySelectorAll('.participant-item');
+    participantElements.forEach(element => {
+      element.remove();
+    });
+    
+    // Vide le tableau des participants
+    this.participants = [];
+    
+    // Vide le tableau des scores
+    this.quizService.resetScores();
+    
+    // Force le rafraîchissement du DOM
+    this.cdRef.detectChanges();
+    
+    console.log('Participants reset complete, count:', this.participants.length);
+  }
+
+  restartGame() {
+    this.resetQuiz();
+    this.resetParticipants();
+    console.log('Game restarted');
+  }
+
+  // Méthodes utilisées dans le template
+  getImageUrl(path: string): string {
+    return path ? '/assets/img/' + path : '';
+  }
+
+  nextQuestion() {
+    // Implémentation pour passer à la question suivante
+  }
+
+  endGame() {
+    // Implémentation pour terminer le jeu
+  }
+
+  getUserScore(user: any): number {
+    return user?.score || 0;
+  }
+
+  getTotalQuestions(): number {
+    return this.quizService.getQuestions().length || 0;
+  }
+
+  formatTime(time: number): string {
+    return time ? time.toFixed(2) + 's' : '0s';
+  }
+
+  getTotalGoodAnswersTime(userId: string): number {
+    // Récupération du temps total
+    return 0;
+  }
+
+  hasScoreChanged(userId: string): boolean {
+    return false;
+  }
+
+  canShowEndButton(): boolean {
+    return this.currentIndex >= (this.quizService.getQuestions().length - 1);
+  }
+
+  startTimerManually(seconds: number) {
+    this.timerMax = seconds;
+    this.timerValue = seconds;
+    this.timerActive = true;
+    this.timerStartedManually = true;
+  }
+
+  captureLeaderboard() {
+    // Capture du tableau des scores
+  }
+
+  startCamera() {
+    // Démarrage de la caméra
+  }
+
+  trackByQuestionId(index: number, item: any): any {
+    return item.id || index;
+  }
+
+  onResultImageLoaded() {
+    this.resultImageLoaded = true;
+  }
+
+  refreshLeaderboardWithDiagnostic(showDiagnostic: boolean = false) {
+    // Rafraîchit le leaderboard avec ou sans diagnostic
+  }
+
+  checkParticipantsDirectly() {
+    console.log('Checking participants directly...');
+    return Promise.resolve();
+  }
+}

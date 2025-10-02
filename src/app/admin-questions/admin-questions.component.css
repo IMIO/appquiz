@@ -118,6 +118,24 @@ textarea.form-control {
   margin-top: 5px;
 }
 
+.image-help {
+  background-color: #f8f9fa;
+  border-left: 3px solid #3498db;
+  padding: 10px 15px;
+  margin: 8px 0;
+  font-size: 14px;
+  color: #2c3e50;
+  border-radius: 0 5px 5px 0;
+}
+
+.image-help code {
+  background-color: #e9ecef;
+  padding: 2px 5px;
+  border-radius: 3px;
+  color: #e74c3c;
+  font-family: monospace;
+}
+
 /* Images section */
 .images-section {
   background: #f8f9fa;
