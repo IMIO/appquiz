@@ -11,4 +11,5 @@ export interface Question {
   correctIndex: number;     // index de la bonne réponse
   imageUrl?: string;        // url d'illustration question
   imageUrlResult?: string;  // url d'illustration résultat
+  originIndex?: number;     // index d'origine pour gérer les incohérences id/index
 }

@@ -45,7 +45,7 @@
   height: 78px;
   margin-bottom: 20px;
   filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.1));
-  background: url(../../assets/img/logo-quizup.svg) top center no-repeat;
+  background: url('../../assets/img/logo-quizup.svg') top center no-repeat;
   content: ''!important;
   display: block;
   margin:40px auto 60px;

@@ -1,0 +1,36 @@
+  // Réinitialisation complète du quiz (étape, participants, index, réponses)
+  async resetQuiz() {
+    try {
+      await this.quizService.resetParticipants();
+      await this.quizService.resetAllAnswers();
+      await this.quizService.setStep('lobby');
+      console.error('[RESET] ❌ Erreur lors de la réinitialisation:', error);
+      const errorMsg = error instanceof Error ? error.message : 'Erreur inconnue';
+      alert(`Erreur lors de la réinitialisation du quiz: ${errorMsg}`);
+    }
+    this.timerValue = 20;
+    this.voters = [];
+
+    // Arrêter les subscriptions existantes pour éviter les logs répétés
+    this.subscriptions.forEach(sub => sub.unsubscribe());
+    this.subscriptions = [];
+
+    this.refresh();
+  // Réinitialisation complète du quiz (étape, participants, index, réponses)
+  async resetQuiz() {
+    try {
+      await this.quizService.resetParticipants();
+      await this.quizService.resetAllAnswers();
+      await this.quizService.setStep('lobby');
+      console.error('[RESET] ❌ Erreur lors de la réinitialisation:', error);
+      const errorMsg = error instanceof Error ? error.message : 'Erreur inconnue';
+      alert(`Erreur lors de la réinitialisation du quiz: ${errorMsg}`);
+    }
+    this.timerValue = 20;
+    this.voters = [];
+
+    // Arrêter les subscriptions existantes pour éviter les logs répétés
+    this.subscriptions.forEach(sub => sub.unsubscribe());
+    this.subscriptions = [];
+
+    this.refresh();

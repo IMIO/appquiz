@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nettoyage du Cache Quiz</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            color: #2c3e50;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 10px;
+        }
+        .card {
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 15px 0;
+            background-color: #f9f9f9;
+        }
+        button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 0;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        button.danger {
+            background-color: #e74c3c;
+        }
+        button.danger:hover {
+            background-color: #c0392b;
+        }
+        .results {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 4px;
+            background-color: #eaf2f8;
+            display: none;
+        }
+        .results.success {
+            background-color: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        .results.error {
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        .log {
+            font-family: monospace;
+            background-color: #2c3e50;
+            color: #ecf0f1;
+            padding: 15px;
+            border-radius: 4px;
+            max-height: 200px;
+            overflow-y: auto;
+            margin-top: 20px;
+        }
+        .back-link {
+            margin-top: 20px;
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Nettoyage du Cache Quiz</h1>
+        <p>Cette page permet de nettoyer tous les caches liés aux participants et au quiz pour résoudre le problème des "participants fantômes".</p>
+        
+        <div class="card">
+            <h2>Nettoyage Standard</h2>
+            <p>Nettoie tous les caches liés aux participants sans affecter les autres données.</p>
+            <button id="cleanStandard">Nettoyage Standard</button>
+        </div>
+        
+        <div class="card">
+            <h2>Nettoyage Agressif</h2>
+            <p><strong>Attention :</strong> Cette option effacera TOUS les caches de l'application, y compris les préférences utilisateur.</p>
+            <button id="cleanAggressive" class="danger">Nettoyage Agressif</button>
+        </div>
+
+        <div class="card">
+            <h2>Informations sur le Cache</h2>
+            <p>Nombre d'éléments en cache (localStorage): <span id="localStorageCount">0</span></p>
+            <p>Nombre d'éléments en cache (sessionStorage): <span id="sessionStorageCount">0</span></p>
+            <button id="refreshCacheInfo">Rafraîchir les infos</button>
+        </div>
+        
+        <div id="results" class="results">
+            Les caches ont été nettoyés avec succès.
+        </div>
+        
+        <div id="log" class="log"></div>
+        
+        <a href="/" class="back-link">Retour à l'application</a>
+    </div>
+
+    <script>
+        // Fonction pour logger à la fois dans la console et dans l'élément log
+        function log(message, isError = false) {
+            console[isError ? 'error' : 'log'](message);
+            const logElement = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.textContent = `${new Date().toLocaleTimeString()}: ${message}`;
+            if (isError) entry.style.color = '#e74c3c';
+            logElement.appendChild(entry);
+            logElement.scrollTop = logElement.scrollHeight;
+        }
+
+        // Fonction pour afficher les résultats
+        function showResults(message, isError = false) {
+            const resultsElement = document.getElementById('results');
+            resultsElement.textContent = message;
+            resultsElement.style.display = 'block';
+            resultsElement.className = `results ${isError ? 'error' : 'success'}`;
+        }
+
+        // Fonction pour mettre à jour les informations sur le cache
+        function updateCacheInfo() {
+            document.getElementById('localStorageCount').textContent = localStorage.length;
+            document.getElementById('sessionStorageCount').textContent = sessionStorage.length;
+            log(`Informations sur le cache mises à jour: ${localStorage.length} éléments dans localStorage, ${sessionStorage.length} éléments dans sessionStorage`);
+        }
+
+        // Nettoyage standard
+        document.getElementById('cleanStandard').addEventListener('click', function() {
+            log('Démarrage du nettoyage standard des caches...');
+            try {
+                // Liste des clés de cache à nettoyer
+                const cachesToClear = [
+                    'presentation_participants_cache',
+                    'leaderboard_cache',
+                    'presentation_leaderboard_cache',
+                    'quiz_state',
+                    'quiz_player_state',
+                    'quiz_current_question',
+                    'quiz_current_index',
+                    'participants_cache',
+                    'quiz_current_participants',
+                    'cached_participants'
+                ];
+                
+                let clearedCount = 0;
+                
+                // Nettoyer localStorage
+                cachesToClear.forEach(key => {
+                    if (localStorage.getItem(key) !== null) {
+                        localStorage.removeItem(key);
+                        clearedCount++;
+                        log(`Cache nettoyé: ${key} (localStorage)`);
+                    }
+                });
+                
+                // Nettoyer sessionStorage
+                cachesToClear.forEach(key => {
+                    if (sessionStorage.getItem(key) !== null) {
+                        sessionStorage.removeItem(key);
+                        clearedCount++;
+                        log(`Cache nettoyé: ${key} (sessionStorage)`);
+                    }
+                });
+                
+                updateCacheInfo();
+                showResults(`Nettoyage standard terminé: ${clearedCount} éléments supprimés.`);
+                
+            } catch (error) {
+                log(`Erreur lors du nettoyage standard: ${error.message}`, true);
+                showResults(`Erreur lors du nettoyage: ${error.message}`, true);
+            }
+        });
+
+        // Nettoyage agressif
+        document.getElementById('cleanAggressive').addEventListener('click', function() {
+            if (confirm('ATTENTION: Cette action va effacer TOUS les caches de l\'application. Continuer?')) {
+                log('Démarrage du nettoyage agressif des caches...');
+                try {
+                    const localStorageCount = localStorage.length;
+                    const sessionStorageCount = sessionStorage.length;
+                    
+                    // Vider complètement localStorage et sessionStorage
+                    localStorage.clear();
+                    sessionStorage.clear();
+                    
+                    updateCacheInfo();
+                    showResults(`Nettoyage agressif terminé: ${localStorageCount + sessionStorageCount} éléments supprimés.`);
+                    
+                    log(`Nettoyage agressif terminé: ${localStorageCount} éléments de localStorage et ${sessionStorageCount} éléments de sessionStorage supprimés`);
+                    
+                    // Demander si l'utilisateur veut recharger la page
+                    if (confirm('Nettoyage terminé avec succès. Voulez-vous recharger la page pour appliquer les changements?')) {
+                        window.location.reload();
+                    }
+                } catch (error) {
+                    log(`Erreur lors du nettoyage agressif: ${error.message}`, true);
+                    showResults(`Erreur lors du nettoyage: ${error.message}`, true);
+                }
+            }
+        });
+
+        // Rafraîchir les informations sur le cache
+        document.getElementById('refreshCacheInfo').addEventListener('click', updateCacheInfo);
+
+        // Initialiser les informations sur le cache au chargement de la page
+        document.addEventListener('DOMContentLoaded', function() {
+            updateCacheInfo();
+            log('Page de nettoyage du cache chargée');
+        });
+    </script>
+</body>
+</html>

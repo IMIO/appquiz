@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test WebSocket Score</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1 {
+            color: #08B0EC;
+            margin-bottom: 30px;
+        }
+        .card {
+            background-color: #f5f5f5;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input, select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        button {
+            background-color: #08B0EC;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        button:hover {
+            background-color: #0798c9;
+        }
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+        .log-container {
+            background-color: #2b2b2b;
+            color: #ddd;
+            padding: 15px;
+            border-radius: 5px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            margin-top: 20px;
+        }
+        .log-entry {
+            margin-bottom: 5px;
+            border-bottom: 1px solid #444;
+            padding-bottom: 5px;
+        }
+        .success {
+            color: #4CAF50;
+        }
+        .error {
+            color: #F44336;
+        }
+        .info {
+            color: #2196F3;
+        }
+        .participant-list {
+            list-style-type: none;
+            padding: 0;
+        }
+        .participant-item {
+            padding: 10px;
+            margin: 5px 0;
+            background-color: #fff;
+            border-radius: 5px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .participant-name {
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>Test WebSocket Score</h1>
+    
+    <div class="card">
+        <h2>Connexion WebSocket</h2>
+        <div class="form-group">
+            <label for="wsUrl">URL WebSocket</label>
+            <input type="text" id="wsUrl" value="ws://localhost:3000" />
+        </div>
+        <div class="button-group">
+            <button id="connectBtn">Se connecter</button>
+            <button id="disconnectBtn" disabled>Se déconnecter</button>
+        </div>
+        <div id="connectionStatus" style="margin-top: 10px; font-weight: bold;"></div>
+    </div>
+    
+    <div class="card">
+        <h2>Envoi de mise à jour de score</h2>
+        <div class="form-group">
+            <label for="userId">ID Utilisateur</label>
+            <input type="text" id="userId" placeholder="ID unique de l'utilisateur" />
+        </div>
+        <div class="form-group">
+            <label for="userName">Nom Utilisateur</label>
+            <input type="text" id="userName" placeholder="Nom d'utilisateur" />
+        </div>
+        <div class="form-group">
+            <label for="userScore">Score</label>
+            <input type="number" id="userScore" min="0" value="1" />
+        </div>
+        <div class="button-group">
+            <button id="sendScoreBtn" disabled>Envoyer le score</button>
+            <button id="sendRandomBtn" disabled>Score aléatoire</button>
+        </div>
+    </div>
+    
+    <div class="card">
+        <h2>Simulation</h2>
+        <div class="form-group">
+            <label for="numUpdates">Nombre de mises à jour</label>
+            <input type="number" id="numUpdates" min="1" max="20" value="5" />
+        </div>
+        <div class="form-group">
+            <label for="interval">Intervalle (ms)</label>
+            <input type="number" id="interval" min="500" max="10000" value="2000" />
+        </div>
+        <button id="simulateBtn" disabled>Simuler des mises à jour</button>
+        <div id="simulationStatus" style="margin-top: 10px;"></div>
+    </div>
+    
+    <div class="card">
+        <h2>Participants simulés</h2>
+        <ul id="participantList" class="participant-list">
+            <!-- Les participants seront ajoutés ici dynamiquement -->
+        </ul>
+    </div>
+    
+    <div class="log-container">
+        <h3>Journal des messages</h3>
+        <div id="log"></div>
+    </div>
+
+    <script>
+        // Variables globales
+        let ws = null;
+        let isConnected = false;
+        let simulationRunning = false;
+        let simulationInterval = null;
+        const participants = new Map(); // Pour stocker les participants simulés
+        
+        // Éléments DOM
+        const connectBtn = document.getElementById('connectBtn');
+        const disconnectBtn = document.getElementById('disconnectBtn');
+        const sendScoreBtn = document.getElementById('sendScoreBtn');
+        const sendRandomBtn = document.getElementById('sendRandomBtn');
+        const simulateBtn = document.getElementById('simulateBtn');
+        const connectionStatus = document.getElementById('connectionStatus');
+        const simulationStatus = document.getElementById('simulationStatus');
+        const logContainer = document.getElementById('log');
+        const participantList = document.getElementById('participantList');
+        
+        // Initialisation
+        window.addEventListener('load', () => {
+            setupEventListeners();
+            updateConnectionStatus();
+        });
+        
+        // Configuration des écouteurs d'événements
+        function setupEventListeners() {
+            connectBtn.addEventListener('click', connectWebSocket);
+            disconnectBtn.addEventListener('click', disconnectWebSocket);
+            sendScoreBtn.addEventListener('click', sendScoreUpdate);
+            sendRandomBtn.addEventListener('click', sendRandomScore);
+            simulateBtn.addEventListener('click', startSimulation);
+        }
+        
+        // Fonctions de connexion WebSocket
+        function connectWebSocket() {
+            const wsUrl = document.getElementById('wsUrl').value.trim();
+            
+            if (!wsUrl) {
+                logMessage("URL WebSocket non spécifiée", "error");
+                return;
+            }
+            
+            try {
+                logMessage(`Connexion à ${wsUrl}...`, "info");
+                ws = new WebSocket(wsUrl);
+                
+                ws.onopen = () => {
+                    isConnected = true;
+                    logMessage("Connexion WebSocket établie", "success");
+                    updateConnectionStatus();
+                };
+                
+                ws.onmessage = (event) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        logMessage(`Message reçu: ${JSON.stringify(data)}`, "info");
+                        
+                        // Traiter le message de score si c'en est un
+                        if (data.type === 'user-score' && data.data) {
+                            updateParticipant(data.data);
+                        }
+                    } catch (e) {
+                        logMessage(`Message reçu (non-JSON): ${event.data}`, "info");
+                    }
+                };
+                
+                ws.onerror = (error) => {
+                    logMessage(`Erreur WebSocket: ${error.message || 'Erreur inconnue'}`, "error");
+                };
+                
+                ws.onclose = () => {
+                    isConnected = false;
+                    logMessage("Connexion WebSocket fermée", "info");
+                    updateConnectionStatus();
+                    stopSimulation();
+                };
+            } catch (error) {
+                logMessage(`Erreur de connexion: ${error.message}`, "error");
+            }
+        }
+        
+        function disconnectWebSocket() {
+            if (ws) {
+                ws.close();
+                ws = null;
+                stopSimulation();
+            }
+        }
+        
+        // Fonctions de mise à jour du score
+        function sendScoreUpdate() {
+            if (!isConnected) {
+                logMessage("WebSocket non connecté", "error");
+                return;
+            }
+            
+            const userId = document.getElementById('userId').value.trim();
+            const userName = document.getElementById('userName').value.trim();
+            const score = parseInt(document.getElementById('userScore').value, 10);
+            
+            if (!userId || !userName) {
+                logMessage("ID utilisateur et nom requis", "error");
+                return;
+            }
+            
+            const message = {
+                type: 'user-score',
+                data: {
+                    userId,
+                    userName,
+                    score,
+                    questionIndex: 0
+                }
+            };
+            
+            try {
+                ws.send(JSON.stringify(message));
+                logMessage(`Score envoyé pour ${userName}: ${score}`, "success");
+                updateParticipant(message.data);
+            } catch (error) {
+                logMessage(`Erreur d'envoi: ${error.message}`, "error");
+            }
+        }
+        
+        function sendRandomScore() {
+            if (!isConnected) return;
+            
+            const randomId = `user_${Math.floor(Math.random() * 5) + 1}`;
+            const randomName = `Participant ${randomId.split('_')[1]}`;
+            const randomScore = Math.floor(Math.random() * 10) + 1;
+            
+            document.getElementById('userId').value = randomId;
+            document.getElementById('userName').value = randomName;
+            document.getElementById('userScore').value = randomScore;
+            
+            sendScoreUpdate();
+        }
+        
+        // Fonctions de simulation
+        function startSimulation() {
+            if (!isConnected || simulationRunning) return;
+            
+            const numUpdates = parseInt(document.getElementById('numUpdates').value, 10);
+            const interval = parseInt(document.getElementById('interval').value, 10);
+            
+            if (isNaN(numUpdates) || isNaN(interval) || numUpdates < 1 || interval < 500) {
+                logMessage("Paramètres de simulation invalides", "error");
+                return;
+            }
+            
+            simulationRunning = true;
+            let counter = 0;
+            
+            logMessage(`Début de simulation: ${numUpdates} mises à jour toutes les ${interval}ms`, "info");
+            updateSimulationStatus();
+            
+            simulationInterval = setInterval(() => {
+                if (counter < numUpdates && isConnected) {
+                    const randomId = `user_${Math.floor(Math.random() * 5) + 1}`;
+                    const randomName = `Participant ${randomId.split('_')[1]}`;
+                    // Incrémenter le score existant ou commencer à 1
+                    const participant = participants.get(randomId);
+                    const currentScore = participant ? participant.score : 0;
+                    const newScore = currentScore + 1;
+                    
+                    const message = {
+                        type: 'user-score',
+                        data: {
+                            userId: randomId,
+                            userName: randomName,
+                            score: newScore,
+                            questionIndex: 0
+                        }
+                    };
+                    
+                    ws.send(JSON.stringify(message));
+                    logMessage(`Simulation #${counter+1}: Score envoyé pour ${randomName}: ${newScore}`, "success");
+                    updateParticipant(message.data);
+                    
+                    counter++;
+                    simulationStatus.textContent = `Progression: ${counter}/${numUpdates}`;
+                } else {
+                    stopSimulation();
+                }
+            }, interval);
+            
+            simulateBtn.textContent = "Arrêter la simulation";
+        }
+        
+        function stopSimulation() {
+            if (simulationInterval) {
+                clearInterval(simulationInterval);
+                simulationInterval = null;
+            }
+            
+            simulationRunning = false;
+            simulateBtn.textContent = "Simuler des mises à jour";
+            simulationStatus.textContent = "";
+            updateSimulationStatus();
+        }
+        
+        // Fonctions utilitaires
+        function updateConnectionStatus() {
+            if (isConnected) {
+                connectionStatus.textContent = "Connecté";
+                connectionStatus.style.color = "#4CAF50";
+                connectBtn.disabled = true;
+                disconnectBtn.disabled = false;
+                sendScoreBtn.disabled = false;
+                sendRandomBtn.disabled = false;
+                simulateBtn.disabled = false;
+            } else {
+                connectionStatus.textContent = "Déconnecté";
+                connectionStatus.style.color = "#F44336";
+                connectBtn.disabled = false;
+                disconnectBtn.disabled = true;
+                sendScoreBtn.disabled = true;
+                sendRandomBtn.disabled = true;
+                simulateBtn.disabled = true;
+                stopSimulation();
+            }
+        }
+        
+        function updateSimulationStatus() {
+            simulateBtn.textContent = simulationRunning ? "Arrêter la simulation" : "Simuler des mises à jour";
+        }
+        
+        function logMessage(message, type = "info") {
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement("div");
+            logEntry.className = `log-entry ${type}`;
+            logEntry.textContent = `[${timestamp}] ${message}`;
+            logContainer.insertBefore(logEntry, logContainer.firstChild);
+        }
+        
+        function updateParticipant(data) {
+            // Mettre à jour la liste des participants
+            participants.set(data.userId, {
+                name: data.userName,
+                score: data.score,
+                lastUpdate: new Date()
+            });
+            
+            renderParticipantList();
+        }
+        
+        function renderParticipantList() {
+            participantList.innerHTML = "";
+            
+            if (participants.size === 0) {
+                const emptyItem = document.createElement("li");
+                emptyItem.textContent = "Aucun participant simulé";
+                participantList.appendChild(emptyItem);
+                return;
+            }
+            
+            // Convertir la Map en tableau et trier par score décroissant
+            const sortedParticipants = [...participants.entries()]
+                .sort((a, b) => b[1].score - a[1].score);
+            
+            sortedParticipants.forEach(([id, participant]) => {
+                const item = document.createElement("li");
+                item.className = "participant-item";
+                
+                const nameSpan = document.createElement("span");
+                nameSpan.className = "participant-name";
+                nameSpan.textContent = `${participant.name} (${id})`;
+                
+                const scoreSpan = document.createElement("span");
+                scoreSpan.className = "participant-score";
+                scoreSpan.textContent = `Score: ${participant.score}`;
+                
+                item.appendChild(nameSpan);
+                item.appendChild(scoreSpan);
+                participantList.appendChild(item);
+            });
+        }
+    </script>
+</body>
+</html>

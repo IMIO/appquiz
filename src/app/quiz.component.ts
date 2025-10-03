@@ -7,6 +7,8 @@ import { Router } from '@angular/router';
 import { QuizService, QuizStep } from './services/quiz-secure.service';
 import { WebSocketTimerService } from './services/websocket-timer.service';
 import { environment } from '../environments/environment';
+import { UserStateService } from './services/user-state.service';
+import { HttpClient } from '@angular/common/http';
 
 @Component({
   selector: 'app-quiz',
@@ -52,6 +54,7 @@ export class QuizComponent implements OnInit, OnDestroy {
   private quizStateUnsub?: () => void;
   private lastQuestionIndex: number = -1;
   private lastStep: QuizStep | null = null;
+  private subscriptions: Subscription[] = []; // CORRECTION: Collection de toutes les souscriptions
   
   // Données utilisateur
   userId: string = '';
@@ -75,11 +78,23 @@ export class QuizComponent implements OnInit, OnDestroy {
     private quizService: QuizService, 
     private router: Router, 
     private cdr: ChangeDetectorRef,
-    private websocketTimerService: WebSocketTimerService
+    private websocketTimerService: WebSocketTimerService,
+    private userStateService: UserStateService,
+    private http: HttpClient
   ) { }
 
   ngOnInit(): void {
-    this.avatarUrl = localStorage.getItem('avatarUrl');
+    // Utiliser notre service pour récupérer les informations utilisateur
+    const userData = this.userStateService.getUserInfo();
+    if (userData) {
+      this.userId = userData.id || '';
+      this.userName = userData.name || '';
+      this.avatarUrl = userData.avatarUrl || null;
+    } else {
+      // Fallback vers le localStorage pour la compatibilité
+      this.avatarUrl = localStorage.getItem('avatarUrl');
+    }
+    
     this.quizService.initQuestions();
     
     // S'abonner aux changements de questions
@@ -128,7 +143,10 @@ export class QuizComponent implements OnInit, OnDestroy {
         const oldTimerValue = this.timerValue;
         this.timerValue = timerState.timeRemaining;
         this.timerPercent = (timerState.timeRemaining / (timerState.timerMax || 20)) * 100;
-        this.timerActive = timerState.isActive;
+        
+        // ✅ FIX MOBILE: Toujours activer le timer si questionStartTime > 0, même si isActive est faux
+        // Certains appareils mobiles peuvent avoir des problèmes à recevoir correctement isActive
+        this.timerActive = true; // Activer systématiquement si questionStartTime > 0
         this.timerMax = timerState.timerMax;
 
         console.log('[PLAYER-TIMER-WS] ✅ Timer activé, questionStartTime mis à jour:', {
@@ -138,14 +156,15 @@ export class QuizComponent implements OnInit, OnDestroy {
           currentStep: currentStep,
           stepFromWS: timerState.step,
           webSocketStep: this.webSocketStep,
-          localStep: this.step
+          localStep: this.step,
+          deviceType: this.getMobileDeviceInfo() // Nouveau: info sur l'appareil
         });
 
         // Forcer la détection de changements pour réactiver les boutons
         this.cdr.detectChanges();
 
         // Gestion de l'expiration automatique
-        if (this.timerValue <= 0 && this.timerActive) {
+        if (this.timerValue <= 0) { // Retiré la dépendance sur timerActive
           this.handleTimerExpired();
         }
 
@@ -154,7 +173,8 @@ export class QuizComponent implements OnInit, OnDestroy {
           timeRemaining: timerState.timeRemaining,
           isActive: timerState.isActive,
           oldValue: oldTimerValue,
-          newValue: this.timerValue
+          newValue: this.timerValue,
+          forcedActive: true // Toujours actif si questionStartTime > 0
         });
       } else {
         // Timer pas encore démarré manuellement OU questionStartTime invalide, rester en attente
@@ -183,6 +203,34 @@ export class QuizComponent implements OnInit, OnDestroy {
       this.cdr.detectChanges();
     });
 
+    // CORRECTION: S'abonner aux messages de reset du quiz
+    const quizResetSub = this.websocketTimerService.getQuizResets().subscribe(resetData => {
+      console.log('[QUIZ] Message de reset du quiz reçu via WebSocket:', resetData);
+      
+      if (resetData.action === 'reset-all') {
+        // Nettoyer l'état local et les réponses
+        this.selectedAnswerIndex = null;
+        this.totalScore = 0;
+        this.scoredQuestions.clear();
+        this.answeredQuestions.clear();
+        
+        // Nettoyer les caches locaux
+        try {
+          localStorage.removeItem(this.PLAYER_STATE_KEY);
+          localStorage.removeItem('quiz-user');
+          localStorage.removeItem('quiz_answers');
+        } catch (e) {
+          console.warn('[QUIZ] Erreur lors du nettoyage des caches:', e);
+        }
+        
+        // Forcer une redirection vers la page de login pour un reset complet
+        this.router.navigate(['/login']);
+        
+        console.log('[QUIZ] Nettoyage complet et redirection suite au message de reset');
+      }
+    });
+    this.subscriptions.push(quizResetSub);
+    
     // ✅ S'abonner aux notifications de synchronisation des questions
     this.questionsSyncSub = this.websocketTimerService.getQuestionsSync().subscribe(async syncData => {
       console.log('[QUESTIONS-WS] Synchronisation reçue:', syncData);
@@ -243,8 +291,7 @@ export class QuizComponent implements OnInit, OnDestroy {
     }, 5000);
     
     // Gestion des changements d'index de question
-    this.userId = localStorage.getItem('userId') || '';
-    this.userName = localStorage.getItem('userName') || '';
+    // Note: On a déjà récupéré les données utilisateur dans ngOnInit
     this.quizService.getCurrentIndex().subscribe(idx => {
       if (this.currentIndex === idx) {
         return;
@@ -453,6 +500,9 @@ export class QuizComponent implements OnInit, OnDestroy {
       if (isCorrect) {
         this.totalScore++;
         console.log('[SCORE] Point ajouté lors de la révélation des résultats:', this.totalScore);
+        
+        // CORRECTION: Envoyer le score mis à jour au serveur pour la synchronisation
+        this.sendScoreToServer(this.totalScore, this.currentIndex);
       } else {
         console.log('[SCORE] Réponse incorrecte, pas de point ajouté');
       }
@@ -528,9 +578,7 @@ export class QuizComponent implements OnInit, OnDestroy {
     
     if (step === 'lobby') {
       console.log('[QUIZ] Reset détecté, nettoyage et redirection vers login');
-      localStorage.removeItem('userId');
-      localStorage.removeItem('userName');
-      localStorage.removeItem('avatarUrl');
+      this.userStateService.clearUserInfo();
       localStorage.removeItem(this.PLAYER_STATE_KEY);
       
       this.router.navigate(['/login']);
@@ -708,6 +756,11 @@ export class QuizComponent implements OnInit, OnDestroy {
       console.log(`[RESTORE-SCORE] Questions scorées:`, Array.from(this.scoredQuestions));
       console.log(`[RESTORE-SCORE] Étape actuelle: ${this.step}, Question courante: ${this.currentIndex}`);
 
+      // CORRECTION: Synchroniser le score recalculé avec le serveur
+      if (this.totalScore > 0) {
+        this.sendScoreToServer(this.totalScore, this.currentIndex);
+      }
+      
       // Sauvegarder l'état mis à jour
       this.savePlayerState();
 
@@ -891,11 +944,24 @@ export class QuizComponent implements OnInit, OnDestroy {
     // ✅ CORRECTION TIMER: Les joueurs ne peuvent jouer QUE si le timer est démarré côté maître
     const activeStep = this.webSocketStep || this.step;
     const isQuestionPhase = activeStep === 'question';
-    const timerStarted = this.questionStartTime > 0 && this.timerActive;
+    
+    // ✅ FIX MOBILE: Assouplir la condition du timer actif pour éviter les faux négatifs
+    // Sur certains appareils le flag timerActive peut être incorrect alors que questionStartTime est correct
+    const timerStarted = this.questionStartTime > 0; // Enlevé la dépendance sur timerActive
+    
+    // Ajouter un log pour déboguer les problèmes sur les appareils mobiles
+    console.log('[DEBUG][MOBILE-FIX] canPlay:', { 
+      answerSubmitted: this.answerSubmitted,
+      isQuestionPhase,
+      activeStep,
+      questionStartTime: this.questionStartTime,
+      timerActive: this.timerActive,
+      timerStarted
+    });
     
     // Permettre de jouer SEULEMENT si:
     // - En phase question ET
-    // - Timer démarré côté maître ET
+    // - Timer démarré côté maître (questionStartTime > 0) ET
     // - Pas encore répondu
     return !this.answerSubmitted && 
            isQuestionPhase && 
@@ -948,6 +1014,58 @@ export class QuizComponent implements OnInit, OnDestroy {
     });
   }
 
+  // ✅ FIX MOBILE: Méthode pour identifier le type d'appareil mobile pour le débogage
+  getMobileDeviceInfo(): string {
+    try {
+      const userAgent = navigator.userAgent || navigator.vendor || (window as any).opera;
+      
+      // Détection basique du type d'appareil
+      if (/android/i.test(userAgent)) {
+        return `Android: ${userAgent.split('Android')[1]?.split(';')[0] || 'unknown'}`.substring(0, 30);
+      }
+      
+      // iOS detection
+      if (/iPad|iPhone|iPod/.test(userAgent) && !(window as any).MSStream) {
+        return `iOS: ${userAgent.split('OS ')[1]?.split(' ')[0].replace(/_/g, '.') || 'unknown'}`.substring(0, 30);
+      }
+      
+      // Détection du navigateur
+      if (/chrome/i.test(userAgent)) return 'Chrome Browser';
+      if (/firefox/i.test(userAgent)) return 'Firefox Browser';
+      if (/safari/i.test(userAgent)) return 'Safari Browser';
+      
+      return `Other: ${userAgent.substring(0, 30)}`;
+    } catch (e) {
+      return 'Error detecting device';
+    }
+  }
+  
+  // CORRECTION: Envoyer le score au serveur pour synchronisation avec le classement côté maître
+  private sendScoreToServer(score: number, questionIndex: number): void {
+    try {
+      if (!this.userId) {
+        console.warn('[SCORE-SYNC] UserId manquant, impossible de synchroniser le score');
+        return;
+      }
+      
+      console.log(`[SCORE-SYNC] Envoi du score ${score} au serveur pour l'utilisateur ${this.userId} (question ${questionIndex})`);
+      
+      // Utiliser le service WebSocket pour envoyer le score
+      this.websocketTimerService.sendUserScore({
+        userId: this.userId,
+        userName: this.userName,
+        score: score,
+        questionIndex: questionIndex,
+        avatarUrl: this.avatarUrl || undefined,
+        timestamp: Date.now()
+      });
+      
+      console.log('[SCORE-SYNC] Score envoyé avec succès');
+    } catch (error) {
+      console.error('[SCORE-SYNC] Erreur lors de l\'envoi du score au serveur:', error);
+    }
+  }
+
   ngOnDestroy(): void {
     if (this.quizStateUnsub) this.quizStateUnsub();
     if (this.websocketTimerSub) this.websocketTimerSub.unsubscribe();
@@ -956,6 +1074,12 @@ export class QuizComponent implements OnInit, OnDestroy {
     if (this.questionsSyncSub) this.questionsSyncSub.unsubscribe();
     if (this.answersSub) this.answersSub.unsubscribe();
     this.stopTimer();
+    
+    // CORRECTION: Nettoyer toutes les souscriptions dans la collection
+    this.subscriptions.forEach(sub => {
+      if (sub) sub.unsubscribe();
+    });
+    this.subscriptions = [];
     
     // AJOUT: Nettoyer la vérification périodique
     if (this.periodicQuestionsInterval) {
