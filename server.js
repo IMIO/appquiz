@@ -7,65 +7,7 @@ const WebSocket = require('ws');
 const http = require('http');
 
 const app = express();
-// Endpoint pour forcer la fin du timer (skip)
-app.post('/api/quiz/skip-timer', (req, res) => {
-  let responded = false;
-  // Timeout de sécurité : 3 secondes max pour répondre
-  const timeout = setTimeout(() => {
-    if (!responded) {
-      responded = true;
-      console.error('⏰ Timeout /api/quiz/skip-timer');
-      res.status(504).json({ error: 'Timeout serveur' });
-    }
-  }, 3000);
-  try {
-    db.get('SELECT step, currentQuestionIndex FROM quiz_state WHERE id = 1', (err, row) => {
-      if (responded) return;
-      if (err || !row) {
-        clearTimeout(timeout);
-        responded = true;
-        console.error('❌ Erreur lecture état quiz:', err);
-        return res.status(500).json({ error: 'Erreur lecture état quiz' });
-      }
-      if (row.step !== 'question') {
-        clearTimeout(timeout);
-        responded = true;
-        return res.status(400).json({ error: 'Impossible de skip: pas en phase question' });
-      }
-      // Broadcast timer à 0
-      broadcastTimerUpdate({
-        timeRemaining: 0,
-        timerMax: 20,
-        isTimerActive: false,
-        countdownToStart: 0,
-        serverTime: Date.now(),
-        questionStartTime: null,
-        step: row.step,
-        currentQuestionIndex: row.currentQuestionIndex
-      });
-      // Basculer l'étape vers 'result' immédiatement
-      db.run('UPDATE quiz_state SET step = ? WHERE id = 1', ['result'], (updateErr) => {
-        if (responded) return;
-        clearTimeout(timeout);
-        if (updateErr) {
-          responded = true;
-          console.error('❌ Erreur mise à jour étape:', updateErr);
-          return res.status(500).json({ error: 'Erreur mise à jour étape' });
-        }
-        broadcastStepTransition('question', 'result', 300);
-        responded = true;
-        res.json({ success: true });
-      });
-    });
-  } catch (e) {
-    if (!responded) {
-      clearTimeout(timeout);
-      responded = true;
-      console.error('❌ Exception /api/quiz/skip-timer:', e);
-      res.status(500).json({ error: 'Erreur serveur' });
-    }
-  }
-});
+// L'endpoint pour forcer la fin du timer (skip) a été supprimé car il n'est plus utilisé
 // Configuration du stockage des images
 // Expose le dossier d'images en statique pour le frontend
 app.use('/assets/img', express.static(path.join(__dirname, 'public', 'assets', 'img')));
@@ -81,7 +23,12 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage: storage });
 const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
+
+// Configuration WebSocket sur la racine pour compatibilité avec client actuel
+const wss = new WebSocket.Server({ 
+  server: server
+  // Pas de path spécifié pour écouter sur la racine
+});
 
 const PORT = process.env.PORT || 3000;
 
@@ -91,6 +38,80 @@ const clients = new Set();
 wss.on('connection', (ws) => {
   // console.log('🔌 Nouveau client WebSocket connecté');
   clients.add(ws);
+  
+  ws.on('message', (message) => {
+    try {
+      const data = JSON.parse(message);
+      
+      // Si c'est un message de score utilisateur, vérifier d'abord si l'utilisateur est valide
+      if (data.type === 'user-score') {
+        const userId = data.data.userId;
+        const userName = data.data.userName;
+        let scoreValue = data.data.score;
+        const questionIndex = data.data.questionIndex;
+        
+        console.log(`📊 Score reçu pour l'utilisateur ${userName} (${userId}): ${scoreValue}`);
+        
+        // Vérifier que le score n'est pas excessif (protection anti-triche)
+        const SCORE_MAX_PAR_QUESTION = 1000; // Valeur maximale théorique pour une question
+        if (scoreValue > SCORE_MAX_PAR_QUESTION) {
+          console.log(`⚠️ Score suspect détecté: ${userName} (${userId}) → ${scoreValue} points. Score limité à ${SCORE_MAX_PAR_QUESTION}`);
+          scoreValue = SCORE_MAX_PAR_QUESTION;
+        }
+        
+        // Vérifier si l'utilisateur est enregistré comme participant légitime
+        db.get('SELECT id, score as currentScore FROM participants WHERE id = ?', [userId], (err, participant) => {
+          if (err) {
+            console.error('❌ Erreur vérification participant pour score:', err);
+            return;
+          }
+          
+          // Si le participant n'existe pas, rejeter le score
+          if (!participant) {
+            console.log(`🚫 Score rejeté: utilisateur non autorisé ${userName} (${userId})`);
+            return;
+          }
+          
+          // Mettre à jour le score dans la base de données pour persistance
+          db.run('UPDATE participants SET score = ? WHERE id = ?', 
+            [scoreValue, userId], 
+            function(err) {
+              if (err) {
+                console.error(`❌ Erreur mise à jour score dans la base de données pour ${userName} (${userId}):`, err);
+                return;
+              }
+              
+              console.log(`💾 Score enregistré dans la base de données: ${userName} (${userId}) → ${scoreValue}`);
+              
+              // Créer le message à broadcaster pour un participant légitime
+              const scoreMessage = JSON.stringify({
+                type: 'user-score',
+                data: {
+                  userId: userId,
+                  userName: userName,
+                  score: scoreValue,
+                  questionIndex: questionIndex,
+                  timestamp: Date.now()
+                }
+              });
+              
+              // Envoyer à tous les clients connectés
+              clients.forEach((client) => {
+                if (client.readyState === WebSocket.OPEN) {
+                  client.send(scoreMessage);
+                } else {
+                  clients.delete(client);
+                }
+              });
+              
+              console.log(`📡 Score validé et broadcast vers ${clients.size} clients`);
+            });
+        });
+      }
+    } catch (error) {
+      console.error('❌ Erreur de parsing du message WebSocket:', error);
+    }
+  });
   
   ws.on('close', () => {
   // console.log('🔌 Client WebSocket déconnecté');
@@ -273,7 +294,7 @@ function startServerTimer() {
         }
       }
     );
-  }, 100); // Broadcast toutes les 100ms
+  }, 200); // Broadcast toutes les 200ms pour réduire la charge serveur en production
 }
 
 // Démarrer le timer serveur
@@ -283,10 +304,13 @@ startServerTimer();
 app.use(cors({
   origin: process.env.NODE_ENV === 'production'
     ? [
-        'https://frontendurl'
+        'https://frontendurl',
+        'http://localhost:4200' // Ajouter l'URL de développement Angular
       ]
     : true, // En développement, autoriser toutes les origines
-  credentials: true
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 app.use(express.json());
@@ -329,10 +353,26 @@ function initDatabase() {
         "order" INTEGER DEFAULT NULL
       )`);
 
-      // Ajout du champ 'order' si la table existe déjà (migration douce)
+      // Migration douce pour les colonnes manquantes
       db.all("PRAGMA table_info(questions)", (err, columns) => {
-        if (Array.isArray(columns) && !columns.some(col => col.name === 'order')) {
-          db.run('ALTER TABLE questions ADD COLUMN "order" INTEGER DEFAULT NULL');
+        if (Array.isArray(columns)) {
+          // Ajout du champ 'order'
+          if (!columns.some(col => col.name === 'order')) {
+            db.run('ALTER TABLE questions ADD COLUMN "order" INTEGER DEFAULT NULL');
+          }
+          
+          // Ajout des champs pour les images
+          if (!columns.some(col => col.name === 'imageUrl')) {
+            db.run('ALTER TABLE questions ADD COLUMN imageUrl TEXT DEFAULT ""');
+          }
+          
+          if (!columns.some(col => col.name === 'imageUrlResult')) {
+            db.run('ALTER TABLE questions ADD COLUMN imageUrlResult TEXT DEFAULT ""');
+          }
+          
+          if (!columns.some(col => col.name === 'imageUrlEnd')) {
+            db.run('ALTER TABLE questions ADD COLUMN imageUrlEnd TEXT DEFAULT ""');
+          }
         }
       });
 // Endpoint pour réordonner les questions (admin)
@@ -512,6 +552,83 @@ app.get('/api/participants', (req, res) => {
   });
 });
 
+// Mettre à jour le score d'un participant
+app.put('/api/participants/:userId/score', (req, res) => {
+  const userId = req.params.userId;
+  const { score, name, userName } = req.body;
+  
+  console.log(`[API] Mise à jour du score pour le participant ${userId}: ${score}`);
+  
+  if (!userId) {
+    return res.status(400).json({ error: 'ID utilisateur manquant' });
+  }
+  
+  // Vérifier l'état actuel du quiz et si le participant existe
+  db.get('SELECT step FROM quiz_state WHERE id = 1', (err, quizState) => {
+    if (err) {
+      console.error('Erreur vérification état quiz:', err);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
+
+    db.get('SELECT id FROM participants WHERE id = ?', [userId], (err, row) => {
+      if (err) {
+        console.error('Erreur vérification participant:', err);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+      
+      // Si le participant n'existe pas
+      if (!row) {
+        // Si le quiz n'est plus en phase de lobby ou d'attente, refuser l'ajout de nouveaux participants
+        if (quizState && quizState.step !== 'lobby' && quizState.step !== 'waiting') {
+          console.log(`🚫 Création de participant refusée pour ${userId}: le quiz est déjà en cours (étape: ${quizState.step})`);
+          return res.status(403).json({ 
+            error: 'Les inscriptions sont fermées, le quiz a déjà commencé',
+            step: quizState.step 
+          });
+        }
+
+        const participantName = name || userName || 'Participant inconnu';
+        console.log(`[API] Participant ${userId} non trouvé, création avec nom=${participantName}`);
+        
+        db.run('INSERT INTO participants (id, name, score) VALUES (?, ?, ?)',
+          [userId, participantName, score || 0],
+          function(err) {
+            if (err) {
+              console.error('Erreur création participant:', err);
+              return res.status(500).json({ error: 'Erreur serveur' });
+            }
+            
+            console.log(`[API] Participant ${userId} créé avec succès`);
+            return res.json({ 
+              success: true,
+              message: 'Participant créé et score mis à jour',
+              userId,
+              score: score || 0
+            });
+          });
+      } else {
+        // Mettre à jour le score du participant existant
+      db.run('UPDATE participants SET score = ? WHERE id = ?',
+        [score || 0, userId],
+        function(err) {
+          if (err) {
+            console.error('Erreur mise à jour score:', err);
+            return res.status(500).json({ error: 'Erreur serveur' });
+          }
+          
+          console.log(`[API] Score du participant ${userId} mis à jour avec succès: ${score}`);
+          return res.json({
+            success: true,
+            message: 'Score mis à jour',
+            userId,
+            score: score || 0
+          });
+        });
+      }
+    });
+  });
+});
+
 // Créer un participant
 app.post('/api/participants', (req, res) => {
   const { id, name, avatarUrl } = req.body;
@@ -520,25 +637,43 @@ app.post('/api/participants', (req, res) => {
     return res.status(400).json({ error: 'ID et nom requis' });
   }
 
-  const participant = {
-    id,
-    name: name.trim(),
-    score: 0,
-    answers: JSON.stringify([]),
-    avatarUrl: avatarUrl || null,
-    createdAt: new Date().toISOString()
-  };
+  // Vérifier d'abord l'état actuel du quiz
+  db.get('SELECT step FROM quiz_state WHERE id = 1', (err, quizState) => {
+    if (err) {
+      console.error('Erreur vérification état quiz:', err);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
+    
+    // Si le quiz n'est plus en phase de lobby ou d'attente, refuser les inscriptions
+    if (quizState && quizState.step !== 'lobby' && quizState.step !== 'waiting') {
+      console.log(`🚫 Inscription refusée pour ${name} (${id}): le quiz est déjà en cours (étape: ${quizState.step})`);
+      return res.status(403).json({ 
+        error: 'Les inscriptions sont fermées, le quiz a déjà commencé',
+        step: quizState.step 
+      });
+    }
 
-  db.run('INSERT OR REPLACE INTO participants (id, name, score, answers, avatarUrl) VALUES (?, ?, ?, ?, ?)',
-    [participant.id, participant.name, participant.score, participant.answers, participant.avatarUrl],
-    function(err) {
-      if (err) {
-        console.error('Erreur création participant:', err);
-        res.status(500).json({ error: 'Erreur serveur' });
-      } else {
-        res.json({ success: true, participant });
-      }
-    });
+    const participant = {
+      id,
+      name: name.trim(),
+      score: 0,
+      answers: JSON.stringify([]),
+      avatarUrl: avatarUrl || null,
+      createdAt: new Date().toISOString()
+    };
+
+    db.run('INSERT OR REPLACE INTO participants (id, name, score, answers, avatarUrl) VALUES (?, ?, ?, ?, ?)',
+      [participant.id, participant.name, participant.score, participant.answers, participant.avatarUrl],
+      function(err) {
+        if (err) {
+          console.error('Erreur création participant:', err);
+          res.status(500).json({ error: 'Erreur serveur' });
+        } else {
+          console.log(`✅ Nouveau participant inscrit: ${name} (${id})`);
+          res.json({ success: true, participant });
+        }
+      });
+  });
 });
 
 // === RÉPONSES ===
@@ -751,6 +886,12 @@ app.put('/api/quiz-state', (req, res) => {
               // console.log(`⚡ Transition rapide question->result (${loadingDuration}ms)`);
             }
             
+            // Transition rapide pour lobby->waiting
+            if (step === 'waiting' && oldStep === 'lobby') {
+              loadingDuration = 300; // 300ms seulement pour passer rapidement à l'étape waiting
+              console.log(`⚡ Transition rapide lobby->waiting (${loadingDuration}ms) - amélioration bouton Start`);
+            }
+            
             broadcastStepTransition(oldStep, step, loadingDuration);
           }
           
@@ -875,7 +1016,7 @@ app.post('/api/admin/questions/add', requireAdminAuth, (req, res) => {
 // Modifier une question existante
 app.put('/api/admin/questions/:id', requireAdminAuth, (req, res) => {
   const { id } = req.params;
-  const { text, options, correctIndex } = req.body;
+  const { text, options, correctIndex, imageUrl, imageUrlResult } = req.body;
 
   if (!text || !Array.isArray(options) || options.length < 2 || typeof correctIndex !== 'number') {
     return res.status(400).json({ 
@@ -890,8 +1031,8 @@ app.put('/api/admin/questions/:id', requireAdminAuth, (req, res) => {
   }
 
   db.run(
-    'UPDATE questions SET text = ?, options = ?, correctIndex = ? WHERE id = ?',
-    [text, JSON.stringify(options), correctIndex, id],
+    'UPDATE questions SET text = ?, options = ?, correctIndex = ?, imageUrl = ?, imageUrlResult = ? WHERE id = ?',
+    [text, JSON.stringify(options), correctIndex, imageUrl || '', imageUrlResult || '', id],
     function(err) {
       if (err) {
         console.error('Erreur modification question:', err);
@@ -932,6 +1073,98 @@ app.delete('/api/admin/questions/:id', requireAdminAuth, (req, res) => {
   });
 });
 
+// Corriger les IDs des questions pour les faire correspondre à leurs indices
+app.post('/api/admin/fix-question-ids', (req, res) => {
+  const { updates } = req.body;
+
+  if (!Array.isArray(updates) || updates.length === 0) {
+    return res.status(400).json({ error: 'Format des mises à jour invalide' });
+  }
+
+  console.log('[QUESTION-ID-FIX] Début de la correction des IDs de questions:', updates);
+
+  // Créer une table temporaire pour stocker les questions pendant la mise à jour
+  db.serialize(() => {
+    db.run('BEGIN TRANSACTION');
+
+    // Créer une table temporaire
+    db.run(`CREATE TEMPORARY TABLE temp_questions AS SELECT * FROM questions`);
+
+    // Vider la table originale
+    db.run('DELETE FROM questions');
+
+    // Fonction récursive pour réinsérer les questions avec les bons IDs
+    const insertWithNewIds = (index) => {
+      if (index >= updates.length) {
+        // Terminer la transaction quand toutes les questions sont traitées
+        db.run('COMMIT', (commitErr) => {
+          if (commitErr) {
+            console.error('[QUESTION-ID-FIX] Erreur commit transaction:', commitErr);
+            return res.status(500).json({ error: 'Erreur lors de la validation des modifications' });
+          }
+
+          console.log('[QUESTION-ID-FIX] IDs de questions corrigés avec succès');
+
+          // Broadcast pour synchroniser les questions mises à jour
+          broadcastQuestionsSync();
+          
+          return res.json({
+            success: true,
+            message: `${updates.length} questions ont été mises à jour avec succès`,
+            updatedCount: updates.length
+          });
+        });
+        return;
+      }
+
+      const update = updates[index];
+      
+      // Récupérer la question originale depuis la table temporaire
+      db.get('SELECT * FROM temp_questions WHERE id = ?', [update.id], (err, question) => {
+        if (err) {
+          console.error(`[QUESTION-ID-FIX] Erreur lecture question ${update.id}:`, err);
+          db.run('ROLLBACK');
+          return res.status(500).json({ error: `Erreur lors de la lecture de la question ${update.id}` });
+        }
+
+        if (!question) {
+          console.error(`[QUESTION-ID-FIX] Question ${update.id} non trouvée`);
+          insertWithNewIds(index + 1); // Passer à la question suivante
+          return;
+        }
+
+        // Insérer la question avec le nouvel ID
+        db.run(
+          'INSERT INTO questions (id, text, options, correctIndex, imageUrl, imageUrlResult, imageUrlEnd, "order") VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+          [
+            update.newId,
+            question.text,
+            question.options,
+            question.correctIndex,
+            question.imageUrl || '',
+            question.imageUrlResult || '',
+            question.imageUrlEnd || '',
+            question.order
+          ],
+          (insertErr) => {
+            if (insertErr) {
+              console.error(`[QUESTION-ID-FIX] Erreur insertion question avec ID=${update.newId}:`, insertErr);
+              db.run('ROLLBACK');
+              return res.status(500).json({ error: `Erreur lors de l'insertion de la question avec le nouvel ID ${update.newId}` });
+            }
+
+            console.log(`[QUESTION-ID-FIX] Question ID ${update.id} -> ${update.newId} mise à jour avec succès`);
+            insertWithNewIds(index + 1); // Passer à la question suivante
+          }
+        );
+      });
+    };
+
+    // Démarrer le processus d'insertion
+    insertWithNewIds(0);
+  });
+});
+
 // Reset complet du quiz
 app.post('/api/quiz/reset', (req, res) => {
   db.serialize(() => {
@@ -944,6 +1177,26 @@ app.post('/api/quiz/reset', (req, res) => {
           console.error('Erreur reset quiz:', err);
           res.status(500).json({ error: 'Erreur serveur' });
         } else {
+          // CORRECTION: Broadcaster un message de reset pour s'assurer que tous les clients nettoient leurs caches
+          const resetMessage = JSON.stringify({
+            type: 'quiz-reset',
+            data: {
+              timestamp: Date.now(),
+              action: 'reset-all'
+            }
+          });
+          
+          // Envoyer le message à tous les clients connectés
+          clients.forEach((client) => {
+            if (client.readyState === WebSocket.OPEN) {
+              client.send(resetMessage);
+            } else {
+              clients.delete(client);
+            }
+          });
+          
+          console.log(`📢 Message de reset diffusé à ${clients.size} clients`);
+          
           res.json({
             success: true,
             message: 'Quiz reset avec succès',

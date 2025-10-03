@@ -5,32 +5,53 @@
 .admin-bar {
   position: absolute;
   z-index: 999;
-  padding: 20px;
+  padding: 15px;
   border-radius: 0 0 20px 0;
   color: #fff;
   background: rgba(0, 0, 0, 0.7);
-
-  .session-info {
-    font-size: 12px;
-    color: #DAE72A;
-  }
-
-  .admin-btn {
-    color:#000;
-    background: #f1f1f1;
-    border:none;
-    padding:10px 15px;
-    border-radius: 8px;
-    margin: 10px 2px 0 0;
-    cursor: pointer;
-    transition: background 0.3s ease;
-
-    &:hover {
-      background: #DAE72A;
-      color: #000;
-      transition: background 0.3s ease;
-  }
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
+
+.admin-bar .admin-info {
+  margin-right: 15px;
+}
+
+.admin-bar .admin-title {
+  font-size: 14px;
+  font-weight: bold;
+}
+
+.admin-bar .admin-btn {
+  color: #000;
+  background: #DAE72A;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-weight: bold;
+  margin-left: 5px;
+}
+
+.admin-bar .admin-btn:hover {
+  background: #f1f1f1;
+  transform: translateY(-2px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.admin-bar .admin-btn.logout {
+  font-weight: bold;
+}
+
+.admin-bar .admin-btn.refresh {
+  background: #08B0EC;
+  color: white;
+}
+
+.admin-bar .admin-btn.refresh:hover {
+  background: #0799ce;
 }
 
 .presentation-main {
@@ -76,6 +97,43 @@
 @keyframes spin {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
+}
+
+/* Styles pour les indicateurs de score */
+.score-has-value {
+  font-weight: bold !important;
+  color: #4CAF50 !important;
+}
+
+.score-indicator {
+  margin-left: 5px;
+  color: #4CAF50;
+  animation: fadeIn 0.5s;
+}
+
+.pulse-score {
+  animation: pulseAnimation 1.5s infinite;
+}
+
+@keyframes pulseAnimation {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.1);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 /* Barre d'animation du timer */
@@ -372,7 +430,7 @@ body, .presentation-root {
   text-align: center;
 }
 .banner-img {
-  background: url(../../assets/img/bg-ville.jpg) top center no-repeat #122852;
+  background: url('../../assets/img/bg-ville.jpg') top center no-repeat #122852;
   background-size: cover;
   padding-bottom: 60px;
 }
@@ -394,7 +452,7 @@ body, .presentation-root {
   font-size: 1.2em;
   font-weight: bold;
   letter-spacing: 2px;
-  background: url(../../assets/img/logo-csi.svg) top center no-repeat;
+  background: url('../../assets/img/logo-csi.svg') top center no-repeat;
   background-size: contain;
   content: ''!important;
   width: 700px;
@@ -484,10 +542,16 @@ body, .presentation-root {
   transform: translateY(-1px);
 }
 
-.step-btn:disabled {
+.step-btn:disabled, .step-btn.disabled {
   background: #f1f1f1;
   cursor: not-allowed;
   transform: none;
+  position: relative;
+}
+
+/* Animation pour le chargement des boutons */
+.step-btn:disabled span, .step-btn.disabled span {
+  opacity: 0.8;
 }
 
 .button-group {
@@ -496,6 +560,49 @@ body, .presentation-root {
   justify-content: center;
   gap: 10px;
   margin: 20px 0;
+}
+
+.button-group-separator {
+  width: 100%;
+  height: 1px;
+  background: #e0e0e0;
+  margin: 10px 0;
+}
+
+.admin-buttons-group {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.primary-btn {
+  background-color: #dae72a !important;
+  font-size: 1.1em !important;
+  padding: 0.8em 1.8em !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15) !important;
+}
+
+.admin-btn {
+  font-size: 0.9em !important;
+  padding: 0.6em 1.2em !important;
+  margin: 0.3em !important;
+}
+
+.highlight-btn {
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2) !important;
+  animation: highlight-pulse 2s infinite;
+}
+
+.danger-btn {
+  background-color: #f44336 !important;
+  color: white !important;
+}
+
+@keyframes highlight-pulse {
+  0%, 100% { box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2); }
+  50% { box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3); }
 }
 
 .sync-btn {
@@ -712,6 +819,40 @@ body, .presentation-root {
 .step-leaderboard-score {
   margin-left: 0.5em;
   color: #232526;
+  transition: all 0.5s ease;
+}
+
+.highlight-score {
+  background-color: rgba(76, 175, 80, 0.2);
+  color: #00881c !important;
+  padding: 3px 8px;
+  border-radius: 12px;
+  animation: pulse-score 1.5s infinite;
+  font-weight: bold;
+  text-shadow: 0 0 3px rgba(255, 255, 255, 0.7);
+}
+
+.step-leaderboard-badge {
+  background-color: #4CAF50;
+  color: white;
+  font-weight: bold;
+  padding: 3px 8px;
+  border-radius: 12px;
+  margin-left: 8px;
+  font-size: 0.9em;
+  animation: bounce-in 0.8s ease;
+}
+
+@keyframes pulse-score {
+  0% { box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.4); }
+  70% { box-shadow: 0 0 0 8px rgba(76, 175, 80, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(76, 175, 80, 0); }
+}
+
+@keyframes bounce-in {
+  0% { transform: scale(0); opacity: 0; }
+  60% { transform: scale(1.2); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
 }
 .step-leaderboard-time {
   margin-left: 0.5em;
@@ -766,10 +907,22 @@ button {
   box-shadow: 0 2px 8px #23252644;
   transition: background 0.2s;
 }
-button:disabled {
+button:disabled, button.disabled {
   background: #e0e0e0;
   color: #232526;
   cursor: not-allowed;
+  position: relative;
+}
+
+/* Styles pour les boutons de l'admin bar */
+.admin-btn.disabled, .admin-btn:disabled {
+  opacity: 0.6;
+}
+
+/* Styles pour le bouton global reset */
+.global-reset-btn.disabled {
+  opacity: 0.5;
+  pointer-events: none;
 }
 ul, ol {
   width: 100%;
@@ -1001,6 +1154,16 @@ ol { margin-top: 2rem; }
     align-items: center;
     justify-content: center;
     margin-left: -10px;
+    min-height: 200px; /* Assure une hauteur minimale pour l'affichage */
+    position: relative; /* Pour positionner les éléments enfants */
+}
+
+/* S'assurer que les images de résultat sont visibles */
+.result-image-loaded {
+    opacity: 1 !important;
+    max-width: 100%;
+    max-height: 500px;
+    object-fit: contain;
 }
 
 .result .step-leaderboard-block {

@@ -231,38 +231,42 @@
   position: relative;
 }
 
-/* ✅ NOUVEAU: Préserver l'apparence des boutons sélectionnés même désactivés - SPÉCIFICITÉ MAXIMALE */
+/* ✅ NOUVEAU: Préserver l'apparence des boutons sélectionnés même désactivés - SPÉCIFICITÉ MAXIMALE - AVEC CONTRASTE AMÉLIORÉ */
 button.option-btn:disabled.option-selected {
-  background: #1976d2 !important;
-  color: #fff !important;
-  border-color: #1976d2 !important;
+  background: #000 !important;
+  color: #DAE72A !important;
+  border-color: #000 !important;
   cursor: not-allowed !important;
   opacity: 1 !important;
   transform: none !important;
+  font-weight: bold !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4) !important;
 }
 
 button.option-btn:disabled.option-selected:hover {
-  background: #1976d2 !important;
-  color: #fff !important;
-  border-color: #1976d2 !important;
+  background: #000 !important;
+  color: #DAE72A !important;
+  border-color: #000 !important;
 }
 
 .option-btn:disabled.option-selected {
-  background: #1976d2 !important;
-  color: #fff !important;
-  border-color: #1976d2 !important;
+  background: #000 !important;
+  color: #DAE72A !important;
+  border-color: #000 !important;
   cursor: not-allowed;
+  font-weight: bold;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4) !important;
 }
 
 .option-btn:disabled.option-correct {
-  background: #2e7d32 !important;
-  border-color: #2e7d32 !important;
-  color: #fff !important;
+  background: #DAE72A !important; /* Jaune */
+  border-color: #DAE72A !important;
+  color: #000 !important; /* Noir */
   font-weight: bold;
-  box-shadow: 0 4px 12px rgba(46, 125, 50, 0.4), 0 0 0 3px #4caf50;
+  box-shadow: 0 4px 12px rgba(218, 231, 42, 0.4), 0 0 0 3px #C5CB2F;
   border-width: 3px;
   border-style: solid;
-  outline: 2px solid #4caf50;
+  outline: 2px solid #C5CB2F;
   outline-offset: 2px;
   cursor: not-allowed;
 }
@@ -278,15 +282,19 @@ button.option-btn:disabled.option-selected:hover {
   outline: 2px dashed #f44336;
   outline-offset: 2px;
   cursor: not-allowed;
+  /* Amélioration pour WCAG AA */
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
 }
 
-.option-btn:disabled::after {
+/* ✅ FIX MOBILE: Cadenas moins visible et seulement sur les éléments vraiment désactivés */
+.option-btn:disabled:not(.option-selected):not(.option-correct):not(.option-incorrect)::after {
   content: '🔒';
   position: absolute;
   right: 10px;
   top: 50%;
   transform: translateY(-50%);
-  font-size: 1em;
+  font-size: 0.8em;
+  opacity: 0.5;
 }
 
 /* ✅ NOUVEAU: Pas d'icône de verrouillage sur les boutons avec statut (sélectionné, correct, incorrect) */
@@ -298,22 +306,49 @@ button.option-btn:disabled.option-selected:hover {
 
 /* États des boutons de réponse */
 .option-btn.option-selected {
-  background: #1976d2;
-  color: #fff;
-  border-color: #1976d2;
+  background: #000; /* Noir */
+  color: #DAE72A; /* Jaune */
+  border-color: #000;
+  font-weight: bold;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+/* ✅ FIX MOBILE: Style spécifique pour les boutons sélectionnables - AVEC CONTRASTE AMÉLIORÉ */
+.option-btn.option-selectable {
+  background: #ffffff;
+  border-color: #08B0EC;
+  border-width: 2px;
+  box-shadow: 0 2px 8px rgba(8, 176, 236, 0.3);
+  color: #000;
+  position: relative;
+  animation: selectablePulse 2s infinite;
+}
+
+@keyframes selectablePulse {
+  0%, 100% { border-color: #08B0EC; box-shadow: 0 2px 8px rgba(8, 176, 236, 0.3); }
+  50% { border-color: #C5CB2F; box-shadow: 0 2px 8px rgba(197, 203, 47, 0.4); }
+}
+
+.option-btn.option-selectable:hover {
+  background: #f1f8fe; /* Couleur de fond plus contrastée au survol */
+  border-color: #C5CB2F;
+  border-width: 2px;
+  box-shadow: 0 4px 12px rgba(8, 176, 236, 0.5);
+  transform: translateY(-2px);
+  font-weight: 500;
 }
 
 .option-btn.option-correct {
-  background: #2e7d32;
-  border-color: #2e7d32;
-  color: #fff;
+  background: #DAE72A; /* Jaune */
+  border-color: #DAE72A;
+  color: #000; /* Noir */
   font-weight: bold;
-  box-shadow: 0 4px 12px rgba(46, 125, 50, 0.4), 0 0 0 3px #4caf50;
+  box-shadow: 0 4px 12px rgba(218, 231, 42, 0.4), 0 0 0 3px #C5CB2F;
   border-width: 3px;
   animation: correctPulse 1.5s ease-in-out;
   position: relative;
   border-style: solid;
-  outline: 2px solid #4caf50;
+  outline: 2px solid #C5CB2F;
   outline-offset: 2px;
 }
 
@@ -336,6 +371,8 @@ button.option-btn:disabled.option-selected:hover {
   border-style: dashed;
   outline: 2px dashed #f44336;
   outline-offset: 2px;
+  /* Amélioration pour WCAG AA */
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
 }
 
 .option-btn.option-incorrect::before {
@@ -345,25 +382,27 @@ button.option-btn:disabled.option-selected:hover {
   font-size: 1.2em;
 }
 
-/* ✅ NOUVEAU: Styles pour les réponses sélectionnées pendant l'étape result */
+/* ✅ NOUVEAU: Styles pour les réponses sélectionnées pendant l'étape result - AVEC CONTRASTE AMÉLIORÉ */
 .option-btn.option-selected.option-correct,
 .option-btn:disabled.option-selected.option-correct {
-  /* La réponse sélectionnée était correcte - garder le style correct avec une bordure bleue en plus */
-  background: #2e7d32 !important;
-  border: 3px solid #1976d2 !important;
-  box-shadow: 0 4px 12px rgba(46, 125, 50, 0.4), 0 0 0 2px #1976d2, 0 0 0 5px #4caf50;
-  color: #fff !important;
+  /* La réponse sélectionnée était correcte - garder le style correct avec une bordure noire en plus */
+  background: #DAE72A !important; /* Jaune */
+  border: 3px solid #000 !important; /* Bordure noire */
+  box-shadow: 0 4px 12px rgba(218, 231, 42, 0.4), 0 0 0 2px #000, 0 0 0 5px #C5CB2F;
+  color: #000 !important; /* Noir */
   cursor: not-allowed;
+  font-weight: bold !important;
 }
 
 .option-btn.option-selected.option-incorrect,
 .option-btn:disabled.option-selected.option-incorrect {
-  /* La réponse sélectionnée était incorrecte - ajouter une bordure bleue pour montrer qu'elle était sélectionnée */
+  /* La réponse sélectionnée était incorrecte - ajouter une bordure noire pour montrer qu'elle était sélectionnée */
   background: #c62828 !important;
-  border: 3px solid #1976d2 !important;
-  box-shadow: 0 4px 12px rgba(198, 40, 40, 0.4), 0 0 0 2px #1976d2, 0 0 0 5px #f44336;
+  border: 3px solid #000 !important; /* Bordure noire */
+  box-shadow: 0 4px 12px rgba(198, 40, 40, 0.4), 0 0 0 2px #000, 0 0 0 5px #f44336;
   color: #fff !important;
   cursor: not-allowed;
+  font-weight: bold !important;
 }
 
 /* Animations pour les réponses */
@@ -522,6 +561,14 @@ button.option-btn:disabled.option-selected:hover {
 .score-none {
   color: #757575;
   font-weight: bold;
+}
+
+/* Style pour les icônes de boutons sélectionnés - Pour l'accessibilité */
+.option-selected-icon {
+  margin-right: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* Quiz terminé */

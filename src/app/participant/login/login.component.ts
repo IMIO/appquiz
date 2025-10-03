@@ -1,9 +1,11 @@
-import { Component } from '@angular/core';
+import { Component, OnInit, isDevMode } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { QuizService } from '../../services/quiz-secure.service';
 import { User } from '../../models/user.model';
+import { NotificationService } from '../../services/notification.service';
+import { UserStateService } from '../../services/user-state.service';
 
 @Component({
   selector: 'app-login',
@@ -12,7 +14,7 @@ import { User } from '../../models/user.model';
   templateUrl: './login.component.html',
   styleUrls: ['./login.component.css']
 })
-export class LoginComponent {
+export class LoginComponent implements OnInit {
   private questionsSyncSubscription?: any;
   resetAvatar() {
     this.avatarUrl = null;
@@ -23,9 +25,14 @@ export class LoginComponent {
   loadingAvatar = false;
   isSubmitting = false;
 
-  constructor(private quizService: QuizService, private router: Router) {
+  constructor(
+    private quizService: QuizService, 
+    private router: Router,
+    private notificationService: NotificationService,
+    private userStateService: UserStateService
+  ) {
     // Souscription à la synchronisation des questions via WebSocket
-    this.questionsSyncSubscription = this.quizService['websocketTimerService'].getQuestionsSync().subscribe(async syncData => {
+    this.questionsSyncSubscription = this.quizService.getWebSocketTimerService().getQuestionsSync().subscribe(async (syncData: any) => {
       let actionValue = (syncData as any).action;
       const rawData = syncData as any;
       if (!actionValue && rawData.data && rawData.data.action) {
@@ -41,6 +48,41 @@ export class LoginComponent {
       }
     });
   }
+  ngOnInit(): void {
+    // Vérifier si une notification de réinitialisation doit être affichée
+    const hasResetNotification = localStorage.getItem('quiz_reset_notification');
+    if (hasResetNotification === 'true') {
+      // Afficher la notification
+      this.notificationService.warning(
+        'Le jeu a été réinitialisé par l\'animateur. Toutes vos informations (inscription, points, etc.) ont été effacées. Veuillez vous inscrire à nouveau.',
+        10000, // 10 secondes
+        '🔄'
+      );
+      // Supprimer le flag pour éviter d'afficher la notification plusieurs fois
+      localStorage.removeItem('quiz_reset_notification');
+    }
+    
+    // Rafraîchir l'état du quiz pour s'assurer que nous avons les données les plus récentes
+    this.refreshQuizState();
+  }
+  
+  /**
+   * Rafraîchit l'état du quiz pour s'assurer que tout est à jour après un reset
+   */
+  private async refreshQuizState(): Promise<void> {
+    try {
+      // Vérifier l'état actuel du quiz
+      await this.quizService.forceCheckState();
+      
+      // Rafraîchir la liste des participants
+      await this.quizService.fetchParticipantsFromServer();
+      
+      if (isDevMode()) console.log('[LOGIN] État du quiz rafraîchi');
+    } catch (error) {
+      console.warn('[LOGIN] Erreur lors du rafraîchissement de l\'état du quiz:', error);
+    }
+  }
+
   ngOnDestroy(): void {
     if (this.questionsSyncSubscription) {
       this.questionsSyncSubscription.unsubscribe();
@@ -73,13 +115,13 @@ export class LoginComponent {
   }
 
   async join(event?: Event) {
-    console.log('=== LOGIN JOIN START ===');
+    // Debug log uniquement en mode développement
+    if (isDevMode()) console.log('[LOGIN] Début inscription...');
     
     // Prevent any default behavior
     if (event) {
       event.preventDefault();
       event.stopPropagation();
-      console.log('Event preventDefault and stopPropagation called');
     }
     
     // Prevent multiple submissions
@@ -88,30 +130,102 @@ export class LoginComponent {
       return;
     }
     
-    // Check if user is already registered in this session
-    const existingUserId = localStorage.getItem('userId');
-    if (existingUserId) {
-      console.log('User already registered in localStorage, verifying with server...');
+    // Vérifier si l'utilisateur est déjà inscrit en utilisant notre service
+    const userData = this.userStateService.getUserInfo();
+    
+    if (userData && userData.id && userData.name) {
+      console.log('[LOGIN] Session utilisateur trouvée, vérification si encore valide...');
+      const existingUserId = userData.id;
+      const existingUserName = userData.name;
+      const existingAvatarUrl = userData.avatarUrl || '';
       
       // Vérifier si l'userId existe encore sur le serveur
       try {
-        const participants = await this.quizService.fetchParticipantsFromServer();
-        const userExists = participants.some((participant: User) => participant.id === existingUserId);
+        // Faire plusieurs tentatives pour gérer les cas où la liste peut être temporairement vide
+        let userExists = false;
+        let attempts = 0;
+        const maxAttempts = 3;
+        
+        while (!userExists && attempts < maxAttempts) {
+          const participants = await this.quizService.fetchParticipantsFromServer();
+          userExists = participants.some((participant: User) => participant.id === existingUserId);
+          
+          if (!userExists && attempts < maxAttempts - 1) {
+            console.log(`[LOGIN] Utilisateur non trouvé, tentative ${attempts + 1}/${maxAttempts}...`);
+            await new Promise(resolve => setTimeout(resolve, 500)); // Attendre 500ms entre les tentatives
+            attempts++;
+          } else {
+            break;
+          }
+        }
         
         if (userExists) {
-          console.log('User confirmed on server, navigating to waiting...');
+          console.log('[LOGIN] ✅ Session utilisateur valide, redirection vers waiting');
+          
+          // S'assurer que les données sont bien sauvegardées avant de continuer
+          this.userStateService.saveUserInfo({
+            id: existingUserId,
+            name: existingUserName,
+            avatarUrl: existingAvatarUrl,
+            score: 0,
+            answers: []
+          });
+          
           await this.router.navigate(['/waiting']);
           return;
         } else {
-          console.log('User not found on server, clearing localStorage and allowing new registration...');
-          localStorage.removeItem('userId');
-          localStorage.removeItem('userName');
+          // Si l'utilisateur n'existe plus mais que nous sommes à l'étape lobby,
+          // essayer de le réinscrire avant de le forcer à s'inscrire à nouveau
+          const currentState = await this.quizService.forceCheckState();
+          
+          if (currentState === 'lobby') {
+            try {
+              console.log('[LOGIN] Tentative de réinscription automatique de l\'utilisateur...');
+              
+              // Tenter de réinscrire l'utilisateur avec ses données sauvegardées
+              await this.quizService.addParticipant({
+                id: existingUserId,
+                name: existingUserName,
+                avatarUrl: existingAvatarUrl || '',
+                score: 0,
+                answers: []
+              });
+              
+              // Vérifier si la réinscription a fonctionné
+              const updatedParticipants = await this.quizService.fetchParticipantsFromServer();
+              const nowExists = updatedParticipants.some(p => p.id === existingUserId);
+              
+              if (nowExists) {
+                console.log('[LOGIN] ✅ Réinscription automatique réussie!');
+                
+                // Sauvegarder à nouveau avec notre service
+                this.userStateService.saveUserInfo({
+                  id: existingUserId,
+                  name: existingUserName,
+                  avatarUrl: existingAvatarUrl,
+                  score: 0,
+                  answers: []
+                });
+                
+                this.notificationService.showNotification('Reconnexion automatique réussie!', 'success');
+                await this.router.navigate(['/waiting']);
+                return;
+              } else {
+                console.log('[LOGIN] ❌ Réinscription automatique échouée');
+              }
+            } catch (error) {
+              console.warn('[LOGIN] Erreur lors de la tentative de réinscription:', error);
+            }
+          }
+          
+          // Si nous arrivons ici, l'utilisateur n'existe plus et la réinscription a échoué
+          console.log('[LOGIN] Session utilisateur invalide, nettoyage des données');
+          this.userStateService.clearUserInfo();
           // Continue with new registration
         }
       } catch (error) {
-        console.warn('Error checking user on server, clearing localStorage:', error);
-        localStorage.removeItem('userId');
-        localStorage.removeItem('userName');
+        console.warn('[LOGIN] Erreur lors de la vérification de l\'utilisateur:', error);
+        // Ne pas effacer les données utilisateur immédiatement, donner une chance de réessayer
         // Continue with new registration
       }
     }
@@ -122,7 +236,6 @@ export class LoginComponent {
       // Validation détaillée
       const nameValue = this.name?.trim() || '';
       const githubValue = this.github?.trim() || '';
-      console.log('Form values:', { nameValue, githubValue, avatarUrl: this.avatarUrl });
 
       if (!nameValue && !githubValue) {
         console.error('No name or github provided');
@@ -138,7 +251,6 @@ export class LoginComponent {
 
       // Create user object
       const userId = this.generateUniqueId();
-      console.log('Generated user ID:', userId);
 
       const user: User = {
         id: userId,
@@ -147,69 +259,71 @@ export class LoginComponent {
         answers: [],
         avatarUrl: this.avatarUrl || undefined
       };
-      console.log('Created user object:', user);
 
+      // Rafraîchir une dernière fois l'état du quiz avant d'ajouter le participant
+      try {
+        await this.refreshQuizState();
+      } catch (error) {
+        console.warn('[LOGIN] Erreur lors du rafraîchissement final:', error);
+        // On continue même en cas d'erreur
+      }
+      
       // Add participant to server
-      console.log('Attempting to add participant to server...');
       await this.quizService.addParticipant(user);
-      console.log('Add participant success');
+      
+      // Vérifier que l'utilisateur a bien été ajouté
+      const participants = await this.quizService.fetchParticipantsFromServer();
+      const userAdded = participants.some((p: User) => p.id === user.id);
+      
+      if (!userAdded) {
+        throw new Error('L\'utilisateur n\'a pas pu être ajouté au serveur. Veuillez réessayer.');
+      }
 
-      // Save to localStorage
-      console.log('Saving user to localStorage...');
+      // Sauvegarder les informations utilisateur avec notre service
+      this.userStateService.saveUserInfo(user);
+      
+      // Ces lignes sont maintenant redondantes mais on les garde pour la compatibilité
       localStorage.setItem('quiz-user', JSON.stringify(user));
       localStorage.setItem('userId', user.id);
       localStorage.setItem('userName', user.name);
       if (user.avatarUrl) {
         localStorage.setItem('avatarUrl', user.avatarUrl);
       }
-      console.log('User saved to localStorage successfully');
 
       // Clear form
       this.name = '';
       this.github = '';
       this.avatarUrl = null;
-      console.log('Form cleared');
+      
+      if (isDevMode()) console.log('[LOGIN] Utilisateur ajouté avec succès:', user.id);
 
       // Add small delay to ensure all async operations complete
-      console.log('Adding small delay before navigation...');
       await new Promise(resolve => setTimeout(resolve, 100));
 
       // Navigate with multiple approaches
-      console.log('Attempting navigation to /waiting...');
       try {
-        // Try navigateByUrl first
-        console.log('Trying navigateByUrl...');
         const urlResult = await this.router.navigateByUrl('/waiting');
-        console.log('NavigateByUrl result:', urlResult);
         
         if (!urlResult) {
-          console.warn('NavigateByUrl failed, trying navigate...');
           const navResult = await this.router.navigate(['/waiting']);
-          console.log('Navigate result:', navResult);
           
           if (!navResult) {
-            console.error('Both navigation methods failed');
             // Force page navigation as last resort
-            console.log('Forcing window location change...');
             window.location.href = '/waiting';
             return;
           }
         }
-        
-        console.log('Navigation successful');
       } catch (navError) {
         console.error('Navigation error:', navError);
         console.log('Forcing window location change due to error...');
         window.location.href = '/waiting';
       }
 
-      console.log('=== LOGIN JOIN SUCCESS ===');
     } catch (error) {
-      console.error('=== LOGIN JOIN ERROR ===', error);
+      console.error('[LOGIN] Erreur:', error);
       alert('Erreur lors de l\'inscription. Veuillez réessayer.');
     } finally {
       this.isSubmitting = false;
-      console.log('isSubmitting reset to false');
     }
   }
 }

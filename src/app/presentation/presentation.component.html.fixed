@@ -1,0 +1,538 @@
+<!-- Modal de restauration de partie -->
+<div *ngIf="showRestoreDialog" class="restore-modal-backdrop">
+  <div class="restore-modal">
+    <div class="restore-header">
+      <h2>🔄 Partie en cours détectée</h2>
+    </div>
+    <div class="restore-body">
+      <p>Une partie était en cours avant la fermeture de la page.</p>
+      <p>Souhaitez-vous :</p>
+      <div class="restore-actions">
+        <button 
+          class="restore-btn continue" 
+          [disabled]="!buttonsEnabled"
+          [class.disabled]="!buttonsEnabled"
+          (click)="onRestoreGame()">
+          <span class="btn-icon">🔄</span>
+          <span>Reprendre la partie</span>
+        </button>
+        <button 
+          class="restore-btn new-game" 
+          [disabled]="!buttonsEnabled"
+          [class.disabled]="!buttonsEnabled"
+          (click)="onStartNewGame()">
+          <span class="btn-icon">🆕</span>
+          <span>Nouvelle partie</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Indicateur de loading discret pour la présentation -->
+<div *ngIf="isLoading" class="loading-bar presentation-loading">
+  <div class="loading-progress"></div>
+  <span class="loading-text">{{ loadingMessage }}</span>
+</div>
+
+<!-- DIAGNOSTIC : Bloc ultra-visible si aucune étape reconnue -->
+<div *ngIf="!step || (step !== 'lobby' && step !== 'waiting' && step !== 'question' && step !== 'result' && step !== 'end')" style="background:#d32f2f;color:#fff;font-size:1.5em;padding:2em 2em;border-radius:8px;margin:1em;text-align:center;">
+  🚨 ERREUR : Étape inconnue "{{ step }}" - Vérifiez la logique de navigation
+</div>
+
+<!-- Modal pour la photo de groupe -->
+<!-- Barre d'administration admin -->
+<div class="admin-bar">
+  <div class="admin-info">
+    <span class="admin-title">Administration</span>
+    <br />
+    <span class="session-info">
+      Session : {{ getRemainingTime() }}
+    </span>
+  </div>
+  <div class="admin-actions">
+    <button class="admin-btn extend" (click)="extendSession()" title="Prolonger la session de 4 heures">
+      Prolonger
+    </button>
+    <button 
+      class="admin-btn logout" 
+      (click)="logout()" 
+      [disabled]="isLoading" 
+      [class.disabled]="isLoading" 
+      title="Se déconnecter">
+      <span *ngIf="!isLoading || loadingMessage !== 'Déconnexion en cours...'">
+        Déconnexion
+      </span>
+      <span *ngIf="isLoading && loadingMessage === 'Déconnexion en cours...'">
+        ⏳
+      </span>
+    </button>
+  </div>
+</div>
+
+<!-- DIAGNOSTIC : Bloc ultra-visible si aucune étape reconnue -->
+<div *ngIf="!step || (step !== 'lobby' && step !== 'waiting' && step !== 'question' && step !== 'result' && step !== 'end')" style="background:#d32f2f;color:#fff;font-size:1.5em;padding:2em 2em;border-radius:8px;margin:1em;text-align:center;">
+  🚨 ERREUR : Étape inconnue "{{ step }}" - Vérifiez la logique de navigation
+</div>
+
+<!-- Modal pour la photo de groupe -->
+<div *ngIf="showCameraModal" class="camera-modal-overlay" [@stepTransition]>
+  <div class="camera-modal">
+    <div class="camera-header">
+      <h3>📷 Photo de groupe - Promotion 2025</h3>
+      <button class="camera-close-btn" (click)="stopCamera()">✕</button>
+    </div>
+
+    <div class="camera-container">
+      <video id="cameraVideo" class="camera-video" autoplay muted playsinline></video>
+
+      <!-- Overlay de prévisualisation -->
+      <div class="camera-overlay">
+        <div class="overlay-promotion">
+          <div class="overlay-title">🏆 Quiz Promotion 2025</div>
+          <div class="overlay-date">{{ getCurrentDate() }}</div>
+          <div class="overlay-corners">
+            <span class="corner-left">🌟</span>
+            <span class="corner-right">🌟</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="camera-controls">
+      <button *ngIf="!photoTaken" class="camera-btn camera-take-btn" (click)="takeGroupPhoto()" [disabled]="!cameraReady">
+      <!-- Indicateur d'état de la caméra -->
+      <div class="camera-status" *ngIf="cameraActive && !photoTaken">
+        <span class="status-indicator" [class.ready]="cameraReady">
+          {{ cameraReady ? '✅ Caméra prête' : '⏳ Préparation...' }}
+        </span>
+      </div>
+      
+        📷 Prendre la photo
+      </button>
+      <div *ngIf="photoTaken" class="photo-success">
+        ✅ Photo prise avec succès ! Téléchargement en cours...
+      </div>
+      <button class="camera-btn camera-cancel-btn" (click)="stopCamera()">
+        Annuler
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Bouton pour forcer la mise à jour du classement -->
+<button style="position:fixed;top:10px;right:10px;z-index:9999;background:#1976d2;color:#fff;padding:0.5em 1em;border-radius:6px;font-size:1em;" (click)="forceRefreshLeaderboard()">[DEBUG] Rafraîchir scores</button>
+
+<!-- DEBUG: Affichage d'urgence si aucune étape n'est reconnue
+<div *ngIf="!step || (step !== 'lobby' && step !== 'waiting' && step !== 'question' && step !== 'result' && step !== 'end')" style="background:#d32f2f;color:#fff;padding:2em;border-radius:16px;margin:2em;text-align:center;box-shadow:0 2px 24px #d32f2f88;z-index:99999;position:relative;">
+  <b>⚠️ Aucun écran d'étape affiché</b><br>
+  <span style="font-size:1.1em;color:#ffe082;">La variable <b>step</b> n'est pas reconnue ou n'est pas initialisée.</span><br>
+  <span style="font-size:1.2em;color:#fff !important;">step = {{step}}</span>
+  <span style="font-size:1.1em;color:#fff !important;">Vérifiez la synchronisation et l'initialisation dans le TypeScript.</span>
+</div>
+-->
+<!-- Écran maître du jeu classique
+
+<div class="maitre-banner">
+  <div class="maitre-banner-content">
+    <span class="maitre-banner-icon">🎤</span>
+    <span class="maitre-banner-title">ÉCRAN MAÎTRE DU JEU</span>
+  </div>
+  <div class="maitre-message">Vous êtes sur l'interface <b>MAÎTRE DU JEU</b>.</div>
+</div>
+
+<h1 class="presentation-title">Quiz - Écran de présentation</h1>-->
+
+<div class="presentation-main">
+
+<!-- LOBBY : QR code + liste des inscrits + bouton démarrer -->
+<div *ngIf="step === 'lobby'" class="maitre-step-banner lobby step-block" [@stepTransition]>
+  <div class="banner-img"><div class="step-header">
+    <!-- <span class="step-icon">🟢</span> -->
+    <span class="step-title">&nbsp;</span>
+  </div>
+  <!-- <div class="step-desc">QR code, liste des inscrits, bouton démarrer</div>
+  <div class="maitre-debug">step = {{step}}</div> -->
+  <h2 class="step-h2">Scan to join and enjoy the game</h2>
+  </div>
+  <div class="bg-qr">
+    <qrcode [qrdata]="windowLocation + '/login'" [width]="200" [errorCorrectionLevel]="'M'"></qrcode>
+    <div class="qr-text-info">
+      <p class="join-url">Or visit: <strong>{{windowLocation}}/login</strong></p>
+    </div>
+  </div>
+
+
+<div class="container-question">
+  <h3 class="step-h3">Registered players</h3>
+  <br/>
+  <ul class="step-list" [@listAnimation]>
+    <li *ngFor="let user of participants; trackBy: trackByQuestionId" class="step-list-item">
+      <img *ngIf="user.avatarUrl" [src]="user.avatarUrl" alt="avatar" width="32" height="32" class="step-avatar" />
+      {{ user.name }}
+    </li>
+  </ul>
+  <div class="button-group">
+    <button class="step-btn" (click)="launchGame()" [disabled]="participants.length === 0">Next: Prepare to start</button>
+    <button 
+      class="step-btn sync-btn" 
+      (click)="synchronizeWithManagement()" 
+      [disabled]="isSynchronizing"
+      title="Synchroniser avec les modifications côté gestion">
+      <span *ngIf="!isSynchronizing">🔄 Sync Questions</span>
+      <span *ngIf="isSynchronizing" class="sync-loading">⏳ Synchronisation...</span>
+    </button>
+    <button 
+      class="step-btn" 
+      (click)="restartGame()" 
+      [disabled]="isLoading"
+      [class.disabled]="isLoading">
+      <span *ngIf="!isLoading || loadingMessage !== 'Réinitialisation du quiz en cours...'">
+        Reset
+      </span>
+      <span *ngIf="isLoading && loadingMessage === 'Réinitialisation du quiz en cours...'">
+        ⏳ Réinitialisation...
+      </span>
+    </button>
+    <button class="step-btn" (click)="router.navigate(['/admin/fix-ids'])" style="background-color: #ff9800; color: white;">
+      🔧 Fix Question IDs
+    </button>
+  </div>
+  
+  <!-- Message de statut de synchronisation -->
+  <div *ngIf="isSynchronizing || synchronizationMessage" class="sync-status-container">
+    <div class="sync-status" [ngClass]="{
+      'sync-in-progress': isSynchronizing && !synchronizationSuccess,
+      'sync-success': synchronizationSuccess,
+      'sync-error': !synchronizationSuccess && synchronizationMessage.includes('❌')
+    }">
+      <div *ngIf="isSynchronizing && !synchronizationSuccess" class="sync-spinner"></div>
+      <span class="sync-message">{{ synchronizationMessage }}</span>
+    </div>
+  </div>
+  
+  <div *ngIf="participants.length === 0" class="step-waiting">Waiting for players...</div>
+  <!-- Indicateur de debug pour voir l'état de la liste de participants -->
+  <div class="debug-info" style="font-size: 12px; color: #666; margin-top: 10px;">
+    Participants détectés: {{ participants.length }}
+  </div>
+</div>
+</div>
+
+<!-- WAITING : attente avant la première question -->
+<div *ngIf="step === 'waiting'" class="maitre-step-banner waiting step-block" [@stepTransition]>
+  <div class="banner-img"><div class="step-header">
+    <!-- <span class="step-icon">🟢</span> -->
+    <span class="step-title">&nbsp;</span>
+  </div>
+    <!-- <span class="step-icon">⏳</span>
+    <span class="step-title">[ÉTAPE MAÎTRE] ATTENTE</span> -->
+  </div>
+  <!-- <div class="step-desc">Attente avant la première question</div>
+  <div class="maitre-debug">step = {{step}}</div> -->
+  <div class="container-question">
+  <h2 class="step-h2">Quiz is about to start!</h2>
+  <h3 class="step-h3">Registered players</h3>
+  <br/>
+    <ul class="step-list" [@listAnimation]>
+      <li *ngFor="let user of participants; trackBy: trackByQuestionId" class="step-list-item">
+        <img *ngIf="user.avatarUrl" [src]="user.avatarUrl" alt="avatar" width="32" height="32" class="step-avatar" />
+        {{ user.name }}
+      </li>
+    </ul>
+
+  <div class="step-total">Total : {{ participants.length }} player(s)</div>
+  <br/>
+  <button class="step-btn" (click)="startFirstQuestion()">Start the quiz</button>
+  <button 
+    class="step-btn" 
+    (click)="restartGame()" 
+    [disabled]="isLoading"
+    [class.disabled]="isLoading">
+    <span *ngIf="!isLoading || loadingMessage !== 'Réinitialisation du quiz en cours...'">
+      Reset
+    </span>
+    <span *ngIf="isLoading && loadingMessage === 'Réinitialisation du quiz en cours...'">
+      ⏳ Réinitialisation...
+    </span>
+  </button>
+  </div>
+  </div>
+</div>
+<!-- QUESTION : question, réponses, timer -->
+<div *ngIf="step === 'question' && currentQuestion" class="maitre-step-banner question step-block" [@stepTransition]>
+  <div class="step-header">
+    <!-- <span class="step-icon">❓</span>
+    <span class="step-title">[ÉTAPE MAÎTRE] QUESTION</span> -->
+  </div>
+  <!-- <div class="step-desc">Question, réponses, timer</div>
+  <div class="maitre-debug">step = {{step}} | currentQuestion = {{currentQuestion.text}}</div>
+  <button class="step-btn" (click)="restartGame()">Tout réinitialiser</button>
+  <h2 class="step-h2">Question</h2>-->
+  <div class="question-illustration" [@imageAnimation]>
+    <!-- Structure avec ngFor pour forcer la recréation complète -->
+    <ng-container *ngFor="let q of [currentQuestion]; trackBy: trackByQuestionId">
+      <!-- Image avec transition et dimensions préservées - cachée si hideImages est true -->
+      <img
+        *ngIf="q?.imageUrl && imageLoaded && !hideImages"
+        [src]="getImageUrl(q.imageUrl)"
+        alt="Illustration question"
+        style="width:100%;height:100%;object-fit:cover;border-radius:18px;transition:opacity 0.4s ease-in-out;"
+        class="question-image-loaded"
+        [@imageAnimation]
+        (load)="onImageLoaded()"
+      />
+      <!-- Placeholder pendant chargement - même dimensions - caché si hideImages est true -->
+      <div
+        *ngIf="q?.imageUrl && !imageLoaded && !hideImages"
+        style="width:100%;height:100%;background: linear-gradient(45deg, #f0f0f0 25%, transparent 25%), linear-gradient(-45deg, #f0f0f0 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #f0f0f0 75%), linear-gradient(-45deg, transparent 75%, #f0f0f0 75%);background-size: 20px 20px;background-position: 0 0, 0 10px, 10px -10px, -10px 0px;border-radius:18px;display:flex;align-items:center;justify-content:center;color:#666;"
+        class="question-image-loading"
+      >
+        <div style="background: rgba(255,255,255,0.9); padding: 8px 16px; border-radius: 8px; font-weight: 500;">
+          ⏳ Chargement de l'image...
+        </div>
+      </div>
+      <!-- Image cachée pour préchargement avec clé unique - pas affectée par hideImages -->
+      <img
+        *ngIf="q?.imageUrl && !hideImages"
+        [src]="getImageUrl(q.imageUrl)"
+        alt="Préchargement"
+        style="position: absolute; visibility: hidden; width: 1px; height: 1px;"
+        (load)="onImageLoaded()"
+      />
+      <!-- Placeholder si aucune image n'est présente ou si hideImages -->
+      <div *ngIf="!q?.imageUrl || hideImages" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#f5f5f5;border-radius:18px;color:#bbb;font-size:1.2em;min-height:120px;">
+        <span style="opacity:0.7;">Aucune image pour cette question</span>
+      </div>
+    </ng-container>
+  </div>
+  <div class="question-header">
+    <div class="question-number">Question Numéro {{ currentQuestionNumber }}</div>
+    <h3 class="step-h3">{{ currentQuestion.text }}</h3>
+  </div>
+  <div class="container-question">
+  <div class="timer step-timer" [@stepTransition]>
+    <div class="timer-bar-container" [ngClass]="{'timer-active': timerActive, 'timer-waiting': !timerActive}">
+      <div class="timer-bar" 
+           [ngStyle]="{width: (timerValue / timerMax * 100) + '%'}"
+           [ngClass]="{'timer-bar-active': timerActive}"></div>
+      <span class="timer-bar-label" [ngClass]="{'timer-active': timerActive}">
+        <span *ngIf="timerActive">{{ timerValue }}s</span>
+        <span *ngIf="!timerActive && timerStartedManually">Timer démarré</span>
+        <span *ngIf="!timerActive && !timerStartedManually">En attente</span>
+      </span>
+    </div>
+    
+    <!-- Boutons de contrôle du timer -->
+    <div class="timer-controls" style="display: flex; gap: 10px; margin-top: 10px;">
+      <button 
+        *ngIf="!timerStartedManually" 
+        class="step-btn start-timer-btn" 
+        (click)="startTimerManually(20)"
+        style="background: #28a745; color: white; font-weight: bold;">
+        ▶️ Démarrer Timer (20s)
+      </button>
+      
+
+    </div>
+  </div>
+   <ul *ngIf="currentQuestion && currentQuestion.options" class="step-list" [@listAnimation]>
+    <li *ngFor="let option of currentQuestion.options; let i = index; trackBy: trackByQuestionId" class="step-list-item step-option" style="pointer-events: none; cursor: default; display: flex; align-items: center; gap: 12px;">
+          <ng-container *ngIf="option && (option.imageUrl || option.text !== undefined)">
+            <img *ngIf="option.imageUrl" [src]="getImageUrl(option.imageUrl)" alt="Image réponse" style="max-width: 64px; max-height: 64px; border-radius: 8px; object-fit: cover; margin-right: 8px;" />
+            <span>{{ option.text !== undefined ? option.text : (option | json) }}</span>
+          </ng-container>
+          <ng-container *ngIf="!option || (option.text === undefined && option.imageUrl === undefined)">
+            <span>{{ option }}</span>
+          </ng-container>
+          <span *ngIf="currentQuestion && i === currentQuestion.correctIndex" class="step-correct">&nbsp;</span>
+        </li>
+      </ul>
+  </div>
+
+  <div *ngIf="voters && voters.length > 0" class="step-voters" [@stepTransition]>
+    <h4 class="step-h4">Already answered :</h4>
+    <ul class="step-voters-list" [@listAnimation]>
+      <ng-container *ngFor="let voter of voters; trackBy: trackByQuestionId">
+        <li *ngIf="voter && voter.name" class="step-voter-item">
+          {{ voter.name }}
+        </li>
+      </ng-container>
+    </ul>
+    <div class="step-voters-total">{{ voters.length }} player(s) have voted</div>
+  </div>
+</div>
+
+
+<!-- RESULT : bonne réponse, stats, bouton question suivante, bouton reset complet -->
+<div *ngIf="step === 'result'" class="maitre-step-banner result step-block" [@stepTransition]>
+  <div class="step-header">
+    <!--  <span class="step-icon">🏁</span>
+    <span class="step-title">[ÉTAPE MAÎTRE] RESULT</span> -->
+  </div>
+  <!-- <div *ngIf="answersCount.length === 0 || totalAnswers === 0" class="maitre-no-result step-no-result">
+    <b>⚠️ Aucun résultat à afficher pour cette question</b><br>
+    <span>Aucune réponse enregistrée dans SQLite.<br>Vérifiez que les participants ont bien répondu.</span>
+    <br>
+    <span>answersCount = {{answersCount}}</span>
+    <span>totalAnswers = {{totalAnswers}}</span>
+  </div>
+  <button class="step-btn" (click)="restartGame()">🧹 Tout réinitialiser</button> -->
+  <div *ngIf="!currentQuestion" class="maitre-no-question step-no-question">Aucune question courante.</div>
+  <ng-container *ngIf="currentQuestion">
+    <!--  <h2 class="step-h2">Résultat</h2> -->
+    <div class="question-illustration" [@imageAnimation]>
+      <!-- Structure avec ngFor pour forcer la recréation complète -->
+      <ng-container *ngFor="let q of [currentQuestion]; trackBy: trackByQuestionId">
+        <!-- Image de résultat avec dimensions préservées - cachée si hideImages est true -->
+        <img
+          *ngIf="q?.imageUrlResult && !hideImages"
+          [src]="getImageUrl(q.imageUrlResult)"
+          (load)="onResultImageLoaded()"
+          (error)="onResultImageError()"
+          alt="Illustration résultat"
+          style="width:100%;height:100%;object-fit:contain;border-radius:18px;transition:opacity 0.4s ease-in-out;"
+          class="result-image-loaded"
+          [@imageAnimation]
+        />
+        <!-- Placeholder pendant chargement - caché si hideImages est true ou si image déjà chargée -->
+        <div
+          *ngIf="q?.imageUrlResult && !resultImageLoaded && !hideImages"
+          style="width:100%;height:100%;min-height:200px;background: linear-gradient(45deg, #f0f0f0 25%, transparent 25%), linear-gradient(-45deg, #f0f0f0 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #f0f0f0 75%), linear-gradient(-45deg, transparent 75%, #f0f0f0 75%);background-size: 20px 20px;background-position: 0 0, 0 10px, 10px -10px, -10px 0px;border-radius:18px;display:flex;align-items:center;justify-content:center;color:#666;"
+          class="result-image-loading"
+        >
+          <div style="background: rgba(255,255,255,0.9); padding: 8px 16px; border-radius: 8px; font-weight: 500;">
+            ⏳ Chargement du résultat...
+          </div>
+        </div>
+        <!-- Image cachée pour préchargement - aide au chargement de l'image -->
+        <img
+          *ngIf="q?.imageUrlResult && !hideImages"
+          [src]="getImageUrl(q.imageUrlResult)"
+          style="position: absolute; visibility: hidden; width: 1px; height: 1px;"
+          alt="Préchargement résultat"
+        />
+      </ng-container>
+    </div>
+    <div class="container-question">
+    <div class="step-stats" [@stepTransition]>
+      <span class="step-good">
+        Correct answer :
+        <b>
+              <ng-container *ngIf="currentQuestion.options && currentQuestion.correctIndex !== undefined && currentQuestion.options[currentQuestion.correctIndex] !== undefined">
+                <ng-container *ngIf="currentQuestion.options[currentQuestion.correctIndex].text !== undefined; else fallbackCorrect">
+                  {{ currentQuestion.options[currentQuestion.correctIndex].text }}
+                </ng-container>
+                <ng-template #fallbackCorrect>
+                  {{ currentQuestion.options[currentQuestion.correctIndex] }}
+                </ng-template>
+              </ng-container>
+              <ng-container *ngIf="!(currentQuestion.options && currentQuestion.correctIndex !== undefined && currentQuestion.options[currentQuestion.correctIndex] !== undefined)">
+                —
+              </ng-container>
+        </b>
+      </span>
+      <br>
+      <span class="step-total-good">Number of correct answers : {{ totalGood }}</span>
+      <br>
+      <span class="step-total-bad">Number of wrong answers : {{ totalBad }}</span>
+    </div>
+
+    <!-- CLASSEMENT PROVISOIRE -->
+    <div class="step-leaderboard-block" [@stepTransition]>
+      <h3 class="step-leaderboard-title">Ranking</h3>
+      <ol class="step-leaderboard-list" [@listAnimation]>
+        <li class="step-leaderboard-item" *ngFor="let user of leaderboard; let i = index; trackBy: trackByQuestionId">
+          <span class="step-leaderboard-rank">{{ i + 1 }}</span>
+          <img *ngIf="user.avatarUrl" [src]="user.avatarUrl" alt="avatar" width="28" height="28" class="step-avatar" />
+          <span class="step-leaderboard-name">{{ user.name }}</span>
+          <span class="step-leaderboard-score" 
+                [class.highlight-score]="user.currentQuestionCorrect"
+                [class.score-has-value]="getUserScore(user) > 0">
+            {{ getUserScore(user) }} / {{ getTotalQuestions() }} pts
+            <span *ngIf="getUserScore(user) > 0" class="score-indicator">✓</span>
+          </span> <!-- Score format: current score / total questions -->
+          <span *ngIf="user.currentQuestionCorrect" class="step-leaderboard-badge pulse-score">+1 ✅</span> <!-- Indicateur de bonne réponse à la question actuelle -->
+          <span *ngIf="user.totalTime > 0" class="step-leaderboard-time">⏱️ {{ formatTime(getTotalGoodAnswersTime(user.id)) }} (bonnes réponses)</span>
+        </li>
+      </ol>
+    </div>
+
+    <button class="step-btn step-next-btn" (click)="nextQuestion()" *ngIf="currentIndex < (quizService.getQuestions().length - 1)" [@stepTransition]>➜  &nbsp;Next question</button>
+    <button class="step-btn step-end-btn" (click)="endGame()" *ngIf="canShowEndButton()" [@stepTransition]>Close quiz & show ranking</button>
+  </div>
+  </ng-container>
+
+</div>
+
+<!-- DEBUG : bouton pour forcer l'étape 'question'
+<button style="position:fixed;top:10px;right:10px;z-index:9999;background:#1976d2;color:#fff;padding:0.5em 1em;border-radius:6px;font-size:1em;" (click)="quizService.setStep('question')">[DEBUG] Forcer étape QUESTION</button>
+-->
+
+<!-- END : classement final -->
+<div *ngIf="step === 'end'" class="maitre-step-banner end step-block" [@stepTransition]>
+  <div class="banner-img">
+    <div class="step-header">
+      <!-- <span class="step-icon">🟢</span> -->
+      <span class="step-title">&nbsp;</span>
+    </div>
+    <h2 class="step-h2">You've completed the test !</h2>
+  </div>
+  <div>
+    <div class="container-question">
+      <h3 class="step-h3">Final ranking</h3>
+    <ol class="step-leaderboard-list" [@listAnimation]>
+      <li class="step-leaderboard-item" *ngFor="let user of leaderboard; let i = index; trackBy: trackByQuestionId">
+        <span class="step-leaderboard-rank">{{ i + 1 }}</span>
+        <img *ngIf="user.avatarUrl" [src]="user.avatarUrl" alt="avatar" width="32" height="32" class="step-avatar" />
+        <span class="step-leaderboard-name">{{ user.name }}</span> — 
+        <span class="step-leaderboard-score" 
+              [class.highlight-score]="user.currentQuestionCorrect"
+              [class.score-has-value]="getUserScore(user) > 0"
+              [class.pulse-score]="hasScoreChanged(user.id)">
+          <strong>{{ getUserScore(user) }}</strong> / {{ getTotalQuestions() }} pts
+          <span *ngIf="getUserScore(user) > 0" class="score-indicator">✓</span>
+        </span>
+        <span *ngIf="user.currentQuestionCorrect" class="step-leaderboard-badge pulse-score">+1 ✅</span> <!-- Indicateur de bonne réponse -->
+        <span *ngIf="user.totalTime > 0" class="step-leaderboard-time">⏱️ {{ formatTime(getTotalGoodAnswersTime(user.id)) }} (bonnes réponses)</span>
+      </li>
+    </ol>
+
+    <div class="step-final-buttons">
+      <button class="step-btn step-capture-btn" (click)="captureLeaderboard()" [@stepTransition]>
+        📸 Capture scores
+      </button>
+      <button class="step-btn step-camera-btn" (click)="startCamera()" [@stepTransition]>
+        📷 Photo de groupe
+      </button>
+      <button 
+        class="step-btn" 
+        (click)="restartGame()" 
+        [disabled]="isLoading"
+        [class.disabled]="isLoading"
+        [@stepTransition]>
+        <span *ngIf="!isLoading || loadingMessage !== 'Réinitialisation du quiz en cours...'">
+          Reset the game
+        </span>
+        <span *ngIf="isLoading && loadingMessage === 'Réinitialisation du quiz en cours...'">
+          ⏳ Réinitialisation...
+        </span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<div 
+  class="global-reset-btn" 
+  (click)="restartGame()" 
+  [class.disabled]="isLoading"
+  [title]="isLoading ? 'Réinitialisation en cours...' : 'Réinitialiser complètement le quiz (participants, scores, état)'">
+  <span *ngIf="!isLoading">🔄</span>
+  <span *ngIf="isLoading">⏳</span>
+</div>
+
+<!-- Panneau de débogage -->
+<app-debug-panel [step]="step" [participants]="participants"></app-debug-panel>
+
+<!-- Composant de synchronisation du leaderboard -->
+<app-leaderboard-sync (updateLeaderboard)="refreshLeaderboardWithDiagnostic(false)"></app-leaderboard-sync>

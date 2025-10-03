@@ -70,20 +70,52 @@
           <h4>🖼️ Images associées</h4>
           
           <div class="form-group">
-            <label for="imageUpload">Image de la question :</label>
-            <input type="file" id="imageUpload" accept="image/*" (change)="onImageSelected($event, 'imageUrl')">
-            <div *ngIf="selectedImageUrl">
+            <label for="imageUrlInput">Chemin de l'image de la question :</label>
+            <input 
+              type="text" 
+              id="imageUrlInput" 
+              [(ngModel)]="newQuestion.imageUrl" 
+              class="form-control"
+              placeholder="/assets/img/nom-de-votre-image.jpg"
+            >
+            <div class="image-help">
+              <small>
+                <strong>Formats acceptés:</strong>
+                <br>- Format local: <code>/assets/img/nom-image.jpg</code>
+                <br>- URL externe: <code>https://site-externe.com/chemin/image.jpg</code>
+                <br>
+                <strong>Pour les développeurs:</strong> Placez vos images dans <code>public/assets/img/</code> du projet
+                <br>
+                <i>Note: Le chemin <code>/assets/img/</code> fonctionne à l'identique en développement et en production</i>
+              </small>
+            </div>
+            <div *ngIf="newQuestion.imageUrl">
               <p>Prévisualisation :</p>
-              <img [src]="selectedImageUrl" alt="Aperçu question" style="max-width:200px;max-height:200px;">
+              <img [src]="newQuestion.imageUrl" alt="Aperçu question" style="max-width:200px;max-height:200px;">
             </div>
           </div>
 
           <div class="form-group">
-            <label for="imageUploadResult">Image du résultat :</label>
-            <input type="file" id="imageUploadResult" accept="image/*" (change)="onImageSelected($event, 'imageUrlResult')">
-            <div *ngIf="selectedImageUrlResult">
+            <label for="imageUrlResultInput">Chemin de l'image du résultat :</label>
+            <input 
+              type="text" 
+              id="imageUrlResultInput" 
+              [(ngModel)]="newQuestion.imageUrlResult" 
+              class="form-control"
+              placeholder="/assets/img/nom-de-votre-image-resultat.jpg"
+            >
+            <div class="image-help">
+              <small>
+                <strong>Formats acceptés:</strong>
+                <br>- Format local: <code>/assets/img/nom-image.jpg</code>
+                <br>- URL externe: <code>https://site-externe.com/chemin/image.jpg</code>
+                <br>
+                <strong>Pour les développeurs:</strong> Même emplacement que pour les images de question
+              </small>
+            </div>
+            <div *ngIf="newQuestion.imageUrlResult">
               <p>Prévisualisation :</p>
-              <img [src]="selectedImageUrlResult" alt="Aperçu résultat" style="max-width:200px;max-height:200px;">
+              <img [src]="newQuestion.imageUrlResult" alt="Aperçu résultat" style="max-width:200px;max-height:200px;">
             </div>
           </div>
 
@@ -170,9 +202,6 @@
               style="display: flex; align-items: center; gap: 10px;"
             >
               <span class="option-label">{{ getOptionLabel(j) }}.</span>
-              <ng-container *ngIf="option.imageUrl">
-                <img [src]="option.imageUrl" alt="Image option" style="max-width:48px;max-height:48px;border-radius:6px;">
-              </ng-container>
               <span>{{ option.text || option }}</span>
               <span *ngIf="j === question.correctIndex" class="correct-badge">✓ Correcte</span>
             </div>
@@ -185,15 +214,43 @@
               <textarea [(ngModel)]="editingQuestion.text" class="form-control" rows="3"></textarea>
             </div>
             <div class="form-group">
-              <label>Image question :</label>
-              <input type="file" accept="image/*" (change)="onEditImageSelected($event, 'imageUrl')">
+              <label>Chemin de l'image question :</label>
+              <input 
+                type="text" 
+                [(ngModel)]="editingQuestion.imageUrl" 
+                class="form-control"
+                placeholder="/assets/img/nom-de-votre-image.jpg"
+              >
+              <div class="image-help">
+                <small>
+                  <strong>Formats acceptés:</strong>
+                  <br>- Format local: <code>/assets/img/nom-image.jpg</code>
+                  <br>- URL externe: <code>https://site-externe.com/chemin/image.jpg</code>
+                  <br>
+                  <i>Ce chemin fonctionne à l'identique en développement et en production</i>
+                </small>
+              </div>
               <div *ngIf="editingQuestion.imageUrl">
                 <img [src]="editingQuestion.imageUrl" alt="Aperçu question" style="max-width:120px;max-height:120px;">
               </div>
             </div>
             <div class="form-group">
-              <label>Image résultat :</label>
-              <input type="file" accept="image/*" (change)="onEditImageSelected($event, 'imageUrlResult')">
+              <label>Chemin de l'image résultat :</label>
+              <input 
+                type="text" 
+                [(ngModel)]="editingQuestion.imageUrlResult" 
+                class="form-control"
+                placeholder="/assets/img/nom-de-votre-image-resultat.jpg"
+              >
+              <div class="image-help">
+                <small>
+                  <strong>Formats acceptés:</strong>
+                  <br>- Format local: <code>/assets/img/nom-image.jpg</code>
+                  <br>- URL externe: <code>https://site-externe.com/chemin/image.jpg</code>
+                  <br>
+                  <i>Ce chemin fonctionne à l'identique en développement et en production</i>
+                </small>
+              </div>
               <div *ngIf="editingQuestion.imageUrlResult">
                 <img [src]="editingQuestion.imageUrlResult" alt="Aperçu résultat" style="max-width:120px;max-height:120px;">
               </div>
@@ -207,7 +264,7 @@
                     <input type="radio" name="editCorrectChoice{{editingQuestion.id}}" (change)="editingQuestion.correctIndex = j" [checked]="editingQuestion.correctIndex === j">
                     <label>Bonne réponse</label>
                   </div>
-                  <input type="text" class="simple-text-input" [(ngModel)]="opt.text">
+                  <input type="text" class="simple-text-input" [(ngModel)]="opt.text" placeholder="Texte de l'option">
                 </div>
               </div>
             </div>

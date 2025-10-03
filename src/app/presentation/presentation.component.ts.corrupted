@@ -1,0 +1,3007 @@
+
+import { Component, ChangeDetectorRef, OnInit, OnDestroy } from '@angular/core';
+import { TimerService, TimerState } from '../services/timer.service';
+import { CommonModule } from '@angular/common';
+import { QuizService, QuizStep } from '../services/quiz-secure.service';
+import { Question } from '../models/question.model';
+import { User } from '../models/user.model';
+import { Observable, timer, Subscription, firstValueFrom } from 'rxjs';
+import { LeaderboardCacheService } from '../services/leaderboard-cache.service';
+import { LeaderboardEntry } from '../models/leaderboard-entry.model';
+import { trigger, state, style, transition, animate, query, stagger } from '@angular/animations';
+import html2canvas from 'html2canvas';
+import { QRCodeComponent } from 'angularx-qrcode';
+import { AdminAuthService } from '../services/admin-auth.service';
+import { Router } from '@angular/router';
+import { WebSocketTimerService } from '../services/websocket-timer.service';
+import { HttpClient } from '@angular/common/http';
+import { environment } from '../../environments/environment';
+import { UserStateService } from '../services/user-state.service';
+
+@Component({
+  selector: 'app-presentation',
+  standalone: true,
+  imports: [CommonModule, QRCodeComponent],
+  templateUrl: './presentation.component.html',
+  styleUrls: ['./presentation.component.css'],
+  animations: [
+    // Animation pour les transitions d'étapes
+    trigger('stepTransition', [
+      transition(':enter', [
+        style({ opacity: 0, transform: 'translateY(30px)' }),
+        animate('500ms cubic-bezier(0.4, 0, 0.2, 1)',
+          style({ opacity: 1, transform: 'translateY(0)' }))
+      ])
+    ]),
+
+    // Animation pour les éléments de liste
+    trigger('listAnimation', [
+      transition('* => *', [
+        query(':enter', [
+          style({ opacity: 0, transform: 'translateY(20px)' }),
+          stagger(100, [
+            animate('400ms cubic-bezier(0.4, 0, 0.2, 1)',
+              style({ opacity: 1, transform: 'translateY(0)' }))
+          ])
+        ], { optional: true })
+      ])
+    ]),
+
+    // Animation pour les images
+    trigger('imageAnimation', [
+      transition(':enter', [
+        style({ opacity: 0, transform: 'scale(0.9)' }),
+        animate('400ms cubic-bezier(0.4, 0, 0.2, 1)',
+          style({ opacity: 1, transform: 'scale(1)' }))
+      ])
+    ])
+  ]
+})
+export class PresentationComponent implements OnInit, OnDestroy {
+  getImageUrl(url: string | undefined): string {
+    if (!url) return '';
+    if (url.startsWith('http')) return url;
+    // Si c'est un asset statique (dans /assets ou favicon), retourner l'URL telle quelle
+    if (url.startsWith('/assets') || url.startsWith('assets') || url.startsWith('/favicon.ico')) {
+      return url;
+    }
+    // Sinon, préfixer par l'API (pour images uploadées/dynamiques)
+    const apiBase = this.apiUrl.replace(/\/api$/, '');
+    return `${apiBase}${url}`;
+  }
+  step: any = 'lobby'; // Typage élargi pour compatibilité template Angular
+  showRestoreDialog: boolean = false;
+  private minModalDisplayTime = 2000; // Afficher le modal au minimum 2 secondes
+  private modalStartTime = 0;
+  buttonsEnabled = false;
+
+  async ngOnInit() {
+    console.log('[PRESENTATION] Initialisation du composant de présentation...');
+    
+    // AMÉLIORATION: Système de rafraîchissement plus agressif et plus fiable pour le leaderboard
+    const refreshIntervals = {
+      result: 1500,   // Rafraîchissement plus fréquent pendant l'étape résultat (1.5 secondes)
+      end: 2500,      // Rafraîchissement plus fréquent pendant l'étape finale (2.5 secondes)
+      question: 5000  // Rafraîchissement plus fréquent pendant l'étape question (5 secondes)
+    };
+    
+    // CORRECTION: S'abonner aux messages de reset du quiz
+    const quizResetSub = this.websocketTimerService.getQuizResets().subscribe(resetData => {
+      console.log('[PRESENTATION] Message de reset du quiz reçu via WebSocket:', resetData);
+      
+      if (resetData.action === 'reset-all') {
+        // Nettoyer immédiatement les listes locales
+        this.participants = [];
+        this.voters = [];
+        this.leaderboard = [];
+        this.answersCount = [];
+        
+        // Nettoyer les caches
+        this.leaderboardCacheService.clearAllCaches();
+        
+        // Forcer une mise à jour de l'interface
+        this.cdr.detectChanges();
+        
+        console.log('[PRESENTATION] Nettoyage complet suite au message de reset');
+      }
+    });
+    this.subscriptions.push(quizResetSub);
+    
+    // CORRECTION: S'abonner aux mises à jour de score via WebSocket
+    const userScoreSub = this.websocketTimerService.getUserScores().subscribe(scoreData => {
+      console.log('[PRESENTATION] Score utilisateur reçu via WebSocket:', scoreData);
+      
+      // Mettre à jour le cache du leaderboard avec le nouveau score
+      if (scoreData.userId && scoreData.score > 0) {
+        const leaderboardEntry = {
+          id: scoreData.userId,
+          name: scoreData.userName || 'Anonyme',
+          score: scoreData.score,
+          avatarUrl: scoreData.avatarUrl,
+          currentQuestionCorrect: scoreData.questionIndex === this.currentIndex,
+          totalTime: 0 // Valeur par défaut pour la propriété totalTime requise
+        };
+        
+        // CORRECTION MAJEURE: Mettre à jour directement le leaderboard existant
+        const existingEntryIndex = this.leaderboard.findIndex(entry => entry.id === scoreData.userId);
+        if (existingEntryIndex >= 0) {
+          // Mettre à jour le score seulement s'il est supérieur au score existant
+          if (scoreData.score > (this.leaderboard[existingEntryIndex].score || 0)) {
+            console.log(`[PRESENTATION] Mise à jour du score existant pour ${scoreData.userName}: ${this.leaderboard[existingEntryIndex].score} -> ${scoreData.score}`);
+            this.leaderboard[existingEntryIndex].score = scoreData.score;
+            this.leaderboard[existingEntryIndex].currentQuestionCorrect = scoreData.questionIndex === this.currentIndex;
+          }
+        } else {
+          // Ajouter une nouvelle entrée
+          console.log(`[PRESENTATION] Ajout d'un nouveau joueur au leaderboard: ${scoreData.userName} avec score ${scoreData.score}`);
+          this.leaderboard.push(leaderboardEntry);
+        }
+        
+        // Trier le leaderboard
+        this.leaderboard.sort((a, b) => {
+          if (b.score !== a.score) return b.score - a.score;
+          return a.totalTime - b.totalTime;
+        });
+        
+        // Mettre à jour le cache local
+        this.leaderboardCacheService.updateCache([leaderboardEntry]);
+        
+        // Mettre également à jour le cache local des scores pour une récupération rapide
+        this.scoreCache[scoreData.userId] = {
+          score: scoreData.score,
+          timestamp: Date.now()
+        };
+        
+        // Mettre à jour le lastSuccessfulLeaderboard pour éviter les régressions
+        this.lastSuccessfulLeaderboard = [...this.leaderboard];
+        
+        // Forcer la détection de changements pour mettre à jour l'UI immédiatement
+        this.cdr.detectChanges();
+      }
+    });
+    this.subscriptions.push(userScoreSub);
+    
+    // Premier rafraîchissement immédiat
+    setTimeout(() => {
+      // Rafraîchissement initial des scores
+      this.forceLeaderboardUpdate('rafraîchissement initial');
+    }, 500);
+    
+    // Configurer le rafraîchissement périodique avec intervalle adaptatif
+    setInterval(() => {
+      // Déterminer l'intervalle et la priorité en fonction de l'étape actuelle
+      if (this.step === 'result') {
+        // Rafraîchissement périodique des scores pour l'étape résultat
+        this.forceLeaderboardUpdate('rafraîchissement périodique - résultat');
+        
+        // Programmation d'une deuxième mise à jour différée pour s'assurer que les changements sont pris en compte
+        setTimeout(() => {
+          this.forceLeaderboardUpdate('rafraîchissement secondaire - résultat');
+        }, 700);
+      } else if (this.step === 'end') {
+        // Rafraîchissement périodique des scores pour l'étape finale
+        this.forceLeaderboardUpdate('rafraîchissement périodique - fin');
+      } else if (this.step === 'question') {
+        // Rafraîchissement des scores pendant l'étape question
+        this.forceLeaderboardUpdate('rafraîchissement périodique - question');
+      }
+    }, 2000); // Intervalle de base réduit à 2 secondes pour plus de réactivité
+    
+    // CORRECTION FINALE: S'abonner aux mises à jour du cache
+    const cacheSubscription = this.leaderboardCacheService.lastSuccessfulLeaderboard$.subscribe(cachedLeaderboard => {
+      if (cachedLeaderboard.length > 0 && this.step === 'result' && 
+          (!this.leaderboard.length || !this.leaderboard.some(entry => entry.score > 0))) {
+        // Réception et traitement des données cachées
+        this.leaderboard = JSON.parse(JSON.stringify(cachedLeaderboard));
+        this.cdr.detectChanges();
+      }
+    });
+    this.subscriptions.push(cacheSubscription);
+    
+    // Configuration du traitement des erreurs non gérées pour le diagnostic
+    window.addEventListener('error', (event) => {
+      console.error('[PRESENTATION][ERROR-HANDLER] Erreur non gérée:', event.error);
+    });
+    
+    // ÉTAPE 1: Restauration immédiate depuis le cache local pour éviter l'écran vide
+    try {
+      console.log('[PRESENTATION] ÉTAPE 1: Restauration initiale du cache...');
+      const cachedParticipantsStr = localStorage.getItem('presentation_participants_cache');
+      const cachedLeaderboardStr = localStorage.getItem('leaderboard_cache');
+      
+      // CORRECTION FINALE: Restaurer également le cache du leaderboard
+      if (cachedLeaderboardStr) {
+        try {
+          const parsedLeaderboard = JSON.parse(cachedLeaderboardStr);
+          if (Array.isArray(parsedLeaderboard) && parsedLeaderboard.length > 0) {
+            // Restauration des entrées depuis le cache local
+            this.lastSuccessfulLeaderboard = parsedLeaderboard;
+            
+            // Reconstruire le cache des scores à partir du leaderboard restauré
+            parsedLeaderboard.forEach(entry => {
+              if (entry.score > 0) {
+                this.scoreCache[entry.id] = {
+                  score: entry.score,
+                  timestamp: Date.now() // Utiliser l'horodatage actuel
+                };
+              }
+            });
+          }
+        } catch (error) {
+          // Gestion silencieuse des erreurs de cache
+        }
+      }
+      
+      if (cachedParticipantsStr) {
+        try {
+          const parsedParticipants = JSON.parse(cachedParticipantsStr);
+          if (Array.isArray(parsedParticipants) && parsedParticipants.length > 0) {
+            console.log(`[PRESENTATION] ${parsedParticipants.length} participants restaurés depuis le cache local au démarrage`);
+            this.participants = [...parsedParticipants]; // Copie profonde pour éviter les références
+            // Forcer la mise à jour immédiate de l'UI
+            this.cdr.detectChanges();
+            
+            // Marquer une variable pour indiquer que nous avons déjà des participants du cache
+            this.cachedParticipantsLoaded = true;
+          }
+        } catch (parseError) {
+          console.warn('[PRESENTATION] Erreur lors du parsing du cache initial des participants:', parseError);
+        }
+      } else {
+        console.log('[PRESENTATION] Aucun cache de participants disponible au démarrage');
+      }
+    } catch (cacheError) {
+      console.warn('[PRESENTATION] Erreur lors de la lecture du cache initial des participants:', cacheError);
+    }
+    
+    // ÉTAPE 2: Synchronisation avec l'état du serveur
+    try {
+      console.log('[PRESENTATION] ÉTAPE 2: Récupération de l\'état du serveur...');
+      const serverState = await this.quizService.getGameState();
+      console.log('[PRESENTATION] État du serveur récupéré:', serverState);
+      
+      // ÉTAPE 3: Synchronisation complète
+      console.log('[PRESENTATION] ÉTAPE 3: Synchronisation complète...');
+      await this.synchronizeWithServer(serverState || { step: 'lobby' });
+      
+      // ÉTAPE 4: Vérification de l'état sauvegardé
+      if ((!serverState || serverState.step === 'lobby') && this.quizService.canRestoreGameState()) {
+        console.log('[PRESENTATION] État sauvegardé disponible, affichage du dialogue de restauration');
+        this.showRestoreDialog = true;
+        this.modalStartTime = Date.now();
+        this.buttonsEnabled = false;
+        setTimeout(() => {
+          this.buttonsEnabled = true;
+        }, this.minModalDisplayTime);
+      }
+      
+      // ÉTAPE 5: Vérification finale des participants
+      console.log('[PRESENTATION] ÉTAPE 5: Vérification finale des participants...');
+      if (this.participants.length === 0) {
+        console.warn('[PRESENTATION] Après initialisation, la liste des participants est toujours vide');
+        
+        // Dernier essai de récupération des participants
+        try {
+          console.log('[PRESENTATION] Tentative finale de récupération des participants...');
+          const finalAttemptParticipants = await this.quizService.fetchParticipantsFromServer();
+          
+          if (finalAttemptParticipants && Array.isArray(finalAttemptParticipants) && finalAttemptParticipants.length > 0) {
+            console.log(`[PRESENTATION] ${finalAttemptParticipants.length} participants récupérés lors de la vérification finale`);
+            this.participants = finalAttemptParticipants;
+            this.cdr.detectChanges();
+            
+            // Mise à jour du cache
+            try {
+              localStorage.setItem('presentation_participants_cache', JSON.stringify(finalAttemptParticipants));
+            } catch (cacheError) {
+              console.warn('[PRESENTATION] Erreur lors de la mise à jour du cache final:', cacheError);
+            }
+          } else {
+            console.warn('[PRESENTATION] La vérification finale n\'a retourné aucun participant');
+          }
+        } catch (finalError) {
+          console.warn('[PRESENTATION] Erreur lors de la vérification finale des participants:', finalError);
+        }
+      }
+      
+      // Forcer une mise à jour finale de l'interface
+      this.cdr.detectChanges();
+      
+    } catch (error) {
+      console.error('[PRESENTATION] Erreur lors de l\'initialisation:', error);
+      
+      // En cas d'erreur, essayer une approche de secours
+      try {
+        console.log('[PRESENTATION] Tentative de récupération de secours...');
+        const fallbackState = await this.quizService.getGameState();
+        await this.synchronizeWithServer(fallbackState || { step: 'lobby' });
+      } catch (innerError) {
+        console.error('[PRESENTATION] Erreur de fallback:', innerError);
+        
+        // En dernier recours, initialiser les souscriptions et restaurer depuis le cache
+        console.log('[PRESENTATION] Dernier recours: initialisation des souscriptions et restauration du cache');
+        this.initializeSubscriptions(true);
+        this.restoreParticipantsFromCache();
+      }
+    }
+    
+    // Démarrer un intervalle pour surveiller la présence de participants
+    this.startParticipantsWatchdog();
+  }
+  
+  // Propriété pour suivre l'état de chargement du cache
+  private cachedParticipantsLoaded = false;
+  
+  // Méthode pour surveiller la présence de participants
+  private participantsWatchdogInterval: any;
+  
+  private startParticipantsWatchdog() {
+    // Nettoyer l'intervalle existant si nécessaire
+    if (this.participantsWatchdogInterval) {
+      clearInterval(this.participantsWatchdogInterval);
+    }
+    
+    // Créer un nouvel intervalle qui vérifie périodiquement la présence de participants
+    this.participantsWatchdogInterval = setInterval(() => {
+      // Ne vérifier que si nous sommes en phase lobby ou waiting
+      if ((this.step === 'lobby' || this.step === 'waiting') && this.participants.length === 0) {
+        console.log('[PRESENTATION][WATCHDOG] Aucun participant détecté, tentative de récupération...');
+        // Tenter de récupérer les participants sans perturber l'expérience utilisateur
+        this.refreshParticipants().catch(error => {
+          console.warn('[PRESENTATION][WATCHDOG] Erreur lors de la récupération des participants:', error);
+        });
+      }
+    }, 15000); // Vérifier toutes les 15 secondes
+  }
+
+  private async initializeNewGame() {
+    console.log('[PRESENTATION] Initialisation d\'une nouvelle partie (uniquement si confirmé par l\'utilisateur)');
+    
+    // Initialiser les questions localement sans modifier l'état du serveur
+    await this.quizService.initQuestions();
+    
+    try {
+      // Vérifier l'état actuel du serveur
+      const currentState = await this.quizService.getGameState();
+      
+      // Ne modifier l'état serveur que si c'est une nouvelle partie explicitement demandée
+      // ou si aucun état n'existe sur le serveur
+      if (!currentState || !currentState.step) {
+        console.log('[PRESENTATION] Aucun état existant sur le serveur, création d\'un nouvel état');
+        this.step = 'lobby';
+        await this.quizService.setStep('lobby');
+        this.quizService.initGameState();
+      } else {
+        console.log('[PRESENTATION] État existant sur le serveur, synchronisation sans modification');
+        this.step = currentState.step;
+      }
+      
+      // Récupérer les participants sans réinitialiser
+      await this.quizService.fetchParticipantsFromServer();
+    } catch (error) {
+      console.error('[PRESENTATION] Erreur lors de l\'initialisation d\'une nouvelle partie:', error);
+    }
+    
+    // Initialiser les souscriptions
+    this.initializeSubscriptions();
+  }
+
+  // Méthode pour synchroniser avec les modifications côté gestion
+  async synchronizeWithManagement(): Promise<void> {
+    console.log('[PRESENTATION] Synchronisation avec les modifications côté gestion...');
+
+    // Démarrer l'état de synchronisation
+    this.isSynchronizing = true;
+    this.synchronizationSuccess = false;
+    this.synchronizationMessage = 'Synchronisation en cours...';
+
+    try {
+      // Étape 1: Synchroniser les questions et reset les données
+      this.synchronizationMessage = 'Rechargement des questions...';
+      await this.quizService.synchronizeAfterChanges();
+
+      // Étape 2: Déclencher la synchronisation côté joueur via WebSocket
+      this.synchronizationMessage = 'Notification des joueurs...';
+      await this.triggerPlayerQuestionsSync();
+
+      // Étape 3: Réinitialiser l'état local
+      this.synchronizationMessage = 'Réinitialisation de l\'état local...';
+      await new Promise(resolve => setTimeout(resolve, 500)); // Délai pour l'UX
+
+      this.currentIndex = 0;
+      this.currentQuestion = this.quizService.getCurrentQuestion(0);
+      this.leaderboard = [];
+      this.questionStartTimes = {};
+      this.goodAnswersTimesByUser = {};
+
+      // Étape 4: Retourner au lobby
+      this.synchronizationMessage = 'Retour au lobby...';
+      this.step = 'lobby';
+      this.quizService.setStep('lobby');
+
+      // Succès
+      this.synchronizationMessage = '✅ Synchronisation terminée avec succès !';
+      this.synchronizationSuccess = true;
+
+      console.log('[PRESENTATION] Synchronisation terminée, retour au lobby');
+
+      // Masquer le message de succès après 3 secondes
+      setTimeout(() => {
+        this.isSynchronizing = false;
+        this.synchronizationMessage = '';
+        this.synchronizationSuccess = false;
+      }, 3000);
+
+    } catch (error) {
+      console.error('[PRESENTATION] Erreur lors de la synchronisation:', error);
+
+      // Affichage d'erreur
+      this.synchronizationMessage = '❌ Erreur lors de la synchronisation';
+      this.synchronizationSuccess = false;
+
+      // Masquer le message d'erreur après 5 secondes
+      setTimeout(() => {
+        this.isSynchronizing = false;
+        this.synchronizationMessage = '';
+      }, 5000);
+    }
+  }
+
+  // Méthode pour déclencher la synchronisation des questions côté joueur
+  private async triggerPlayerQuestionsSync(): Promise<void> {
+    try {
+      console.log('[PRESENTATION] Déclenchement sync questions via WebSocket...');
+      console.log('[PRESENTATION] URL appelée:', `${this.apiUrl}/quiz/sync-questions`);
+
+      const response = await firstValueFrom(
+        this.http.post<any>(`${this.apiUrl}/quiz/sync-questions`, {})
+      );
+
+      console.log('[PRESENTATION] Réponse serveur sync questions:', response);
+
+      if (response?.success) {
+        console.log('[PRESENTATION] Sync questions WebSocket déclenchée avec succès');
+      } else {
+        console.warn('[PRESENTATION] Réponse inattendue du serveur pour sync questions:', response);
+      }
+
+    } catch (error) {
+      console.error('[PRESENTATION] Erreur lors du déclenchement sync questions:', error);
+      // Ne pas faire échouer toute la synchronisation pour cette erreur
+    }
+  }
+
+  // Méthode pour nettoyer toutes les ressources (appelée à la fois dans ngOnDestroy et dans restartGame)
+  private cleanupResources(saveParticipants: boolean = true) {
+    console.log('[PRESENTATION] Nettoyage des ressources...');
+    
+    // Nettoyage des souscriptions pour éviter les fuites mémoire
+    if (this.subscriptions && this.subscriptions.length > 0) {
+      console.log(`[PRESENTATION] Nettoyage de ${this.subscriptions.length} souscriptions principales`);
+      this.subscriptions.forEach(sub => {
+        if (sub && typeof sub.unsubscribe === 'function') {
+          sub.unsubscribe();
+        }
+      });
+      this.subscriptions = [];
+    }
+
+    // Nettoyage des autres souscriptions
+    if (this.answersCountSub) {
+      this.answersCountSub.unsubscribe();
+      this.answersCountSub = undefined;
+      console.log('[PRESENTATION] Nettoyage de answersCountSub');
+    }
+    
+    if (this.timerSub) {
+      this.timerSub.unsubscribe();
+      this.timerSub = undefined;
+      console.log('[PRESENTATION] Nettoyage de timerSub');
+    }
+
+    // Nettoyage de l'intervalle de diagnostic
+    if (this.diagnosticInterval) {
+      clearInterval(this.diagnosticInterval);
+      this.diagnosticInterval = undefined;
+      console.log('[PRESENTATION] Nettoyage de diagnosticInterval');
+    }
+    
+    // Nettoyage de l'intervalle de rafraîchissement des participants
+    if (this.lobbyRefreshInterval) {
+      clearInterval(this.lobbyRefreshInterval);
+      this.lobbyRefreshInterval = undefined;
+      console.log('[PRESENTATION] Nettoyage de lobbyRefreshInterval');
+    }
+    
+    // Nettoyage du watchdog des participants
+    if (this.participantsWatchdogInterval) {
+      clearInterval(this.participantsWatchdogInterval);
+      this.participantsWatchdogInterval = undefined;
+      console.log('[PRESENTATION] Nettoyage de participantsWatchdogInterval');
+    }
+    
+    // Nettoyage de l'intervalle de rafraîchissement du leaderboard
+    if (this.leaderboardRefreshInterval) {
+      clearInterval(this.leaderboardRefreshInterval);
+      this.leaderboardRefreshInterval = undefined;
+      console.log('[PRESENTATION] Nettoyage de leaderboardRefreshInterval');
+    }
+    
+    // Nettoyage de la connexion WebSocket si possible
+    try {
+      if (this.websocketTimerService) {
+        // Utiliser disconnect() puis forcer une reconnexion implicite lors du prochain accès
+        this.websocketTimerService.disconnect();
+        console.log('[PRESENTATION] Déconnexion WebSocket forcée');
+      }
+    } catch (wsError) {
+      console.warn('[PRESENTATION] Erreur lors de la déconnexion WebSocket:', wsError);
+    }
+    
+    // Sauvegarde de la liste des participants avant destruction, si demandé
+    if (saveParticipants) {
+      try {
+        if (this.participants && this.participants.length > 0) {
+          console.log(`[PRESENTATION] Sauvegarde de ${this.participants.length} participants dans le cache avant destruction`);
+          localStorage.setItem('presentation_participants_cache', JSON.stringify(this.participants));
+        }
+      } catch (error) {
+        console.warn('[PRESENTATION] Erreur lors de la sauvegarde du cache avant destruction:', error);
+      }
+    }
+    
+    // Nettoyage de la caméra si active
+    this.stopCamera();
+    
+    console.log('[PRESENTATION] Nettoyage des ressources terminé');
+  }
+
+  ngOnDestroy() {
+    console.log('[PRESENTATION] Destruction du composant...');
+    // Utiliser la méthode commune de nettoyage des ressources
+    this.cleanupResources(true);
+    console.log('[PRESENTATION] Nettoyage du composant terminé');
+  }
+  participants: User[] = [];
+  currentIndex: number = 0;
+  currentQuestion: Question | null = null;
+  answersCount: number[] = [];
+  answersCountSub?: Subscription;
+  leaderboard: LeaderboardEntry[] = [];
+  // Pour le départage par vitesse de réponse
+  questionStartTimes: { [key: string]: number } = {};
+  // Stocke le temps de chaque bonne réponse par participant (clé: userId, valeur: tableau des temps)
+  goodAnswersTimesByUser: { [userId: string]: number[] } = {};
+  
+  // Méthode pour obtenir le nombre total de questions
+  public getTotalQuestions(): number {
+    return this.quizService.getQuestions().length || 3; // Fallback à 3 questions si vide
+  }
+  
+  // Méthode pour obtenir le score d'un utilisateur (avec vérification supplémentaire)
+  public getUserScore(user: LeaderboardEntry): number {
+    // Récupérer le score du leaderboard
+    const leaderboardScore = user.score || 0;
+    
+    // Récupérer le score du cache pour comparaison
+    const cachedScore = this.leaderboardCacheService.getCachedScore(user.id);
+    
+    // Retourner le score le plus élevé entre les deux sources
+    const finalScore = Math.max(leaderboardScore, cachedScore);
+    
+    // Log pour débogage
+    if (leaderboardScore !== cachedScore) {
+      console.log(`[SCORE] Différence de score pour ${user.name}: leaderboard=${leaderboardScore}, cache=${cachedScore}, final=${finalScore}`);
+    }
+    
+    return finalScore;
+  }
+  
+  // Méthode pour forcer le rafraîchissement du leaderboard
+  public forceRefreshLeaderboard(): void {
+    // Forcer la mise à jour du leaderboard et invalider les caches
+    this.leaderboard = [];
+    this.scoreCache = {};
+    // Forcer le rechargement des données en cache
+    const cachedLeaderboard = this.leaderboardCacheService.getCachedLeaderboard();
+    if (cachedLeaderboard && cachedLeaderboard.length > 0) {
+      // Rafraîchir d'abord avec le cache puis avec les données en direct
+      this.leaderboard = [...cachedLeaderboard];
+      this.cdr.detectChanges();
+    }
+    // Appeler updateLeaderboard avec un court délai pour éviter les collisions
+    setTimeout(() => this.updateLeaderboard(), 100);
+  }
+
+  // Gestion des souscriptions pour éviter les fuites mémoire
+  private subscriptions: Subscription[] = [];
+
+  // Système de loading pour synchroniser avec les joueurs
+  isLoading: boolean = false;
+  loadingMessage: string = '';
+  loadingType: string = '';
+
+  // Flag pour éviter les logs excessifs
+  private debugMode = false;
+
+  // Référence pour l'intervalle de diagnostic
+  private diagnosticInterval?: any;
+
+  // Gestion des images pour éviter le flash
+  imageLoaded: boolean = false;
+  resultImageLoaded: boolean = false;
+  // Flag pour forcer la disparition immédiate des images
+  hideImages: boolean = false;
+
+  // Retourne le temps total des bonnes réponses pour un user
+  // (méthode unique, suppression du doublon)
+  windowLocation = window.location.origin;
+  timerValue: number = 20;
+  timerMax: number = 20; // Durée du timer en secondes, synchronisée avec timerValue
+  timerActive: boolean = false; // État d'activation du timer pour l'affichage visuel
+
+  // Contrôle manuel du timer
+  timerStartedManually: boolean = false;
+
+  // Propriétés pour le cache du leaderboard
+  lastSuccessfulLeaderboard: LeaderboardEntry[] = [];
+  scoreCache: { [userId: string]: {score: number, timestamp: number} } = {};
+
+  // État de synchronisation des questions
+  isSynchronizing: boolean = false;
+  synchronizationMessage: string = '';
+  synchronizationSuccess: boolean = false;
+
+  // Propriétés pour la photo de groupe
+  cameraStream: MediaStream | null = null;
+  cameraActive: boolean = false;
+  cameraReady: boolean = false;
+  showCameraModal: boolean = false;
+  photoTaken: boolean = false;
+  timerSub?: Subscription;
+  totalAnswers: number = 0;
+  totalGood: number = 0;
+  totalBad: number = 0;
+  voters: {id: any, name: any}[] = [];
+  
+  // Intervalle de rafraîchissement périodique du leaderboard
+  private leaderboardRefreshInterval?: any;
+
+  // Affichage temps formaté (mm:ss si > 60s, sinon ss.s)
+  public formatTime(ms: number): string {
+    if (!ms || ms < 0) return '';
+    const totalSeconds = Math.floor(ms / 1000);
+    if (totalSeconds < 60) {
+      return (ms / 1000).toFixed(2) + ' s';
+    } else {
+      const minutes = Math.floor(totalSeconds / 60);
+      const seconds = totalSeconds % 60;
+      // Affichage sans centièmes pour plus de lisibilité
+      return `${minutes} min ${seconds.toString().padStart(2, '0')} s`;
+    }
+  }
+
+  canShowEndButton(): boolean {
+    return this.currentIndex === (this.quizService.getQuestions().length - 1) && this.step !== 'end';
+  }
+
+  get totalQuestions(): number {
+    return this.quizService.getQuestions().length;
+  }
+
+  get currentQuestionNumber(): string {
+    const questionNum = (this.currentIndex + 1).toString().padStart(2, '0');
+    const totalQuestions = this.totalQuestions.toString().padStart(2, '0');
+    return `${questionNum} sur ${totalQuestions}`;
+  }
+
+  private readonly apiUrl = environment.apiUrl;
+
+  constructor(
+    public quizService: QuizService,
+    private timerService: TimerService,
+    private cdr: ChangeDetectorRef,
+    public adminAuthService: AdminAuthService,
+    private router: Router,
+    private websocketTimerService: WebSocketTimerService,
+    private http: HttpClient,
+    private userStateService: UserStateService,
+    private leaderboardCacheService: LeaderboardCacheService
+  ) {
+    // Initialiser les souscriptions immédiatement pour assurer la synchronisation
+    this.initializeSubscriptions();
+  }
+
+  private initializeSubscriptions(force: boolean = false) {
+    // Éviter la duplication des souscriptions sauf si forcé
+    if (this.subscriptions.length > 0 && !force) {
+      console.log('⚠️  Souscriptions déjà initialisées, ignorer');
+      return;
+    }
+
+    // Si forcé, nettoyer d'abord les anciennes souscriptions
+    if (force && this.subscriptions.length > 0) {
+      console.log('🔄 Nettoyage des anciennes souscriptions avant réinitialisation');
+      this.subscriptions.forEach(sub => {
+        if (sub && typeof sub.unsubscribe === 'function') {
+          sub.unsubscribe();
+        }
+      });
+      this.subscriptions = [];
+    }
+
+    console.log('🔄 Initialisation des souscriptions...');
+    
+    // S'abonner au signal de reset explicite des participants
+    const resetSub = this.quizService.participantsReset$.subscribe(reset => {
+      if (reset) {
+        console.log('[PRESENTATION] Signal de reset participants reçu, vidage de la liste');
+        this.participants = [];
+        try {
+          localStorage.removeItem('presentation_participants_cache');
+        } catch (e) {}
+        this.cdr.detectChanges();
+      }
+    });
+    this.subscriptions.push(resetSub);
+
+    // ✅ S'abonner aux changements de questions
+    const questionsSub = this.quizService.questions$.subscribe(questions => {
+      if (questions.length > 0) {
+        console.log(`[PRESENTATION-QUESTIONS] Nouvelle liste de questions reçue: ${questions.length} questions`);
+
+        // Mettre à jour la question courante si elle a changé
+        const newCurrentQuestion = this.quizService.getCurrentQuestion(this.currentIndex);
+        if (newCurrentQuestion &&
+            (!this.currentQuestion || this.currentQuestion.id !== newCurrentQuestion.id)) {
+
+          console.log(`[PRESENTATION-QUESTIONS] Question ${this.currentIndex} mise à jour:`, {
+            ancien: this.currentQuestion?.text?.substring(0, 50) + '...',
+            nouveau: newCurrentQuestion.text?.substring(0, 50) + '...'
+          });
+
+          this.currentQuestion = newCurrentQuestion;
+        }
+      }
+    });
+    this.subscriptions.push(questionsSub);
+
+    // ✅ S'abonner aux transitions d'étapes synchronisées via WebSocket
+    const stepTransitionSub = this.websocketTimerService.getStepTransitions().subscribe(transitionData => {
+      console.log('[PRESENTATION][STEP-WS] Transition reçue:', transitionData);
+      this.showLoadingForTransition('question-start'); // Type par défaut pour les transitions
+    });
+    this.subscriptions.push(stepTransitionSub);
+
+    const stepActivationSub = this.websocketTimerService.getStepActivations().subscribe(activationData => {
+      console.log('[PRESENTATION][STEP-WS] Activation reçue:', activationData);
+
+      // Gestion structure imbriquée
+      let stepValue = activationData.step;
+      const rawData = activationData as any;
+      if (!stepValue && rawData.data && rawData.data.step) {
+        stepValue = rawData.data.step;
+        console.log('[PRESENTATION][STEP-WS] Étape extraite de structure imbriquée:', stepValue);
+      }
+
+      console.log('[PRESENTATION][STEP-WS] Étape finale:', stepValue);
+
+      this.isLoading = false;
+      this.step = stepValue as QuizStep;
+
+      // Actions spécifiques aux étapes après activation synchronisée
+      this.handleStepActivationPresentation(stepValue as QuizStep);
+
+      this.refresh();
+      this.cdr.detectChanges();
+    });
+    this.subscriptions.push(stepActivationSub);
+
+    // Synchro temps réel de l'étape du quiz (fallback pour compatibilité)
+    let lastStep: string | null = null;
+    const stepSub = this.quizService.getStep().subscribe(step => {
+      if (!step || step === lastStep) return;
+
+      console.log('[PRESENTATION][STEP-FALLBACK] Changement d\'étape :', lastStep, '->', step);
+      lastStep = step;
+
+      // Changement direct si WebSocket ne fonctionne pas
+      this.step = step as QuizStep;
+      this.handleStepActivationPresentation(step as QuizStep);
+      this.refresh();
+      this.cdr.detectChanges();
+    });
+    this.subscriptions.push(stepSub);
+
+    // Synchro temps réel de l'index de la question
+    const indexSub = this.quizService.getCurrentIndex().subscribe(async idx => {
+      const previousIndex = this.currentIndex;
+      this.currentIndex = idx;
+
+      // Reset image states immediately when index changes to prevent flash
+      if (previousIndex !== idx) {
+        this.imageLoaded = false;
+        this.resultImageLoaded = false;
+        this.hideImages = false; // Allow images to show again for new question
+        // Force immediate UI update to hide images instantly
+        this.cdr.detectChanges();
+        console.log('[DEBUG][INDEX] Image states reset for index change:', previousIndex, '->', idx);
+      }
+
+      await this.fetchQuestionStartTimes(); // Rafraîchit les timestamps à chaque question
+      this.refresh();
+      
+      // Synchro temps réel des votants pour la question courante
+      try {
+        const votersSub = this.quizService.getVoters$(idx).subscribe({
+          next: (voters: {id: any, name: any}[]) => {
+            if (voters && Array.isArray(voters)) {
+              this.voters = voters;
+            } else {
+              console.warn('[PRESENTATION] Format de votants invalide:', voters);
+              this.voters = [];
+            }
+          },
+          error: (err) => {
+            console.error('[PRESENTATION] Erreur dans la souscription des votants:', err);
+            this.voters = [];
+          }
+        });
+        this.subscriptions.push(votersSub);
+      } catch (error) {
+        console.error('[PRESENTATION] Erreur lors de la création de la souscription des votants:', error);
+      }
+
+      // Synchro temps réel du nombre de réponses par option
+      if (this.answersCountSub) {
+        this.answersCountSub.unsubscribe();
+        this.answersCountSub = undefined;
+      }
+      
+      try {
+        console.log('[DEBUG][SUBSCRIPTION] Starting getAnswersCount$ subscription for question:', idx);
+        this.answersCountSub = this.quizService.getAnswersCount$(idx).subscribe({
+          next: (counts) => {
+            if (counts && Array.isArray(counts)) {
+              console.log('[DEBUG][SUBSCRIPTION] getAnswersCount$ returned:', counts);
+              this.answersCount = counts;
+              this.refresh();
+            } else {
+              console.warn('[PRESENTATION] Format de comptage des réponses invalide:', counts);
+              this.answersCount = [];
+            }
+          },
+          error: (err) => {
+            console.error('[PRESENTATION] Erreur dans la souscription du comptage des réponses:', err);
+            this.answersCount = [];
+          }
+        });
+      } catch (error) {
+        console.error('[PRESENTATION] Erreur lors de la création de la souscription du comptage des réponses:', error);
+      }
+      
+      // Optimisé : calcul du leaderboard sans logs excessifs
+      this.updateLeaderboard();
+    });
+    this.subscriptions.push(indexSub);
+
+    // Synchro temps réel des inscrits - optimisé pour 60+ participants
+    try {
+      const participantsSub = this.quizService.getParticipants$().subscribe({
+        next: (participants) => {
+          if (!participants || !Array.isArray(participants)) {
+            console.warn('[PRESENTATION] Format de participants invalide:', participants);
+            return;
+          }
+          
+          const oldCount = this.participants.length;
+          
+          // CORRECTION MAJEURE: Vérification complète des participants pour synchronisation des scores
+          const hasNewParticipants = participants.some(p => !this.participants.find(oldP => oldP.id === p.id));
+          if (hasNewParticipants) {
+            // Nouveaux participants détectés, rafraîchissement du leaderboard
+            // Forcer une mise à jour du leaderboard avec les nouveaux participants
+            setTimeout(() => this.forceLeaderboardUpdate('nouveaux participants'), 500);
+          }
+          
+          // Eviter les fluctuations si la liste est vide temporairement
+          if (participants.length === 0 && oldCount > 0) {
+            console.log('[PRESENTATION] Liste participants temporairement vide - conservation de la liste précédente');
+            
+            // Vérifier avec le serveur avant de décider
+            this.quizService.fetchParticipantsFromServer().then(serverParticipants => {
+              if (serverParticipants.length === 0) {
+                // Dernière vérification avec le cache local avant de vider
+                const cachedParticipantsStr = localStorage.getItem('presentation_participants_cache');
+                if (cachedParticipantsStr) {
+                  try {
+                    const cachedList = JSON.parse(cachedParticipantsStr) as User[];
+                    if (Array.isArray(cachedList) && cachedList.length > 0) {
+                      console.log(`[PRESENTATION] Conservation des ${cachedList.length} participants du cache (serveur vide)`);
+                      // Ne pas vider si nous avons un cache
+                      return;
+                    }
+                  } catch (cacheError) {
+                    console.warn('[PRESENTATION] Erreur lors de la lecture du cache final:', cacheError);
+                  }
+                }
+                
+                console.log('[PRESENTATION] Le serveur confirme que la liste est vide, mise à jour');
+                this.participants = [];
+                this.cdr.detectChanges();
+              } else {
+                // Sinon utiliser la liste du serveur
+                console.log(`[PRESENTATION] Liste du serveur: ${serverParticipants.length} participants`);
+                this.participants = serverParticipants;
+                this.cdr.detectChanges();
+              }
+              this.updateLeaderboard();
+            }).catch(error => {
+              console.warn('[PRESENTATION] Erreur lors de la vérification des participants:', error);
+            });
+            return; // Ne pas vider la liste si elle était non-vide avant
+          }
+
+          // Copier les participants pour éviter les références
+          this.participants = [...participants];
+          const newCount = this.participants.length;
+
+          if (oldCount !== newCount) {
+            console.log(`[PRESENTATION] Participants: ${oldCount} → ${newCount}`);
+            this.cdr.detectChanges(); // Force la mise à jour de l'interface
+            
+            // Mettre à jour le cache si nous avons des participants
+            if (newCount > 0) {
+              try {
+                localStorage.setItem('presentation_participants_cache', JSON.stringify(this.participants));
+              } catch (cacheError) {
+                console.warn('[PRESENTATION] Erreur lors de la mise à jour du cache depuis l\'abonnement:', cacheError);
+              }
+            }
+          }
+
+          this.updateLeaderboard();
+        },
+        error: (err) => {
+          console.error('[PRESENTATION] Erreur dans la souscription des participants:', err);
+          
+          // En cas d'erreur, essayer de restaurer depuis le cache
+          this.restoreParticipantsFromCache();
+        }
+      });
+      this.subscriptions.push(participantsSub);
+    } catch (error) {
+      console.error('[PRESENTATION] Erreur lors de la création de la souscription des participants:', error);
+      
+      // En cas d'erreur de création, essayer de restaurer depuis le cache
+      this.restoreParticipantsFromCache();
+    }
+
+    // ✅ S'abonner aux mises à jour WebSocket du timer pour la synchronisation visuelle côté présentation
+    const timerWebSocketSub = this.websocketTimerService.getCountdown().subscribe({
+      next: (timerState) => {
+        console.log('[PRESENTATION][TIMER-WS] Timer update reçu:', timerState);
+
+        // Mettre à jour l'affichage du timer côté présentation quand il est actif
+        if (timerState.questionStartTime && timerState.questionStartTime > 0 && this.step === 'question') {
+          this.timerValue = timerState.timeRemaining;
+          this.timerMax = timerState.timerMax;
+          this.timerActive = timerState.isActive;
+
+          // Si le timer est démarré côté serveur, marquer comme démarré manuellement
+          if (!this.timerStartedManually) {
+            this.timerStartedManually = true;
+            console.log('[PRESENTATION][TIMER-WS] Timer démarré détecté, timerStartedManually = true');
+          }
+
+          // Mise à jour visuelle immédiate
+          this.cdr.detectChanges();
+
+          console.log('[PRESENTATION][TIMER-WS] Timer visuel mis à jour:', {
+            timeRemaining: this.timerValue,
+            isActive: this.timerActive,
+            timerMax: this.timerMax
+          });
+        } else if (timerState.questionStartTime === 0 && this.step === 'question') {
+          // Timer pas encore démarré, réinitialiser l'affichage
+          this.timerActive = false;
+          this.timerValue = timerState.timerMax || 20;
+          this.timerStartedManually = false;
+          console.log('[PRESENTATION][TIMER-WS] Timer en attente, timerStartedManually = false');
+          this.cdr.detectChanges();
+        }
+      },
+      error: (err) => {
+        console.error('[PRESENTATION] Erreur dans la souscription du timer WebSocket:', err);
+      }
+    });
+    this.subscriptions.push(timerWebSocketSub);
+  }
+
+  // Retourne le temps total des bonnes réponses pour un user
+  public getTotalGoodAnswersTime(userId: string): number {
+    const arr = this.goodAnswersTimesByUser[userId] || [];
+    return arr.reduce((sum, t) => sum + (t || 0), 0);
+  }
+  
+  // Méthode pour vérifier si le score d'un joueur a changé récemment
+  public hasScoreChanged(playerId: string): boolean {
+    if (!this.lastSuccessfulLeaderboard || !this.scoreCache) {
+      return false;
+    }
+    
+    // Trouver l'entrée actuelle dans le leaderboard
+    const currentEntry = this.leaderboard.find(entry => entry.id === playerId);
+    
+    // Trouver l'entrée précédente dans le dernier leaderboard réussi
+    const previousEntry = this.lastSuccessfulLeaderboard.find(entry => entry.id === playerId);
+    
+    // Récupérer les scores du cache également
+    const currentCachedScore = this.leaderboardCacheService.getCachedScore(playerId);
+    const previousCachedScore = previousEntry?.score || 0;
+    
+    // Vérifier si le score a changé (comparer à la fois les entrées de leaderboard et les scores en cache)
+    if (currentEntry && previousEntry) {
+      // Soit le score dans le leaderboard a augmenté
+      if (currentEntry.score > previousEntry.score) {
+        return true;
+      }
+      // Soit le score en cache a augmenté par rapport au précédent score connu
+      if (currentCachedScore > previousCachedScore) {
+        return true;
+      }
+    }
+    
+    return false;
+  }
+  
+  // Méthode pour forcer la mise à jour du leaderboard (utile après les résultats d'une question)
+  public forceLeaderboardUpdate(reason: string = 'demande manuelle') {
+    console.log(`[SCORE][FORCE-UPDATE] Forçage de la mise à jour du leaderboard: ${reason}`);
+    
+    // Vérification de l'état actuel du leaderboard
+    if (this.leaderboard.length > 0) {
+      const scoresNonNuls = this.leaderboard.filter(entry => entry.score > 0);
+      console.log(`[SCORE][FORCE-UPDATE] État actuel: ${scoresNonNuls.length}/${this.leaderboard.length} joueurs avec score > 0`);
+    }
+    
+    // Rafraîchissement des données des participants pour s'assurer d'avoir tous les joueurs
+    this.refreshParticipants().catch(error => {
+      console.warn('[SCORE][FORCE-UPDATE] Erreur lors du rafraîchissement des participants:', error);
+    });
+    
+    // Vérification et restauration du cache si nécessaire (étapes résultat et fin)
+    if (this.step === 'result' || this.step === 'end') {
+      const hasScores = this.leaderboard.some(entry => entry.score > 0);
+      const hasCache = this.lastSuccessfulLeaderboard.length > 0;
+      
+      if (!hasScores && hasCache) {
+        console.log('[SCORE][FORCE-UPDATE] Restauration depuis le cache car aucun score > 0');
+        this.leaderboard = JSON.parse(JSON.stringify(this.lastSuccessfulLeaderboard));
+        this.cdr.detectChanges();
+      }
+    }
+    
+    // Premier appel immédiat de la mise à jour
+    this.updateLeaderboard();
+    console.log('[SCORE][FORCE-UPDATE] Premier appel updateLeaderboard effectué');
+    
+    // Cycle de vérifications multiples avec délais croissants
+    const cycles = [
+      { delay: 200, label: 'cycle rapide' },
+      { delay: 500, label: 'cycle intermédiaire' },
+      { delay: 1000, label: 'cycle final' }
+    ];
+    
+    cycles.forEach(cycle => {
+      setTimeout(() => {
+        console.log(`[SCORE][FORCE-UPDATE] Exécution ${cycle.label} (${cycle.delay}ms)`);
+        this.updateLeaderboard();
+        this.cdr.detectChanges();
+        
+        // Logs des scores après mise à jour
+        const scoresPositifs = this.leaderboard.filter(entry => entry.score > 0).length;
+        console.log(`[SCORE][FORCE-UPDATE] Après ${cycle.label}: ${scoresPositifs}/${this.leaderboard.length} joueurs avec score > 0`);
+      }, cycle.delay);
+    });
+    
+    // Mise à jour finale après un délai plus long pour s'assurer que toutes les données sont traitées
+    setTimeout(() => {
+      console.log('[SCORE][FORCE-UPDATE] Mise à jour finale après délai long');
+      this.updateLeaderboard();
+      this.cdr.detectChanges();
+    }, 1500);
+  }
+
+  // Méthode optimisée pour mettre à jour le leaderboard sans logs excessifs
+  private updateLeaderboard(): void {
+    // Si pas de participants, essayer de charger depuis le cache avant d'abandonner
+    if (this.participants.length === 0) {
+      const cachedLeaderboard = this.leaderboardCacheService.getCachedLeaderboard();
+      if (cachedLeaderboard && cachedLeaderboard.length > 0) {
+        this.leaderboard = [...cachedLeaderboard];
+        this.cdr.detectChanges();
+        return;
+      }
+      this.leaderboard = [];
+      return;
+    }
+    
+    // Début de la mise à jour du tableau de classement
+    
+    // Log plus détaillé pour indiquer l'état actuel avant mise à jour
+    // Vérification silencieuse de l'état actuel
+
+    this.fetchQuestionStartTimes().then(() => {
+      const subscription = this.quizService.getAllAnswers$().subscribe((allAnswersDocs: any[]) => {
+        const nbQuestions = this.quizService.getQuestions().length;
+
+        // Si pas de questions, pas de leaderboard
+        if (nbQuestions === 0) {
+          this.leaderboard = [];
+          return;
+        }
+
+        // Mise à jour du classement silencieuse
+        
+        // Afficher les IDs des questions par rapport à leur index pour faciliter le débogage
+        const questionsMapping = this.quizService.getQuestions();
+        // Mapping des index aux IDs de questions (log supprimé)
+          
+        // CORRECTION: Analyser en détail les incohérences potentielles entre ID et index
+        const idMismatchDetails = questionsMapping
+          .map((q, idx) => ({ index: idx, id: q.id, correctIndex: q.correctIndex, hasMismatch: q.id !== idx }))
+          .filter(q => q.hasMismatch);
+          
+        if (idMismatchDetails.length > 0) {
+          // Détection silencieuse des incohérences entre ID et index
+        }
+      
+
+        // Vérifie qu'il y a au moins une réponse valide dans le jeu (pas forcément pour tous les participants)
+        let hasValidAnswer = false;
+        
+        // DEBUG: Afficher un résumé complet des documents de réponses
+        // Traitement silencieux des documents de réponses
+        
+        // Vérifier d'abord s'il y a des réponses valides dans les données reçues
+        if (this.totalAnswers > 0 && this.answersCount && this.answersCount.some(count => count > 0)) {
+          hasValidAnswer = true;
+          // Détection silencieuse des réponses
+        }
+        
+        // Si aucune réponse n'est détectée via answersCount, chercher dans les documents de réponses
+        if (!hasValidAnswer) {
+          for (const doc of allAnswersDocs) {
+            if (doc && doc.answers && doc.answers.length > 0) {
+              for (const answer of doc.answers) {
+                if (typeof answer.answerIndex !== 'undefined' && Number(answer.answerIndex) !== -1) {
+                  hasValidAnswer = true;
+                  // Réponse valide trouvée silencieusement
+                  break;
+                }
+              }
+              if (hasValidAnswer) break;
+            }
+          }
+        }
+        
+        if (!hasValidAnswer) {
+          this.leaderboard = [];
+          // Aucune réponse valide, leaderboard masqué
+          return;
+        }
+        
+        // Traitement des réponses valides et calcul du classement
+
+        // Log pour analyser la structure des données
+        const questions = this.quizService.getQuestions();
+        // Questions chargées pour le calcul du classement
+
+        // CORRECTION: Vérifier s'il y a une incohérence entre les IDs des questions et leur index
+        const hasIdMismatch = questions.some((q, idx) => q.id !== idx);
+        if (hasIdMismatch) {
+          // Vérification des IDs de questions vs index
+        }
+
+        const leaderboard: LeaderboardEntry[] = this.participants.map(user => {
+          let score = 0;
+          let totalTime = 0;
+          let goodTimes: number[] = [];
+
+          // Calcul du score pour chaque utilisateur
+
+          // Si nous sommes dans l'écran de résultat d'une question spécifique,
+          // on peut mettre en évidence les performances sur cette question
+          let currentQuestionCorrect = false;
+          
+          // DEBUG: Afficher un résumé complet pour ce joueur
+          // Analyse des réponses pour cet utilisateur
+          
+          for (let i = 0; i < nbQuestions; i++) {
+            // Trouver le document de réponse correspondant à cet index de question
+            // CORRECTION: Chercher par index i puisque les documents sont indexés par ordre de question (0, 1, 2...)
+            const docAns = allAnswersDocs.find((d: any) => Number(d.id) === i);
+            
+            // Log détaillé pour cette question
+            // Analyse silencieuse des documents de réponses
+            if (docAns && docAns.answers) {
+              // Filtrer les réponses pour cet utilisateur
+              const answers = docAns.answers.filter((a: any) => String(a.userId) === String(user.id));
+              if (answers.length > 0) {
+                // Prendre la dernière réponse (la plus récente)
+                const answer = answers[answers.length - 1];
+                
+                // CORRECTION: Récupérer la question par son index mais vérifier aussi son ID
+                // Les indices des questions dans le tableau peuvent ne pas correspondre à leurs IDs
+                const question = this.quizService.getCurrentQuestion(i);
+                if (!question) {
+                  // Question introuvable pour cet utilisateur
+                  continue; // Passer à la question suivante si celle-ci n'est pas trouvée
+                }
+
+                // CORRECTION: Logs plus détaillés pour faciliter le débogage
+                // Analyse silencieuse des détails de la question et de la réponse
+
+                // Vérification que la question et la réponse sont valides
+                if (question && typeof answer.answerIndex !== 'undefined') {
+                  
+                  // CORRECTION: Vérification stricte des types et conversion explicite
+                  const answerIdx = typeof answer.answerIndex === 'string' ? parseInt(answer.answerIndex) : Number(answer.answerIndex);
+                  const correctIdx = Number(question.correctIndex);
+                  
+                  // CORRECTION MAJEURE: Vérification améliorée avec plusieurs stratégies de comparaison
+                  const normalizedAnswerIdx = answerIdx;
+                  const normalizedCorrectIdx = correctIdx;
+                  
+                  // Plusieurs conditions de validité pour être plus flexible
+                  let isCorrect = false;
+                  let correctionStrategy = 'standard';
+                  
+                  // CORRECTION MAJEURE: Nouvelles stratégies de comparaison pour gérer les incohérences entre IDs et index
+                  
+                  // 1. Comparaison directe standard (après normalisation)
+                  if (!isNaN(normalizedAnswerIdx) && !isNaN(normalizedCorrectIdx) && normalizedAnswerIdx === normalizedCorrectIdx) {
+                    isCorrect = true;
+                    correctionStrategy = 'comparaison directe';
+                  }
+                  // 2. Comparaison additionelle en cas d'ID de question différent de l'index
+                  else if (question.id !== i && !isNaN(normalizedAnswerIdx) && !isNaN(normalizedCorrectIdx)) {
+                    // Si l'ID de question diffère de son index, essayer plusieurs stratégies
+                    
+                    // 2.1 Vérifier si l'answerIndex correspond à l'ID (cas le plus fréquent)
+                    if (normalizedAnswerIdx === Number(question.correctIndex)) {
+                      isCorrect = true;
+                      correctionStrategy = 'comparaison correctIndex';
+                    }
+                    // 2.2 Vérifier si l'answerIndex correspond à l'ID de la question (cas spécifique)
+                    else if (normalizedAnswerIdx === question.id && question.id === Number(question.correctIndex)) {
+                      isCorrect = true;
+                      correctionStrategy = 'comparaison ID';
+                    }
+                    // 2.3 Enfin, force la vérification directe par valeur pour les cas marginaux
+                    else if (answer.answerIndex !== undefined && 
+                             Number(answer.answerIndex) === Number(question.correctIndex)) {
+                      isCorrect = true;
+                      correctionStrategy = 'comparaison valeur';
+                    }
+                  }
+                  // 3. Comparaison supplémentaire pour traiter les cas particuliers
+                  else if (answer.answerIndex !== undefined && question.correctIndex !== undefined && 
+                          Number(answer.answerIndex) === Number(question.correctIndex)) {
+                    isCorrect = true;
+                    correctionStrategy = 'comparaison directe stricte';
+                  }
+                  
+                  // CORRECTION: Ajouter plus d'informations sur la question pour débogage
+                  // Analyse silencieuse des types de données pour la vérification des réponses
+                  
+                  // CORRECTION: Vérification plus stricte avec gestion des types et valeurs
+                  // Assurons-nous que les indices sont des nombres valides
+                  if (isCorrect) {
+                    // Incrémenter le score de façon plus explicite avec log pour faciliter le débogage
+                    score++;
+                    
+                    console.log(`[SCORE] Utilisateur ${user.name} (ID=${user.id}) a obtenu un point pour la question ${i} (ID=${question.id}). Stratégie: ${correctionStrategy}`);
+                    
+                    // CORRECTION FINALE: Mettre à jour le cache des scores pour cet utilisateur
+                    const currentCachedScore = this.leaderboardCacheService.getCachedScore(user.id);
+                    if (score > currentCachedScore) {
+                      console.log(`[SCORE] Mise à jour du score en cache pour ${user.name}: ${currentCachedScore} -> ${score}`);
+                      // Le score calculé est meilleur que celui en cache, le mettre à jour immédiatement
+                      // Mise à jour du cache pour un meilleur score
+                      // Mettre à jour directement le cache sans attendre la fin du calcul
+                      this.leaderboardCacheService.updateCache([{
+                        id: user.id,
+                        name: user.name,
+                        score: score,
+                        totalTime: totalTime,
+                        avatarUrl: user.avatarUrl
+                      }]);
+                      
+                      // Diffuser le nouveau score via WebSocket pour une synchronisation immédiate
+                      try {
+                        this.websocketTimerService.sendUserScore({
+                          userId: user.id,
+                          userName: user.name,
+                          score: score,
+                          questionIndex: i,
+                          avatarUrl: user.avatarUrl,
+                          timestamp: Date.now()
+                        });
+                        console.log(`[SCORE] Score ${score} diffusé via WebSocket pour ${user.name}`);
+                      } catch (wsError) {
+                        console.error(`[SCORE] Erreur envoi WebSocket pour ${user.name}:`, wsError);
+                      }
+                    }
+                  }
+                  
+                  // Log de debug amélioré pour voir l'incrémentation du score
+            // Traitement silencieux des réponses correctes
+                    
+                    // Log spécifique pour les utilisateurs ayant exactement 1 point (aide au débogage)
+                    if (score === 1) {
+                      // Premier point obtenu pour cet utilisateur
+                    }
+                    
+                    // Marquer spécifiquement si c'est la question courante qui est correcte
+                    if (i === this.currentIndex) {
+                      currentQuestionCorrect = true;
+                    }
+                    
+                    const qStart = this.questionStartTimes[i] ?? this.questionStartTimes[String(i)];
+                    if (answer.timestamp && qStart && answer.timestamp >= qStart) {
+                      const timeTaken = Math.min(answer.timestamp - qStart, 20000);
+                      goodTimes[i] = timeTaken;
+                      totalTime += timeTaken;
+                    }
+                  } else {
+                    // Log de debug pour voir les réponses incorrectes
+                    // Traitement silencieux des réponses incorrectes
+                    goodTimes[i] = undefined as any;
+                  }
+                }
+              } else {
+                goodTimes[i] = undefined as any;
+              }
+            } else {
+              goodTimes[i] = undefined as any;
+            }
+          }
+
+          // Finalisation du calcul du score
+
+          this.goodAnswersTimesByUser[user.id] = goodTimes;
+          
+          // AMÉLIORATION: Gestion prioritaire du calcul de score sur le cache
+          // Priorité 1: Toujours utiliser le score calculé s'il est non nul
+          if (score > 0) {
+            // Utilisation prioritaire du score calculé
+            
+            // Mettre à jour les caches avec le score calculé
+            const serviceCachedScore = this.leaderboardCacheService.getCachedScore(user.id);
+            const localCachedScore = this.scoreCache[user.id]?.score || 0;
+            
+            // Ne mettre à jour le cache que si le score calculé est plus grand
+            if (score > serviceCachedScore) {
+              // Mise à jour du cache service
+              // Ce cache sera mis à jour à la fin avec le leaderboard complet
+            }
+            
+            // Mettre à jour également le cache local
+            if (score > localCachedScore) {
+              this.scoreCache[user.id] = {
+                score: score,
+                timestamp: Date.now()
+              };
+              // Mise à jour du cache local
+            }
+          } 
+          // Priorité 2: Si score calculé est 0, vérifier les caches
+          else {
+            // Vérifier d'abord le cache du service
+            const serviceCachedScore = this.leaderboardCacheService.getCachedScore(user.id);
+            // Puis le cache local
+            const localCachedScore = this.scoreCache[user.id]?.score || 0;
+            
+            // Utiliser le meilleur score disponible dans les caches
+            const bestCachedScore = Math.max(serviceCachedScore, localCachedScore);
+            
+            if (bestCachedScore > 0) {
+              // Utilisation du cache pour score nul
+              score = bestCachedScore;
+            }
+          }
+          
+          return { 
+            id: user.id, 
+            name: user.name, 
+            avatarUrl: user.avatarUrl, 
+            score, 
+            totalTime,
+            // Ajouter un indicateur pour la question courante
+            currentQuestionCorrect
+          };
+        });
+
+        // CORRECTION MAJEURE: Vérification de l'état du leaderboard avant mise à jour
+        const previousLeaderboard = this.leaderboard || [];
+        
+        // Traiter les données de leaderboard avant assignation
+        const sortedLeaderboard = leaderboard.sort((a, b) => {
+          if (b.score !== a.score) return b.score - a.score;
+          return a.totalTime - b.totalTime;
+        });
+        
+        // Vérifier s'il y a des changements dans les scores
+        let scoresChanged = false;
+        if (previousLeaderboard.length !== sortedLeaderboard.length) {
+          scoresChanged = true;
+        } else {
+          for (let i = 0; i < sortedLeaderboard.length; i++) {
+            if (!previousLeaderboard[i] || previousLeaderboard[i].score !== sortedLeaderboard[i].score) {
+              scoresChanged = true;
+              // Changement de score détecté
+              break;
+            }
+          }
+        }
+        
+        // AMÉLIORATION: Logs détaillés avant mise à jour du leaderboard
+        // Comparaison silencieuse avant mise à jour
+        
+        // Comparer les scores actuels avec les nouveaux scores
+        if (this.leaderboard.length > 0) {
+          sortedLeaderboard.slice(0, Math.min(5, sortedLeaderboard.length)).forEach((newEntry, idx) => {
+            const oldEntry = this.leaderboard.find(e => e.id === newEntry.id);
+            if (oldEntry) {
+              const scoreChanged = oldEntry.score !== newEntry.score;
+              // Analyse silencieuse des changements de score
+            } else {
+              // Nouveau score initial détecté
+            }
+          });
+        } else {
+          // Aucun leaderboard précédent pour comparaison
+        }
+        
+        // CORRECTION MAJEURE: Préserver les scores WebSocket avant d'assigner le nouveau leaderboard
+        const webSocketScores: { [userId: string]: number } = {};
+        
+        // Conserver les scores actuels du leaderboard qui viennent du WebSocket
+        this.leaderboard.forEach(entry => {
+          const cachedScore = this.leaderboardCacheService.getCachedScore(entry.id);
+          if (cachedScore > 0) {
+            webSocketScores[entry.id] = cachedScore;
+            console.log(`[SCORE] Préservation du score WebSocket pour ${entry.name}: ${cachedScore}`);
+          }
+        });
+        
+        // Créer une copie profonde du nouveau leaderboard calculé
+        const newLeaderboard = JSON.parse(JSON.stringify(sortedLeaderboard));
+        
+        // Appliquer les scores WebSocket préservés au nouveau leaderboard
+        newLeaderboard.forEach((entry: LeaderboardEntry) => {
+          if (webSocketScores[entry.id] !== undefined && webSocketScores[entry.id] > entry.score) {
+            console.log(`[SCORE] Priorité au score WebSocket pour ${entry.name}: ${entry.score} -> ${webSocketScores[entry.id]}`);
+            entry.score = webSocketScores[entry.id];
+          }
+        });
+        
+        // Vérifier si des participants avec des scores WebSocket ne sont pas dans le nouveau leaderboard
+        const participantIds = newLeaderboard.map((entry: LeaderboardEntry) => entry.id);
+        Object.keys(webSocketScores).forEach(userId => {
+          if (!participantIds.includes(userId) && webSocketScores[userId] > 0) {
+            // Trouver le participant manquant
+            const participant = this.participants.find(p => p.id === userId);
+            if (participant) {
+              console.log(`[SCORE] Ajout d'un participant manquant avec score WebSocket: ${participant.name}: ${webSocketScores[userId]}`);
+              newLeaderboard.push({
+                id: participant.id,
+                name: participant.name,
+                score: webSocketScores[userId],
+                avatarUrl: participant.avatarUrl,
+                totalTime: 0,
+                currentQuestionCorrect: false
+              });
+            }
+          }
+        });
+        
+        // Trier à nouveau le leaderboard après application des scores WebSocket
+        newLeaderboard.sort((a: LeaderboardEntry, b: LeaderboardEntry) => {
+          if (b.score !== a.score) return b.score - a.score;
+          return a.totalTime - b.totalTime;
+        });
+        
+        // Assigner le leaderboard final
+        this.leaderboard = newLeaderboard;
+        
+        // AMÉLIORATION: Visualisation des scores finaux
+        console.log(`[SCORE] Leaderboard final après préservation des scores WebSocket:`, 
+                    this.leaderboard.map(e => `${e.name}: ${e.score}`).join(', '));
+        // Traitement silencieux des scores après mise à jour
+        
+        // CORRECTION FINALE: Mettre à jour le cache si des scores valides sont présents
+        if (this.leaderboard.length > 0 && this.leaderboard.some(entry => entry.score > 0)) {
+          // Mise à jour du cache avec les entrées valides
+          this.leaderboardCacheService.updateCache(this.leaderboard);
+        } else {
+          // Pas de mise à jour du cache - Aucun score valide
+        }
+        
+        // CORRECTION FINALE: Si le leaderboard semble valide, le conserver comme référence
+        if (this.leaderboard.length > 0 && this.leaderboard.some(entry => entry.score > 0)) {
+          // Sauvegarde du tableau de classement valide
+          this.lastSuccessfulLeaderboard = JSON.parse(JSON.stringify(this.leaderboard));
+          
+          // Sauvegarder dans le localStorage pour persistance
+          try {
+            localStorage.setItem('leaderboard_cache', JSON.stringify(this.lastSuccessfulLeaderboard));
+            // Leaderboard sauvegardé dans le localStorage
+          } catch (error) {
+            // Gestion silencieuse des erreurs de cache
+          }
+        }
+
+        // Log détaillé du leaderboard final
+        // Tableau de classement mis à jour
+        
+        // Logs détaillés pour les 3 premiers joueurs (limité pour éviter la surcharge)
+        if (this.leaderboard.length > 0) {
+          // Traitement silencieux des meilleurs joueurs
+        }
+        
+        // Force une détection de changement immédiate
+        this.cdr.detectChanges();
+        
+        // Si des scores ont changé, program une seconde vérification
+        if (scoresChanged) {
+          setTimeout(() => {
+            // Vérification secondaire après changement de scores
+            // Seconde détection de changement pour s'assurer que l'UI est à jour
+            this.cdr.detectChanges();
+          }, 500);
+        }
+      });
+
+      this.subscriptions.push(subscription);
+    });
+  }
+
+  // Récupère les questionStartTimes via l'API HTTP
+  public async fetchQuestionStartTimes(): Promise<void> {
+    try {
+      // TODO: Implémenter une méthode API pour récupérer les timestamps
+      // console.log('[INFO] fetchQuestionStartTimes temporarily disabled - needs API implementation');
+      this.questionStartTimes = {};
+    } catch (e) {
+      console.warn('Erreur récupération questionStartTimes', e);
+    }
+  }
+
+//   forceEndTimer() {
+//     // Appel backend pour forcer la fin du timer chez tous les joueurs
+//     try {
+//   this.http.post('/api/quiz/skip-timer', {}, { responseType: 'json' }).subscribe({
+//         next: (response) => {
+//           console.log('[SKIP-TIMER] Réponse backend (type):', typeof response, response);
+//           try {
+//             if (response && (response as any).success) {
+//               this.timerValue = 0;
+//               this.stopTimer();
+//               this.showResult();
+//             } else {
+//               alert('Réponse inattendue du backend : ' + JSON.stringify(response));
+//             }
+//           } catch (e) {
+//             alert('Erreur de parsing de la réponse backend : ' + e);
+//           }
+//         },
+//         error: (err) => {
+//           console.error('[SKIP-TIMER] Erreur HTTP :', err);
+//           let msg = 'Erreur lors du skip timer : ';
+//           if (err.status) msg += `HTTP ${err.status} - `;
+//           if (err.error && typeof err.error === 'object') {
+//             msg += JSON.stringify(err.error);
+//           } else if (err.error) {
+//             msg += err.error;
+//           } else if (err.message) {
+//             msg += err.message;
+//           }
+//           if (err instanceof ProgressEvent && err.type === 'error') {
+//             msg += ' (Erreur réseau/fetch : la connexion a échoué ou a été bloquée par le navigateur)';
+//           }
+//           alert(msg);
+//         }
+//       });
+//     } catch (e) {
+//       alert('Erreur JS lors de l’appel skip-timer : ' + e);
+//       console.error('[SKIP-TIMER] Exception JS :', e);
+//     }
+//   }
+
+  // ngOnInit fusionné ci-dessus
+
+  refresh() {
+    // this.participants = ... supprimé, car synchro via API SQLite
+    const previousQuestion = this.currentQuestion;
+    this.currentQuestion = this.quizService.getCurrentQuestion(this.currentIndex);
+
+    // Reset image loaded state IMMEDIATELY when question changes to prevent flash
+    if (previousQuestion?.id !== this.currentQuestion?.id) {
+      this.imageLoaded = false;
+      this.resultImageLoaded = false;
+      this.hideImages = false; // Allow images to show for new question
+      console.log('[DEBUG][REFRESH] Image states reset due to question change');
+    }
+
+    // Ne pas écraser le leaderboard dynamique ici !
+
+    console.log('[DEBUG][REFRESH] currentQuestion:', this.currentQuestion);
+    console.log('[DEBUG][REFRESH] answersCount:', this.answersCount);
+    console.log('[DEBUG][REFRESH] currentIndex:', this.currentIndex);
+
+    if (this.currentQuestion && this.answersCount) {
+      console.log('[DEBUG][REFRESH] correctIndex:', this.currentQuestion.correctIndex);
+      this.totalGood = this.answersCount[this.currentQuestion.correctIndex] || 0;
+      this.totalAnswers = this.answersCount.reduce((a, b) => a + b, 0);
+      this.totalBad = this.totalAnswers - this.totalGood;
+
+      console.log('[DEBUG][REFRESH] Calculated values:', {
+        totalGood: this.totalGood,
+        totalBad: this.totalBad,
+        totalAnswers: this.totalAnswers
+      });
+    } else {
+      this.totalGood = 0;
+      this.totalAnswers = 0;
+      this.totalBad = 0;
+      console.log('[DEBUG][REFRESH] Reset to 0 - missing currentQuestion or answersCount');
+    }
+  }
+
+  async launchGame() {
+    // Rafraîchir la liste des participants une dernière fois avant de lancer le jeu
+    console.log('[PRESENTATION] Rafraîchissement des participants avant le lancement du jeu...');
+    await this.refreshParticipants();
+    
+    // Passe à l'étape "waiting" avant de lancer la première question
+    this.quizService.setStep('waiting');
+  }
+
+  // Méthode à appeler pour vraiment démarrer la première question après l'attente
+  async startFirstQuestion() {
+    // Démarre la première question via l'API HTTP
+    try {
+      // Utilise nextQuestion(-1) pour forcer le passage à l'index 0 avec initialisation du timer
+      await this.quizService.nextQuestion(-1);
+      console.log('[INFO] First question started via HTTP API');
+    } catch (error) {
+      console.error('Erreur lors du démarrage de la première question:', error);
+    }
+  }
+
+  startTimer() {
+    this.stopTimer();
+    this.syncTimerWithServer();
+  }
+
+  private async checkAndSyncTimer() {
+    try {
+      const gameState = await this.quizService.getGameState();
+
+      if (gameState?.questionStartTime) {
+        // Le serveur a déjà un questionStartTime, synchroniser
+        console.log('🕐 Question déjà démarrée côté serveur, synchronisation...');
+        this.syncTimerWithServer();
+      } else {
+        // Pas de questionStartTime côté serveur, ne pas démarrer le timer
+        console.log('⏸️ Pas de timer côté serveur, service centralisé gère l\'état');
+        // Le service centralisé gère l'état par défaut
+      }
+    } catch (error) {
+      console.warn('Erreur vérification timer serveur, service centralisé prend le relais:', error);
+      // Le service centralisé gère l'état par défaut en cas d'erreur
+    }
+  }
+
+  private async syncTimerWithServer() {
+    try {
+      console.log('🕐 [PRESENTATION] Synchronisation timer centralisée (auto-démarrage)');
+
+      // S'abonner aux mises à jour du timer centralisé (démarrage automatique)
+      if (this.timerSub) this.timerSub.unsubscribe();
+
+      this.timerSub = this.timerService.getCountdown().subscribe(timerState => {
+        const countdown = timerState.countdownToStart || 0;
+
+        if (countdown > 0) {
+          // Mode countdown avant démarrage
+          this.timerValue = countdown;
+          this.timerMax = countdown;
+          console.log(`⏳ [PRESENTATION] Countdown: Question démarre dans ${countdown}s`);
+        } else {
+          // Mode timer normal
+          this.timerValue = timerState.timeRemaining;
+          this.timerMax = timerState.timerMax;
+          console.log(`🕐 [PRESENTATION] Timer: ${timerState.timeRemaining}s/${timerState.timerMax}s, active: ${timerState.isActive}`);
+
+          if (timerState.timeRemaining <= 0 && timerState.isActive === false) {
+            this.showResult();
+          }
+        }
+      });
+
+      // Le service centralisé gère la synchronisation initiale automatiquement
+      console.log('🕐 [PRESENTATION] Service centralisé actif, synchronisation automatique');
+
+    } catch (error) {
+      console.warn('Erreur synchronisation timer, fallback au service centralisé:', error);
+      // Fallback: utiliser le service centralisé avec démarrage simple
+      this.timerService.start(20);
+    }
+  }
+
+  // DEPRECATED: Ancienne méthode remplacée par le service timer centralisé
+  private startTimerNormal_DEPRECATED(duration: number = 20) {
+    console.warn('⚠️ startTimerNormal_DEPRECATED appelée - utiliser le service centralisé à la place');
+    // Ne plus utiliser cette méthode, utiliser timerService.startServerSync() à la place
+    this.timerService.start(duration);
+  }
+
+  stopTimer() {
+    if (this.timerSub) this.timerSub.unsubscribe();
+    this.timerService.stopServerSync(); // Arrêter la synchronisation centralisée
+  }
+
+  showResult() {
+    console.log('[DEBUG][IMAGE] Préparation affichage des résultats');
+    
+    // On cache temporairement les images pendant la transition
+    this.hideImages = true;
+    this.imageLoaded = false;
+    // Ne pas réinitialiser resultImageLoaded ici pour éviter le clignotement
+    // Force immediate UI update to hide images instantly
+    this.cdr.detectChanges();
+    
+    // CORRECTION MAJEURE: Forcer une mise à jour complète du leaderboard lors du passage aux résultats
+    // avec une séquence de vérifications pour garantir la synchronisation
+    console.log('[PRÉSENTATION] Passage à l\'\'étape de résultat - Séquence de mise à jour du leaderboard');
+    
+    // Mise à jour immédiate
+    this.forceLeaderboardUpdate('passage initial à l\'\'étape résultat');
+    
+    // Série de mises à jour avec délais croissants pour s'assurer que les données sont prises en compte
+    const updateIntervals = [500, 1000, 2000];
+    updateIntervals.forEach(delay => {
+      setTimeout(() => {
+        // Vérification périodique des scores
+        this.forceLeaderboardUpdate(`vérification après ${delay}ms`);
+      }, delay);
+    });
+
+    // On force la mise à jour des données avant d'afficher le résultat
+    const previousQuestion = this.currentQuestion;
+    this.currentQuestion = this.quizService.getCurrentQuestion(this.currentIndex);
+
+    // answersCount est toujours à jour via l'abonnement (voir ngOnInit)
+    if (this.currentQuestion && this.answersCount && Array.isArray(this.answersCount)) {
+      this.totalGood = this.answersCount[this.currentQuestion.correctIndex] || 0;
+      this.totalAnswers = this.answersCount.reduce((a, b) => a + b, 0);
+      this.totalBad = this.totalAnswers - this.totalGood;
+    } else {
+      this.totalGood = 0;
+      this.totalAnswers = 0;
+      this.totalBad = 0;
+    }
+    
+    // CORRECTION: Mise à jour périodique du leaderboard après l'affichage des résultats
+    const refreshIntervalId = setInterval(() => {
+      this.forceLeaderboardUpdate('rafraîchissement périodique des résultats');
+    }, 1000);
+    
+    // Arrêter les rafraîchissements après 3 cycles
+    setTimeout(() => {
+      clearInterval(refreshIntervalId);
+      // Fin des rafraîchissements périodiques
+      
+      // Dernier rafraîchissement après l'arrêt des intervalles
+      this.forceLeaderboardUpdate('final après cycles');
+    }, 3000);
+    
+    // Préchargement de l'image de résultat si disponible
+    if (this.currentQuestion?.imageUrlResult) {
+      console.log('[DEBUG][IMAGE] Préchargement de l\'image résultat:', this.currentQuestion.imageUrlResult);
+      // Réinitialiser pour permettre le chargement de la nouvelle image
+      this.resultImageLoaded = false;
+    }
+    
+    // CORRECTION: Forcer une mise à jour du leaderboard avant d'afficher les résultats
+    this.forceLeaderboardUpdate();
+    
+    // Passage à l'étape résultat avec délai pour laisser le flux RxJS se mettre à jour
+    setTimeout(() => {
+      this.quizService.setStep('result');
+      this.step = 'result'; // Synchronisation immédiate pour le template
+      
+      // Réactiver l'affichage des images
+      this.hideImages = false;
+      
+      this.refresh(); // Forcer la mise à jour des données juste après le changement d'étape
+      
+      // CORRECTION: Forcer une seconde mise à jour du leaderboard après le changement d'étape
+      this.forceLeaderboardUpdate();
+      
+      this.cdr.markForCheck();
+      // Log après le changement d'étape
+      console.log('[DEBUG][RESULT] step:', this.step, 'currentQuestion:', this.currentQuestion, 'answersCount:', this.answersCount);
+    }, 120);
+  }
+
+  async nextQuestion() {
+    // Incrémente l'index et passe à la question suivante via l'API
+    try {
+      console.log('[PRESENTATION] Next question via HTTP API, current index:', this.currentIndex);
+
+      // Hide images immediately - most aggressive approach
+      this.hideImages = true;
+      this.imageLoaded = false;
+      this.resultImageLoaded = false;
+
+      // Reset timer immediately to sync with image change
+      this.timerValue = 0;
+      this.stopTimer();
+
+      // Force immediate UI update to hide images instantly and show empty timer
+      this.cdr.detectChanges();
+
+      // Petit délai pour laisser l'interface se mettre à jour
+      await new Promise(resolve => setTimeout(resolve, 50));
+
+      // Reset timer to full immediately for visual sync
+      this.timerValue = 20;
+      this.timerMax = 20;
+      this.cdr.detectChanges();
+
+      // CORRECTION: Un seul appel qui gère tout (index + step + timer)
+      await this.quizService.nextQuestion(this.currentIndex);
+      console.log('[PRESENTATION] Question suivante appelée, nouvel index:', this.currentIndex + 1);
+      
+      // Forcer le rafraîchissement du leaderboard pour synchroniser les scores
+      this.forceRefreshLeaderboard();
+    } catch (error) {
+      console.error('[PRESENTATION] Erreur lors du passage à la question suivante:', error);
+    }
+  }
+
+  endGame() {
+    this.quizService.setStep('end');
+  }
+
+  public async resetParticipants() {
+    await this.quizService.resetParticipants();
+  }
+
+  // Réinitialisation complète du quiz (étape, participants, index, réponses, et cache)
+  async restartGame() {
+    if (!confirm('⚠️ RÉINITIALISATION COMPLÈTE ⚠️\n\nÊtes-vous sûr de vouloir réinitialiser complètement le quiz ?\n\nCette action supprimera :\n- Tous les participants\n- Toutes les réponses\n- Tous les caches locaux\n- L\'état de la partie\n- Les sessions des utilisateurs')) {
+      return;
+    }
+
+    console.log('[RESET] Début de la réinitialisation complète du quiz');
+
+    try {
+      // ÉTAPE 1: Nettoyage COMPLET des caches locaux AVANT le reset serveur
+      console.log('[RESET] 1. Suppression de tous les caches locaux...');
+      try {
+        // 1.1: Suppression du cache des participants
+        localStorage.removeItem('presentation_participants_cache');
+        console.log('[RESET] 1.1 ✅ Cache local des participants supprimé');
+        
+        // 1.2: Effacer l'état du jeu sauvegardé via GamePersistenceService
+        this.quizService.clearSavedGameState();
+        console.log('[RESET] 1.2 ✅ État du jeu sauvegardé effacé');
+        
+        // 1.3: Effacer toutes les informations utilisateur
+        this.userStateService.clearUserInfo();
+        console.log('[RESET] 1.3 ✅ Informations utilisateur effacées');
+        
+        // 1.4: Nettoyage des clés anciennes/compatibilité
+        const legacyCacheKeys = [
+          'currentQuestionIndex',
+          'quizStep',
+          'quiz_answers',
+          'quiz_last_question',
+          'quiz_state',
+          'quiz_player_state',
+          'quiz-user',
+          'last_answers_sync',
+          'timer_state'
+        ];
+        
+        legacyCacheKeys.forEach(key => {
+          if(localStorage.getItem(key)) {
+            localStorage.removeItem(key);
+            console.log(`[RESET] Cache supplémentaire nettoyé: ${key}`);
+          }
+        });
+        
+        console.log('[RESET] 1.4 ✅ Caches additionnels nettoyés');
+      } catch (cacheError) {
+        console.warn('[RESET] ⚠️ Erreur lors de la suppression des caches:', cacheError);
+      }
+
+      // ÉTAPE 2: Suppression des participants sur le serveur
+      console.log('[RESET] 2. Suppression des participants sur le serveur...');
+      await this.quizService.resetParticipants();
+      console.log('[RESET] 2. ✅ Participants supprimés sur le serveur');
+      
+      // ÉTAPE 3: Reset des réponses
+      console.log('[RESET] 3. Reset des réponses...');
+      await this.quizService.resetAllAnswers();
+      console.log('[RESET] 3. ✅ Réponses supprimées');
+
+      // ÉTAPE 4: Passage forcé à l'étape lobby avec plusieurs tentatives
+      console.log('[RESET] 4. Passage forcé à l\'étape lobby...');
+      // Premier appel
+      await this.quizService.setStep('lobby');
+      // Petit délai pour laisser le temps au WebSocket de traiter
+      await new Promise(resolve => setTimeout(resolve, 500));
+      // Second appel pour forcer
+      await this.quizService.setStep('lobby');
+      // Troisième appel après un délai plus long pour s'assurer de la propagation
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      await this.quizService.setStep('lobby');
+      console.log('[RESET] 4. ✅ Étape lobby définie et rediffusée (3 fois)');
+
+      // ÉTAPE 5: Vider explicitement toutes les structures de données locales
+      console.log('[RESET] 5. Réinitialisation locale de l\'état...');
+      // Réinitialisation locale de l'état du composant
+      this.step = 'lobby';
+      this.currentIndex = 0;
+      this.currentQuestion = null;
+      this.answersCount = [];
+      this.voters = [];
+      this.leaderboard = [];
+      this.participants = []; // Vider explicitement avant de recharger
+      
+      // Suppression explicite du cache des participants via le service
+      this.quizService.clearParticipantsCache();
+      console.log('[RESET] ✅ Cache des participants supprimé et signal envoyé');
+      
+      // Double vérification du cache local
+      try {
+        localStorage.removeItem('presentation_participants_cache');
+      } catch (cacheError) {
+        console.warn('[RESET] ⚠️ Erreur lors de la suppression du cache des participants:', cacheError);
+      }
+      
+      this.questionStartTimes = {};
+      this.goodAnswersTimesByUser = {};
+      this.imageLoaded = false; 
+      this.resultImageLoaded = false;
+      this.hideImages = false;
+      this.timerValue = 20;
+      this.timerMax = 20;
+      this.timerActive = false;
+      this.timerStartedManually = false;
+      this.cachedParticipantsLoaded = false;
+      this.cdr.detectChanges();
+      console.log('[RESET] 5. ✅ État local réinitialisé');
+
+      // ÉTAPE 6: Vérification finale - recharger les participants depuis le serveur
+      console.log('[RESET] 6. Vérification finale des participants...');
+      
+      // Faire plusieurs tentatives pour s'assurer que la liste est bien vide
+      let participantsCount = -1;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        console.log(`[RESET] Tentative ${attempt + 1}/3 de vérification des participants...`);
+        const participants = await this.quizService.fetchParticipantsFromServer();
+        participantsCount = participants ? participants.length : 0;
+        
+        if (participantsCount === 0) {
+          console.log('[RESET] ✅ Confirmation: la liste des participants est bien vide');
+          this.participants = [];
+          break;
+        } else {
+          console.warn(`[RESET] ⚠️ La liste contient encore ${participantsCount} participants, nouvelle tentative...`);
+          // Petit délai avant la prochaine tentative
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
+      
+      if (participantsCount > 0) {
+        console.warn(`[RESET] ⚠️ Même après plusieurs tentatives, il reste ${participantsCount} participants`);
+        
+        // Dernier recours: forcer une dernière réinitialisation et vider la liste locale
+        try {
+          await this.quizService.resetParticipants();
+          this.participants = [];
+        } catch (lastError) {
+          console.error('[RESET] ❌ Échec de la dernière tentative de réinitialisation:', lastError);
+        }
+      }
+
+      // ÉTAPE 7: Nettoyage complet des ressources et réinitialisation des souscriptions
+      console.log('[RESET] 7. Nettoyage des ressources et réinitialisation des souscriptions...');
+      // Nettoyer toutes les ressources sans sauvegarder les participants
+      this.cleanupResources(false);
+      
+      // Réinitialiser les souscriptions
+      this.initializeSubscriptions(true);
+      console.log('[RESET] 7. ✅ Ressources nettoyées et souscriptions réinitialisées');
+
+      // ÉTAPE 8: Vérification finale de la connexion WebSocket
+      console.log('[RESET] 8. Vérification finale de la connexion WebSocket...');
+      try {
+        // Forcer la déconnexion puis la reconnexion pour garantir une connexion fraîche
+        this.websocketTimerService.disconnect();
+        
+        // Attendre un peu avant de forcer la reconnexion
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // La reconnexion se fera automatiquement lors du prochain accès
+        console.log('[RESET] 8. ✅ Connexion WebSocket réinitialisée');
+      } catch (wsError) {
+        console.warn('[RESET] ⚠️ Erreur lors de la réinitialisation WebSocket:', wsError);
+      }
+      
+      // ÉTAPE 9: Forcer une mise à jour immédiate de l'interface
+      console.log('[RESET] 9. Forçage de la mise à jour de l\'interface...');
+      // S'assurer que la liste des participants est bien vide après le reset complet
+      this.participants = [];
+      
+      // Forcer la détection de changements immédiatement
+      this.cdr.detectChanges();
+      
+      // Provoquer un cycle supplémentaire de détection de changements après un court délai
+      // pour garantir que l'affichage est à jour
+      setTimeout(() => {
+        this.cdr.detectChanges();
+        console.log('[RESET] 9. ✅ Interface mise à jour forcée');
+      }, 100);
+      
+      // ÉTAPE 10: Notification du succès
+      console.log('[RESET] ✅ Quiz entièrement réinitialisé avec succès');
+      alert('Quiz entièrement réinitialisé. Tous les participants, réponses et caches ont été supprimés.');
+
+    } catch (error) {
+      console.error('[RESET] ❌ Erreur lors de la réinitialisation:', error);
+      const errorMsg = error instanceof Error ? error.message : 'Erreur inconnue';
+      alert(`Erreur lors de la réinitialisation du quiz: ${errorMsg}`);
+    }
+    this.timerValue = 20;
+    this.voters = [];
+
+    this.refresh();
+  }
+
+  // Méthodes de gestion des images pour éviter le flash
+  onImageLoaded() {
+    this.imageLoaded = true;
+  }
+
+  onImageError() {
+    this.imageLoaded = false;
+    console.warn('Erreur de chargement de l\'image:', this.currentQuestion?.imageUrl);
+  }
+
+  onResultImageLoaded() {
+    console.log('[DEBUG][IMAGE] Image résultat chargée avec succès');
+    this.resultImageLoaded = true;
+    // Force l'actualisation de l'interface pour afficher l'image
+    this.cdr.detectChanges();
+  }
+
+  onResultImageError() {
+    console.warn('[DEBUG][IMAGE] Erreur de chargement de l\'image résultat:', this.currentQuestion?.imageUrlResult);
+    this.resultImageLoaded = false;
+    // Force l'actualisation de l'interface pour afficher le message d'erreur
+    this.cdr.detectChanges();
+  }
+
+  // TrackBy function pour forcer la recréation des éléments d'image
+  trackByQuestionId(index: number, question: any): any {
+    return question?.id || index;
+  }
+
+  // ===== MÉTHODES POUR LA PHOTO DE GROUPE =====
+
+  async startCamera(): Promise<void> {
+    try {
+      // Calculer la résolution optimale basée sur l'écran
+      const screenWidth = window.screen.width;
+      const screenHeight = window.screen.height;
+      const aspectRatio = screenWidth / screenHeight;
+
+      // Demander une résolution adaptée à l'écran
+      let videoConstraints: MediaTrackConstraints = {
+        facingMode: 'user' // Caméra frontale par défaut
+      };
+
+      // Adapter la résolution demandée à l'écran
+      if (aspectRatio > 1.5) {
+        // Écran large (16:9 ou plus)
+        videoConstraints.width = { ideal: Math.min(1920, screenWidth * 0.9) };
+        videoConstraints.height = { ideal: Math.min(1080, screenHeight * 0.9) };
+      } else {
+        // Écran plus carré
+        videoConstraints.width = { ideal: Math.min(1280, screenWidth * 0.9) };
+        videoConstraints.height = { ideal: Math.min(720, screenHeight * 0.9) };
+      }
+
+      console.log('📹 Demande de résolution caméra:', videoConstraints);
+
+      this.cameraStream = await navigator.mediaDevices.getUserMedia({
+        video: videoConstraints,
+        audio: false
+      });
+
+      this.cameraActive = true;
+      this.cameraReady = false;
+      this.showCameraModal = true;
+
+      // Attendre que le DOM soit mis à jour
+      setTimeout(() => {
+        const videoElement = document.getElementById('cameraVideo') as HTMLVideoElement;
+        if (videoElement && this.cameraStream) {
+          console.log('📹 Configuration de l\'élément vidéo...');
+          console.log('VideoElement trouvé:', !!videoElement);
+          console.log('CameraStream disponible:', !!this.cameraStream);
+
+          // Forcer l'affichage de la vidéo
+          videoElement.style.display = 'block';
+          videoElement.style.opacity = '1';
+          videoElement.style.visibility = 'visible';
+          videoElement.style.background = 'blue'; // Pour voir si l'élément est visible
+
+          videoElement.srcObject = this.cameraStream;
+
+          // Attendre que les métadonnées de la vidéo soient chargées
+          videoElement.onloadedmetadata = () => {
+            console.log(`📹 Métadonnées chargées: ${videoElement.videoWidth}x${videoElement.videoHeight}`);
+            console.log('📹 ReadyState:', videoElement.readyState);
+            console.log('📹 Style computed:', window.getComputedStyle(videoElement).display);
+
+            // Ajuster le container pour maintenir le ratio
+            const container = videoElement.closest('.camera-container') as HTMLElement;
+            if (container) {
+              const ratio = videoElement.videoHeight / videoElement.videoWidth;
+              container.style.aspectRatio = `${videoElement.videoWidth} / ${videoElement.videoHeight}`;
+              console.log('📹 Container aspect ratio défini:', container.style.aspectRatio);
+            }
+          };
+
+          // S'assurer que la vidéo est bien en cours de lecture
+          videoElement.oncanplay = () => {
+            console.log('📹 Vidéo prête pour la capture (canplay)');
+            console.log('📹 Video playing:', !videoElement.paused && !videoElement.ended && videoElement.readyState > 2);
+            this.cameraReady = true;
+          };
+
+          videoElement.onloadeddata = () => {
+            console.log('📹 Données vidéo chargées (loadeddata)');
+            // Test si le stream est bien connecté
+            if (videoElement.srcObject === this.cameraStream) {
+              console.log('✅ Stream correctement assigné à la vidéo');
+            } else {
+              console.error('❌ Stream non assigné correctement');
+              // Réessayer d'assigner le stream
+              videoElement.srcObject = this.cameraStream;
+            }
+          };
+
+          videoElement.onplaying = () => {
+            console.log('📹 Vidéo en cours de lecture (playing)');
+          };
+
+          videoElement.play().then(() => {
+            console.log('📹 Lecture vidéo démarrée avec succès');
+            // Double vérification après 1 seconde
+            setTimeout(() => {
+              if (videoElement.readyState >= 2 && videoElement.videoWidth > 0) {
+                this.cameraReady = true;
+                console.log('📹 Caméra confirmée prête');
+                console.log('📹 État final - Paused:', videoElement.paused, 'Ended:', videoElement.ended, 'ReadyState:', videoElement.readyState);
+              }
+            }, 1000);
+          }).catch(err => {
+            console.error('❌ Erreur de lecture vidéo:', err);
+          });
+        } else {
+          console.error('❌ Élément vidéo ou stream introuvable');
+          console.log('VideoElement:', !!videoElement);
+          console.log('CameraStream:', !!this.cameraStream);
+        }
+      }, 100);
+
+      console.log('✅ Caméra démarrée avec succès');
+    } catch (error) {
+      console.error('❌ Erreur d\'accès à la caméra:', error);
+      alert('Impossible d\'accéder à la caméra. Vérifiez les permissions du navigateur.');
+    }
+  }
+
+  async takeGroupPhoto(): Promise<void> {
+    try {
+      const videoElement = document.getElementById('cameraVideo') as HTMLVideoElement;
+
+      if (!videoElement || !this.cameraStream) {
+        console.error('Éléments caméra introuvables');
+        return;
+      }
+
+      // Vérifier que la vidéo est bien en cours de lecture
+      if (videoElement.readyState < 2) {
+        console.error('Vidéo pas encore prête, readyState:', videoElement.readyState);
+        alert('La caméra n\'est pas encore prête. Veuillez attendre quelques secondes et réessayer.');
+        return;
+      }
+
+      // Vérifier les dimensions de la vidéo
+      const videoWidth = videoElement.videoWidth;
+      const videoHeight = videoElement.videoHeight;
+
+      console.log(`📹 Dimensions vidéo: ${videoWidth}x${videoHeight}`);
+
+      if (videoWidth === 0 || videoHeight === 0) {
+        console.error('Dimensions vidéo invalides');
+        alert('Erreur: dimensions de la vidéo invalides. Veuillez relancer la caméra.');
+        return;
+      }
+
+      // Créer le canvas avec les bonnes dimensions
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+
+      if (!ctx) {
+        console.error('Impossible de créer le contexte 2D');
+        return;
+      }
+
+      // Définir les dimensions du canvas
+      canvas.width = videoWidth;
+      canvas.height = videoHeight;
+
+      console.log(`🎨 Canvas créé: ${canvas.width}x${canvas.height}`);
+
+      // Capturer l'image de la vidéo
+      ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+
+      // Vérifier que quelque chose a été capturé (pixel test)
+      const imageData = ctx.getImageData(0, 0, Math.min(10, canvas.width), Math.min(10, canvas.height));
+      const hasContent = Array.from(imageData.data).some(value => value !== 0);
+
+      if (!hasContent) {
+        console.error('⚠️ Canvas semble vide, tentative avec délai...');
+        // Attendre un peu et réessayer
+        await new Promise(resolve => setTimeout(resolve, 500));
+        ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+      }
+
+      // Ajouter l'overlay "Promotion 2025"
+      this.addPromotionOverlay(ctx, canvas.width, canvas.height);
+
+      // Télécharger l'image
+      const link = document.createElement('a');
+      const now = new Date();
+      const timestamp = now.toISOString().replace(/[:.]/g, '-').split('T')[0];
+      link.download = `quiz-promotion-2025-${timestamp}.jpg`;
+
+      // Utiliser une qualité plus élevée pour une meilleure image
+      link.href = canvas.toDataURL('image/jpeg', 0.95);
+
+      // Déboguer: afficher la taille du dataURL
+      console.log(`📸 Taille de l'image générée: ${link.href.length} caractères`);
+
+      link.click();
+
+      this.photoTaken = true;
+      console.log('✅ Photo de groupe prise avec succès !');
+
+      // Fermer la caméra après 2 secondes
+      setTimeout(() => {
+        this.stopCamera();
+      }, 2000);
+
+    } catch (error) {
+      console.error('❌ Erreur lors de la prise de photo:', error);
+      alert('Erreur lors de la capture de la photo. Veuillez réessayer.');
+    }
+  }
+
+  private addPromotionOverlay(ctx: CanvasRenderingContext2D, width: number, height: number): void {
+    // Fond semi-transparent pour le texte
+    ctx.fillStyle = 'rgba(35, 37, 38, 0.8)';
+    ctx.fillRect(0, height - 100, width, 100);
+
+    // Texte principal "Quiz Promotion 2025"
+    ctx.fillStyle = '#f6d365';
+    ctx.font = 'bold 32px Arial, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('🏆 Quiz Promotion 2025', width / 2, height - 60);
+
+    // Date
+    const now = new Date();
+    ctx.font = '18px Arial, sans-serif';
+    ctx.fillStyle = '#fff';
+    ctx.fillText(now.toLocaleDateString('fr-FR', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    }), width / 2, height - 25);
+
+    // Décoration coins
+    ctx.fillStyle = '#DAE72A';
+    ctx.font = '24px Arial, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('🌟', 20, height - 40);
+    ctx.textAlign = 'right';
+    ctx.fillText('🌟', width - 20, height - 40);
+  }
+
+  stopCamera(): void {
+    if (this.cameraStream) {
+      // Arrêter tous les tracks de la caméra
+      this.cameraStream.getTracks().forEach(track => {
+        track.stop();
+      });
+      this.cameraStream = null;
+    }
+
+    this.cameraActive = false;
+    this.cameraReady = false;
+    this.showCameraModal = false;
+    this.photoTaken = false;
+    console.log('✅ Caméra fermée');
+  }
+
+  getCurrentDate(): string {
+    return new Date().toLocaleDateString('fr-FR', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+  }
+
+  // ===== FIN MÉTHODES PHOTO DE GROUPE =====
+
+  // Méthode de capture graphique du leaderboard final
+  async captureLeaderboard(): Promise<void> {
+    try {
+      // Sélectionner un élément plus large incluant le titre
+      const element = document.querySelector('.container-question');
+      if (!element) {
+        console.error('Élément container-question introuvable pour la capture');
+        return;
+      }
+
+      // Configuration html2canvas pour un rendu optimal
+      const canvas = await html2canvas(element as HTMLElement, {
+        backgroundColor: '#F1F1F1',
+        scale: 2, // Haute résolution
+        useCORS: true,
+        allowTaint: false,
+        width: (element as HTMLElement).offsetWidth,
+        height: (element as HTMLElement).offsetHeight,
+        scrollX: 0,
+        scrollY: 0,
+        windowWidth: window.innerWidth,
+        windowHeight: window.innerHeight,
+        ignoreElements: (element) => {
+          // Ignorer les boutons dans la capture
+          return element.classList?.contains('step-final-buttons') || false;
+        }
+      });
+
+      // Créer un contexte pour ajouter des informations supplémentaires
+      const finalCanvas = document.createElement('canvas');
+      const ctx = finalCanvas.getContext('2d');
+
+      if (!ctx) return;
+
+      // Dimensions du canvas final avec espace pour les métadonnées
+      const padding = 40;
+      const headerHeight = 60;
+      const footerHeight = 40;
+      finalCanvas.width = canvas.width + (padding * 2);
+      finalCanvas.height = canvas.height + headerHeight + footerHeight + (padding * 2);
+
+      // Fond du canvas final
+      ctx.fillStyle = '#F1F1F1';
+      ctx.fillRect(0, 0, finalCanvas.width, finalCanvas.height);
+
+      // Header avec titre
+      ctx.fillStyle = '#232526';
+      ctx.font = 'bold 28px Arial, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('🏆 Quiz Application - Final Results', finalCanvas.width / 2, 35);
+
+      // Ligne de séparation
+      ctx.strokeStyle = '#ddd';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(padding, headerHeight - 10);
+      ctx.lineTo(finalCanvas.width - padding, headerHeight - 10);
+      ctx.stroke();
+
+      // Dessiner le leaderboard capturé
+      ctx.drawImage(canvas, padding, headerHeight + padding);
+
+      // Footer avec date et heure
+      const now = new Date();
+      ctx.font = '14px Arial, sans-serif';
+      ctx.fillStyle = '#666';
+      ctx.textAlign = 'center';
+      ctx.fillText(`Generated on ${now.toLocaleString('fr-FR')}`, finalCanvas.width / 2, finalCanvas.height - 15);
+
+      // Télécharger l'image
+      const link = document.createElement('a');
+      const timestamp = now.toISOString().replace(/[:.]/g, '-').split('T')[0];
+      link.download = `quiz-final-results-${timestamp}.png`;
+      link.href = finalCanvas.toDataURL('image/png', 0.95);
+      link.click();
+
+      console.log('✅ Capture du leaderboard réussie !');
+    } catch (error) {
+      console.error('❌ Erreur lors de la capture:', error);
+    }
+  }
+
+  // Méthodes de gestion admin
+  extendSession(): void {
+    this.adminAuthService.extendSession();
+  }
+
+  logout(): void {
+    if (confirm('Êtes-vous sûr de vouloir vous déconnecter ?')) {
+      this.adminAuthService.logout();
+      this.router.navigate(['/admin-login']);
+    }
+  }
+
+  getRemainingTime(): string {
+    return this.adminAuthService.getFormattedRemainingTime();
+  }
+
+  // Méthodes de restauration
+  async onRestoreGame(): Promise<void> {
+    if (!this.buttonsEnabled) return;
+
+    // Attendre le temps minimum d'affichage du modal
+    const elapsedTime = Date.now() - this.modalStartTime;
+    if (elapsedTime < this.minModalDisplayTime) {
+      await new Promise(resolve => setTimeout(resolve, this.minModalDisplayTime - elapsedTime));
+    }
+
+    try {
+      console.log('🔄 Tentative de restauration de la partie...');
+
+      const restored = await this.quizService.restoreGameState();
+      if (restored) {
+        this.showRestoreDialog = false;
+
+        // Synchroniser l'état local avec l'état restauré
+        this.participants = this.quizService.participants;
+
+        // Récupérer l'étape actuelle du serveur
+        try {
+          const gameState = await this.quizService.getGameState();
+          this.step = gameState?.step || 'lobby';
+
+          // Si on est dans une question, synchroniser le timer
+          if (this.step === 'question') {
+            console.log('🕐 Restauration pendant une question, synchronisation du timer');
+            await this.syncTimerWithServer();
+          }
+
+        } catch (error) {
+          console.warn('Erreur lors de la récupération de l\'étape, utilisation de lobby par défaut');
+          this.step = 'lobby';
+        }
+
+        console.log('✅ Partie restaurée avec succès !');
+
+      } else {
+        console.error('❌ Impossible de restaurer la partie');
+        this.onStartNewGame();
+      }
+    } catch (error) {
+      console.error('❌ Erreur lors de la restauration:', error);
+      this.onStartNewGame();
+    }
+  }
+
+  onStartNewGame(): void {
+    if (!this.buttonsEnabled) return;
+
+    // Attendre le temps minimum d'affichage du modal
+    const elapsedTime = Date.now() - this.modalStartTime;
+    if (elapsedTime < this.minModalDisplayTime) {
+      setTimeout(() => {
+        this.actuallyStartNewGame();
+      }, this.minModalDisplayTime - elapsedTime);
+    } else {
+      this.actuallyStartNewGame();
+    }
+  }
+
+  private actuallyStartNewGame(): void {
+    console.log('🆕 Démarrage d\'une nouvelle partie');
+    this.showRestoreDialog = false;
+
+    // Effacer la sauvegarde précédente
+    this.quizService.clearSavedGameState();
+
+    // Initialiser une nouvelle partie
+    this.initializeNewGame();
+  }
+
+  /**
+   * Force le rafraîchissement des participants depuis le serveur
+   * Utilisé quand on suspecte que la liste des participants n'est pas à jour
+   */
+  public async refreshParticipants(): Promise<void> {
+    try {
+      console.log('[PRESENTATION] Rafraîchissement forcé des participants...');
+      
+      // Stocker la liste actuelle pour pouvoir y revenir en cas de problème
+      const currentParticipants = [...this.participants];
+      const currentCount = currentParticipants.length;
+      
+      // Vérifier d'abord si nous avons des participants dans le cache local
+      const cachedParticipantsStr = localStorage.getItem('presentation_participants_cache');
+      let cachedParticipants: User[] = [];
+      
+      if (cachedParticipantsStr) {
+        try {
+          cachedParticipants = JSON.parse(cachedParticipantsStr);
+          if (Array.isArray(cachedParticipants) && cachedParticipants.length > 0) {
+            console.log(`[PRESENTATION] ${cachedParticipants.length} participants trouvés dans le cache local`);
+            
+            // Si notre liste actuelle est vide mais le cache contient des participants,
+            // utiliser immédiatement le cache pour éviter l'affichage vide
+            if (currentCount === 0 && cachedParticipants.length > 0) {
+              console.log(`[PRESENTATION] Utilisation immédiate du cache (${cachedParticipants.length} participants) car la liste actuelle est vide`);
+              this.participants = cachedParticipants;
+              this.cdr.detectChanges();
+            }
+          }
+        } catch (cacheError) {
+          console.warn('[PRESENTATION] Erreur lors de la lecture du cache des participants:', cacheError);
+        }
+      }
+      
+      // Faire jusqu'à 5 tentatives en cas d'échec ou de liste vide inattendue (augmenté de 3 à 5)
+      const maxAttempts = 5;
+      let participants: User[] = [];
+      let successfulAttempt = false;
+      
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        try {
+          if (attempt > 0) {
+            console.log(`[PRESENTATION] Tentative ${attempt + 1}/${maxAttempts} de récupération des participants...`);
+            // Délai progressif entre les tentatives (500ms, 1000ms, 1500ms...)
+            await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
+          }
+          
+          participants = await this.quizService.fetchParticipantsFromServer();
+          
+          // Si on récupère des participants, sortir de la boucle
+          if (participants && Array.isArray(participants) && participants.length > 0) {
+            console.log(`[PRESENTATION] ${participants.length} participants récupérés avec succès à la tentative ${attempt + 1}`);
+            successfulAttempt = true;
+            break;
+          } else {
+            console.warn(`[PRESENTATION] La tentative ${attempt + 1} a retourné une liste vide ou invalide`);
+          }
+        } catch (retryError) {
+          console.warn(`[PRESENTATION] Échec de la tentative ${attempt + 1}:`, retryError);
+        }
+      }
+      
+      // Vérification et traitement des résultats
+      if (successfulAttempt && participants && Array.isArray(participants) && participants.length > 0) {
+        // Nous avons reçu des participants valides du serveur
+        this.participants = participants;
+        console.log(`[PRESENTATION] Participants rafraîchis depuis le serveur: ${this.participants.length}`);
+        
+        // Mettre à jour le cache local avec la nouvelle liste
+        try {
+          localStorage.setItem('presentation_participants_cache', JSON.stringify(this.participants));
+          console.log('[PRESENTATION] Cache de participants mis à jour avec la nouvelle liste');
+        } catch (cacheError) {
+          console.warn('[PRESENTATION] Impossible de mettre à jour le cache des participants:', cacheError);
+        }
+        
+        // Forcer la détection des changements
+        this.cdr.detectChanges();
+        
+        // Mettre à jour le leaderboard également
+        this.updateLeaderboard();
+      } else {
+        // Échec de récupération des participants depuis le serveur
+        console.warn(`[PRESENTATION] Échec de récupération des participants après ${maxAttempts} tentatives`);
+        
+        // Stratégie de fallback
+        if (currentCount > 0) {
+          // Conserver la liste existante si elle n'est pas vide
+          console.log(`[PRESENTATION] Conservation de la liste existante (${currentCount} participants)`);
+          
+          // Mettre à jour le cache si nécessaire
+          if (currentCount > 0) {
+            try {
+              localStorage.setItem('presentation_participants_cache', JSON.stringify(currentParticipants));
+              console.log('[PRESENTATION] Liste actuelle sauvegardée dans le cache local');
+            } catch (cacheError) {
+              console.warn('[PRESENTATION] Impossible de sauvegarder la liste actuelle dans le cache:', cacheError);
+            }
+          }
+        } else if (cachedParticipants.length > 0) {
+          // Si la liste actuelle est vide mais nous avons un cache, utiliser le cache
+          console.log(`[PRESENTATION] Utilisation du cache (${cachedParticipants.length} participants) car échec de récupération depuis le serveur`);
+          this.participants = cachedParticipants;
+          this.cdr.detectChanges();
+          this.updateLeaderboard();
+        } else {
+          // Aucune source de données disponible
+          console.warn('[PRESENTATION] Aucune source de participants disponible (ni serveur, ni cache, ni liste actuelle)');
+        }
+      }
+    } catch (error) {
+      console.error('[PRESENTATION] Erreur lors du rafraîchissement des participants:', error);
+      // Essayer de restaurer depuis le cache local en cas d'erreur
+      this.restoreParticipantsFromCache();
+    }
+  }
+  
+  /**
+   * Méthode pour restaurer les participants depuis le cache local
+   * Utilisée en cas d'échec de récupération depuis le serveur
+   */
+  private restoreParticipantsFromCache(): void {
+    try {
+      console.log('[PRESENTATION] Tentative de restauration des participants depuis le cache local...');
+      
+      const cachedParticipantsStr = localStorage.getItem('presentation_participants_cache');
+      if (!cachedParticipantsStr) {
+        console.log('[PRESENTATION] Aucun cache de participants trouvé');
+        return;
+      }
+      
+      const parsedParticipants = JSON.parse(cachedParticipantsStr) as User[];
+      if (!Array.isArray(parsedParticipants)) {
+        console.warn('[PRESENTATION] Format de cache invalide, ce n\'est pas un tableau');
+        return;
+      }
+      
+      if (parsedParticipants.length === 0) {
+        console.log('[PRESENTATION] Le cache contient une liste vide de participants');
+        return;
+      }
+      
+      // Stratégie de restauration améliorée:
+      // 1. Si la liste actuelle est vide, toujours utiliser le cache
+      // 2. Si le cache contient plus de participants que la liste actuelle, utiliser le cache
+      // 3. Si les deux listes ont le même nombre d'éléments mais > 0, vérifier si ce sont les mêmes participants
+      
+      const currentCount = this.participants.length;
+      const cacheCount = parsedParticipants.length;
+      
+      if (currentCount === 0) {
+        // Cas 1: Liste actuelle vide, toujours restaurer depuis le cache
+        console.log(`[PRESENTATION] Restauration de ${cacheCount} participants depuis le cache (liste actuelle vide)`);
+        this.participants = [...parsedParticipants];
+        this.cdr.detectChanges();
+        this.updateLeaderboard();
+        return;
+      }
+      
+      if (cacheCount > currentCount) {
+        // Cas 2: Cache contient plus de participants
+        console.log(`[PRESENTATION] Restauration de ${cacheCount} participants depuis le cache (${cacheCount} > ${currentCount})`);
+        this.participants = [...parsedParticipants];
+        this.cdr.detectChanges();
+        this.updateLeaderboard();
+        return;
+      }
+      
+      if (cacheCount === currentCount && cacheCount > 0) {
+        // Cas 3: Vérifier si ce sont les mêmes participants
+        // Si les deux listes sont identiques, pas besoin de remplacer
+        // Pour simplifier, on vérifie juste quelques IDs au lieu de comparer toute la liste
+        const sampleSize = Math.min(3, cacheCount);
+        let isDifferent = false;
+        
+        for (let i = 0; i < sampleSize; i++) {
+          if (this.participants[i].id !== parsedParticipants[i].id) {
+            isDifferent = true;
+            break;
+          }
+        }
+        
+        if (isDifferent) {
+          console.log(`[PRESENTATION] Les listes actuelles et en cache sont différentes mais de même taille, conservation des deux`);
+          // On pourrait fusionner les listes, mais pour l'instant on garde la liste actuelle
+        } else {
+          console.log(`[PRESENTATION] Les listes actuelles et en cache semblent identiques, aucune action nécessaire`);
+        }
+        return;
+      }
+      
+      console.log(`[PRESENTATION] Le cache contient moins de participants (${cacheCount}) que la liste actuelle (${currentCount}), conservation de la liste actuelle`);
+      
+    } catch (error) {
+      console.error('[PRESENTATION] Erreur lors de la restauration des participants depuis le cache:', error);
+    }
+  }
+
+  /**
+   * Synchronise l'état local avec l'état du serveur
+   */
+  private async synchronizeWithServer(serverState: any): Promise<void> {
+    try {
+      console.log('🔄 Synchronisation avec l\'état du serveur:', serverState);
+
+      // Initialiser les composants de base
+      this.quizService.initQuestions();
+
+      // Synchroniser l'étape
+      this.step = serverState.step || 'lobby';
+
+      // Initialiser les souscriptions avec force pour s'assurer de la synchronisation
+      this.initializeSubscriptions(true);
+
+      // Récupération des participants en plusieurs étapes pour maximiser les chances de succès
+      
+      // ÉTAPE 1: Vérifier d'abord le cache local
+      console.log('[PRESENTATION] ÉTAPE 1: Vérification du cache local des participants...');
+      const cachedParticipantsStr = localStorage.getItem('presentation_participants_cache');
+      let cachedList: User[] = [];
+      
+      if (cachedParticipantsStr) {
+        try {
+          cachedList = JSON.parse(cachedParticipantsStr) as User[];
+          if (Array.isArray(cachedList) && cachedList.length > 0) {
+            console.log(`[PRESENTATION] ${cachedList.length} participants trouvés dans le cache local`);
+            // Pré-remplir la liste des participants avec le cache pour éviter l'écran vide
+            this.participants = [...cachedList];
+            this.cdr.detectChanges();
+          }
+        } catch (cacheError) {
+          console.warn('[PRESENTATION] Erreur lors de la lecture du cache:', cacheError);
+        }
+      } else {
+        console.log('[PRESENTATION] Aucun cache local trouvé');
+      }
+
+      // ÉTAPE 2: Récupérer la liste des participants directement depuis le serveur (première tentative)
+      console.log('[PRESENTATION] ÉTAPE 2: Récupération directe des participants depuis le serveur...');
+      let serverParticipants: User[] = [];
+      
+      try {
+        serverParticipants = await this.quizService.fetchParticipantsFromServer();
+        
+        if (serverParticipants && Array.isArray(serverParticipants) && serverParticipants.length > 0) {
+          console.log(`[PRESENTATION] ${serverParticipants.length} participants récupérés directement du serveur`);
+          
+          // Ne remplacer que si le serveur retourne une liste non vide
+          // ou si nous n'avions pas déjà une liste en cache
+          if (serverParticipants.length > 0) {
+            this.participants = serverParticipants;
+            this.cdr.detectChanges();
+            
+            // Mettre à jour le cache avec la liste fraîchement récupérée
+            try {
+              localStorage.setItem('presentation_participants_cache', JSON.stringify(serverParticipants));
+              console.log('[PRESENTATION] Cache mis à jour avec les participants du serveur');
+            } catch (cacheError) {
+              console.warn('[PRESENTATION] Erreur lors de la mise à jour du cache:', cacheError);
+            }
+          } else if (this.participants.length === 0) {
+            // La liste du serveur est vide et nous n'avions pas de liste précédente
+            console.log('[PRESENTATION] Le serveur a retourné une liste vide et aucun cache n\'est disponible');
+          }
+        } else if (serverParticipants && Array.isArray(serverParticipants) && serverParticipants.length === 0) {
+          // Le serveur a retourné une liste vide
+          console.log('[PRESENTATION] Le serveur a retourné une liste vide de participants');
+          
+          // Si nous avons une liste en cache et que la liste serveur est vide, conserver le cache
+          if (cachedList.length > 0) {
+            console.log(`[PRESENTATION] Conservation des ${cachedList.length} participants du cache (le serveur a retourné une liste vide)`);
+          }
+        }
+      } catch (error) {
+        console.warn('[PRESENTATION] Erreur lors de la récupération directe depuis le serveur:', error);
+      }
+
+      // ÉTAPE 3: Utiliser notre méthode optimisée de rafraîchissement qui inclut plusieurs tentatives
+      console.log('[PRESENTATION] ÉTAPE 3: Utilisation de la méthode optimisée refreshParticipants...');
+      try {
+        await this.refreshParticipants();
+        console.log('👥 Participants synchronisés via refreshParticipants:', this.participants.length);
+      } catch (error) {
+        console.warn('⚠️ Échec de refreshParticipants:', error);
+        
+        // Si toutes les tentatives ont échoué et que nous n'avons toujours pas de participants
+        if (this.participants.length === 0 && cachedList.length > 0) {
+          console.log(`[PRESENTATION] Dernier recours: utilisation des ${cachedList.length} participants du cache après échecs multiples`);
+          this.participants = cachedList;
+          this.cdr.detectChanges();
+        }
+      }
+
+      // Si on est dans une question, synchroniser l'index et le timer
+      if (serverState.step === 'question') {
+        this.currentIndex = serverState.currentQuestionIndex || 0;
+        this.currentQuestion = this.quizService.getCurrentQuestion(this.currentIndex);
+
+        // Synchroniser le timer si nécessaire
+        if (serverState.questionStartTime && serverState.questionStartTime > 0) {
+          // Timer déjà démarré sur le serveur, marquer comme démarré manuellement
+          this.timerStartedManually = true;
+          console.log('[SYNC] Timer déjà démarré côté serveur, timerStartedManually = true');
+          this.checkAndSyncTimer();
+        } else {
+          // Timer pas encore démarré, rester en attente
+          this.timerStartedManually = false;
+          console.log('[SYNC] Timer pas encore démarré côté serveur, timerStartedManually = false');
+        }
+      }
+
+      // Si on est dans les résultats, synchroniser l'index de la question
+      if (serverState.step === 'result') {
+        this.currentIndex = serverState.currentQuestionIndex || 0;
+        this.currentQuestion = this.quizService.getCurrentQuestion(this.currentIndex);
+      }
+
+      // Forcer la mise à jour du leaderboard
+      this.updateLeaderboard();
+
+      // Forcer la détection des changements
+      this.cdr.detectChanges();
+
+      console.log('✅ Synchronisation terminée:', {
+        step: this.step,
+        currentIndex: this.currentIndex,
+        participants: this.participants.length
+      });
+
+    } catch (error) {
+      console.error('❌ Erreur lors de la synchronisation:', error);
+      // Même en cas d'erreur, essayer de restaurer depuis le cache
+      this.restoreParticipantsFromCache();
+    }
+  }
+
+  // Système de loading pour synchroniser avec les joueurs
+  private showLoadingForTransition(type: string) {
+    this.isLoading = true;
+    this.loadingType = type;
+    this.loadingMessage = this.getLoadingMessage(type);
+    console.log('[PRESENTATION][LOADING] Transition:', type, 'Message:', this.loadingMessage);
+  }
+
+  private getLoadingMessage(type: string): string {
+    switch (type) {
+      case 'question-start': return 'Synchronisation...';
+      case 'question-result': return 'Résultats...';
+      case 'next-question': return 'Préparation...';
+      case 'quiz-end': return 'Terminé !';
+      default: return 'Synchronisation...';
+    }
+  }
+
+  // Intervalle de rafraîchissement des participants en phase lobby
+  private lobbyRefreshInterval?: any;
+  
+  // Gestion des actions spécifiques aux étapes pour la présentation
+  private handleStepActivationPresentation(step: QuizStep) {
+    console.log('[PRESENTATION][STEP-ACTIVATION] Traitement de l\'étape:', step);
+
+    // Nettoyer l'intervalle existant quelle que soit l'étape
+    if (this.lobbyRefreshInterval) {
+      clearInterval(this.lobbyRefreshInterval);
+      this.lobbyRefreshInterval = undefined;
+    }
+
+    if (step === 'question') {
+      // Réinitialiser le flag de démarrage manuel pour chaque nouvelle question
+      this.timerStartedManually = false;
+      // Ne plus démarrer automatiquement le timer - attendre le démarrage manuel
+      console.log('[MANUAL-TIMER] Question affichée, en attente de démarrage manuel du timer');
+    } else if (step === 'result' || step === 'end') {
+      // Pour les étapes résultat et fin, on force un rafraîchissement immédiat et plusieurs suivis
+      console.log('[PRESENTATION] Passage à l\'étape ' + step + ' - Forçage du rafraîchissement du leaderboard');
+      this.forceLeaderboardUpdate('changement étape vers ' + step);
+      
+      // Programmer des rafraîchissements successifs pour s'assurer de la prise en compte
+      const refreshTimes = [500, 1000, 2000];
+      refreshTimes.forEach(delay => {
+        setTimeout(() => {
+          this.forceLeaderboardUpdate(`suivi après ${delay}ms - étape ${step}`);
+        }, delay);
+      });
+      
+      this.stopTimer();
+      this.timerStartedManually = false;
+    } else {
+      this.stopTimer();
+      this.timerStartedManually = false;
+    }
+    
+    // Gestion spécifique des mises à jour du leaderboard selon les étapes
+    if (step === 'result') {
+      // CORRECTION MAJEURE: Force une série de mises à jour pour l'étape résultat
+      const updateTimes = [100, 500, 1500, 3000];
+      updateTimes.forEach(delay => {
+        setTimeout(() => {
+          // Mise à jour programmée des scores - Étape résultat
+          this.forceLeaderboardUpdate(`étape résultat après ${delay}ms`);
+        }, delay);
+      });
+    } else if (step === 'end') {
+      // CORRECTION MAJEURE: Force une série de mises à jour pour l'étape finale
+      const updateTimes = [100, 500, 1500, 3000];
+      updateTimes.forEach(delay => {
+        setTimeout(() => {
+          // Mise à jour programmée des scores - Étape finale
+          this.forceLeaderboardUpdate(`étape finale après ${delay}ms`);
+        }, delay);
+      });
+    }
+    
+    // Actions spécifiques à l'étape lobby
+    if (step === 'lobby') {
+      // Réinitialisation des réponses
+      this.quizService.resetAllAnswers();
+      
+      // Rafraîchir immédiatement la liste des participants
+      this.refreshParticipants();
+      
+      // Mettre en place un intervalle pour rafraîchir régulièrement la liste des participants en phase lobby
+      // Utiliser un délai plus long (10 secondes) pour éviter les rafraîchissements trop fréquents
+      // qui pourraient causer des problèmes de synchronisation et des réinitialisations inutiles
+      this.lobbyRefreshInterval = setInterval(() => {
+        this.refreshParticipants();
+      }, 10000); // Rafraîchir toutes les 10 secondes au lieu de 5
+      
+      console.log('[PRESENTATION] Intervalle de rafraîchissement des participants activé pour la phase lobby (10s)');
+    }
+  }
+
+  // Démarrage manuel du timer (synchronisé avec tous les clients via WebSocket)
+  async startTimerManually(duration: number = 20) {
+    console.log('[MANUAL-TIMER] Démarrage manuel du timer pour', duration, 'secondes');
+
+    try {
+      const response = await fetch(`${this.apiUrl}/start-timer`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          duration: duration,
+          currentQuestionIndex: this.currentIndex
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Erreur HTTP: ${response.status}`);
+      }
+
+      const result = await response.json();
+      console.log('[MANUAL-TIMER] Timer démarré avec succès:', result);
+
+      this.timerStartedManually = true;
+
+    } catch (error) {
+      console.error('[MANUAL-TIMER] Erreur lors du démarrage du timer:', error);
+      // Fallback: démarrer localement si le serveur ne répond pas
+      this.timerStartedManually = true;
+    }
+  }
+}

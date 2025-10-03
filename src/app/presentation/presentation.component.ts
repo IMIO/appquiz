@@ -1,1528 +1,1530 @@
-
-import { Component, ChangeDetectorRef, OnInit, OnDestroy } from '@angular/core';
-import { TimerService, TimerState } from '../services/timer.service';
-import { CommonModule } from '@angular/common';
-import { QuizService, QuizStep } from '../services/quiz-secure.service';
+import { Component, ChangeDetectorRef, OnInit, AfterViewInit, OnDestroy, ElementRef, ViewChild, HostListener } from '@angular/core';
+import { CommonModule, JsonPipe } from '@angular/common';
+import { trigger, transition, style, animate } from '@angular/animations';
+import { Router } from '@angular/router';
+import { HttpClient } from '@angular/common/http';
+import { firstValueFrom } from 'rxjs';
+import { QuizService } from '../services/quiz-secure.service';
+import { AdminAuthService } from '../services/admin-auth.service';
+import { WebSocketTimerService } from '../services/websocket-timer.service';
+import { ScoreSyncService } from '../services/score-sync.service';
+import { CacheCleanerService } from '../services/cache-cleaner.service';
+import { io, Socket } from 'socket.io-client';
+import { environment } from '../../environments/environment';
 import { Question } from '../models/question.model';
 import { User } from '../models/user.model';
-import { Observable, timer, Subscription, firstValueFrom } from 'rxjs';
-import { LeaderboardEntry } from '../models/leaderboard-entry.model';
-import { trigger, state, style, transition, animate, query, stagger } from '@angular/animations';
-import html2canvas from 'html2canvas';
+// Imports des composants standalone nécessaires
 import { QRCodeComponent } from 'angularx-qrcode';
-import { AdminAuthService } from '../services/admin-auth.service';
-import { Router } from '@angular/router';
-import { WebSocketTimerService } from '../services/websocket-timer.service';
-import { HttpClient } from '@angular/common/http';
-import { environment } from '../../environments/environment';
+import { DebugPanelComponent } from '../debug-panel/debug-panel.component';
+import { LeaderboardSyncComponent } from '../leaderboard-sync/leaderboard-sync.component';
 
 @Component({
   selector: 'app-presentation',
-  standalone: true,
-  imports: [CommonModule, QRCodeComponent],
   templateUrl: './presentation.component.html',
-  styleUrls: ['./presentation.component.css'],
+  styleUrls: ['./presentation.component.css', './score-animation.css'],
+  standalone: true,
+  imports: [
+    CommonModule,
+    JsonPipe,
+    QRCodeComponent,
+    DebugPanelComponent,
+    LeaderboardSyncComponent
+  ],
   animations: [
-    // Animation pour les transitions d'étapes
     trigger('stepTransition', [
       transition(':enter', [
-        style({ opacity: 0, transform: 'translateY(30px)' }),
-        animate('500ms cubic-bezier(0.4, 0, 0.2, 1)',
-          style({ opacity: 1, transform: 'translateY(0)' }))
+        style({ opacity: 0, transform: 'translateY(20px)' }),
+        animate('300ms ease-out', style({ opacity: 1, transform: 'translateY(0)' }))
+      ]),
+      transition(':leave', [
+        animate('200ms ease-in', style({ opacity: 0, transform: 'translateY(-20px)' }))
       ])
     ]),
-
-    // Animation pour les éléments de liste
     trigger('listAnimation', [
-      transition('* => *', [
-        query(':enter', [
-          style({ opacity: 0, transform: 'translateY(20px)' }),
-          stagger(100, [
-            animate('400ms cubic-bezier(0.4, 0, 0.2, 1)',
-              style({ opacity: 1, transform: 'translateY(0)' }))
-          ])
-        ], { optional: true })
+      transition(':enter', [
+        style({ opacity: 0, height: 0 }),
+        animate('200ms ease-out', style({ opacity: 1, height: '*' }))
       ])
     ]),
-
-    // Animation pour les images
     trigger('imageAnimation', [
       transition(':enter', [
-        style({ opacity: 0, transform: 'scale(0.9)' }),
-        animate('400ms cubic-bezier(0.4, 0, 0.2, 1)',
-          style({ opacity: 1, transform: 'scale(1)' }))
+        style({ opacity: 0 }),
+        animate('400ms 100ms ease-out', style({ opacity: 1 }))
       ])
     ])
   ]
 })
-export class PresentationComponent implements OnInit, OnDestroy {
-  getImageUrl(url: string | undefined): string {
-    if (!url) return '';
-    if (url.startsWith('http')) return url;
-    // Si c'est un asset statique (dans /assets ou favicon), retourner l'URL telle quelle
-    if (url.startsWith('/assets') || url.startsWith('assets') || url.startsWith('/favicon.ico')) {
-      return url;
-    }
-    // Sinon, préfixer par l'API (pour images uploadées/dynamiques)
-    const apiBase = this.apiUrl.replace(/\/api$/, '');
-    return `${apiBase}${url}`;
-  }
-  step: any = 'lobby'; // Typage élargi pour compatibilité template Angular
-  showRestoreDialog: boolean = false;
-  private minModalDisplayTime = 2000; // Afficher le modal au minimum 2 secondes
-  private modalStartTime = 0;
-  buttonsEnabled = false;
-
-  async ngOnInit() {
-    // D'abord, synchroniser avec l'état du serveur
-    try {
-      const serverState = await this.quizService.getGameState();
-      // Si le serveur n'est pas à l'étape lobby, il faut restaurer cet état
-      if (serverState && serverState.step && serverState.step !== 'lobby') {
-        await this.synchronizeWithServer(serverState);
-        return;
-      }
-      // Vérifier s'il y a un état sauvegardé à restaurer
-      if (this.quizService.canRestoreGameState()) {
-        this.showRestoreDialog = true;
-        this.modalStartTime = Date.now();
-        this.buttonsEnabled = false;
-        setTimeout(() => {
-          this.buttonsEnabled = true;
-        }, this.minModalDisplayTime);
-        // NE PAS initialiser tant que l'utilisateur n'a pas choisi
-        return;
-      }
-      // Initialisation pour une nouvelle partie
-      this.initializeNewGame();
-    } catch (error) {
-      // En cas d'erreur, continuer avec l'initialisation normale
-      this.initializeNewGame();
-    }
-  }
-
-  private async initializeNewGame() {
-    await this.quizService.initQuestions();
-    this.step = 'lobby';
-    this.quizService.setStep('lobby');
-    this.quizService.initGameState();
-    try {
-      await this.quizService.fetchParticipantsFromServer();
-    } catch (error) {}
-    this.initializeSubscriptions();
-  }
-
-  // Méthode pour synchroniser avec les modifications côté gestion
-  async synchronizeWithManagement(): Promise<void> {
-    console.log('[PRESENTATION] Synchronisation avec les modifications côté gestion...');
-
-    // Démarrer l'état de synchronisation
-    this.isSynchronizing = true;
-    this.synchronizationSuccess = false;
-    this.synchronizationMessage = 'Synchronisation en cours...';
-
-    try {
-      // Étape 1: Synchroniser les questions et reset les données
-      this.synchronizationMessage = 'Rechargement des questions...';
-      await this.quizService.synchronizeAfterChanges();
-
-      // Étape 2: Déclencher la synchronisation côté joueur via WebSocket
-      this.synchronizationMessage = 'Notification des joueurs...';
-      await this.triggerPlayerQuestionsSync();
-
-      // Étape 3: Réinitialiser l'état local
-      this.synchronizationMessage = 'Réinitialisation de l\'état local...';
-      await new Promise(resolve => setTimeout(resolve, 500)); // Délai pour l'UX
-
-      this.currentIndex = 0;
-      this.currentQuestion = this.quizService.getCurrentQuestion(0);
-      this.leaderboard = [];
-      this.questionStartTimes = {};
-      this.goodAnswersTimesByUser = {};
-
-      // Étape 4: Retourner au lobby
-      this.synchronizationMessage = 'Retour au lobby...';
-      this.step = 'lobby';
-      this.quizService.setStep('lobby');
-
-      // Succès
-      this.synchronizationMessage = '✅ Synchronisation terminée avec succès !';
-      this.synchronizationSuccess = true;
-
-      console.log('[PRESENTATION] Synchronisation terminée, retour au lobby');
-
-      // Masquer le message de succès après 3 secondes
-      setTimeout(() => {
-        this.isSynchronizing = false;
-        this.synchronizationMessage = '';
-        this.synchronizationSuccess = false;
-      }, 3000);
-
-    } catch (error) {
-      console.error('[PRESENTATION] Erreur lors de la synchronisation:', error);
-
-      // Affichage d'erreur
-      this.synchronizationMessage = '❌ Erreur lors de la synchronisation';
-      this.synchronizationSuccess = false;
-
-      // Masquer le message d'erreur après 5 secondes
-      setTimeout(() => {
-        this.isSynchronizing = false;
-        this.synchronizationMessage = '';
-      }, 5000);
-    }
-  }
-
-  // Méthode pour déclencher la synchronisation des questions côté joueur
-  private async triggerPlayerQuestionsSync(): Promise<void> {
-    try {
-      console.log('[PRESENTATION] Déclenchement sync questions via WebSocket...');
-      console.log('[PRESENTATION] URL appelée:', `${this.apiUrl}/quiz/sync-questions`);
-
-      const response = await firstValueFrom(
-        this.http.post<any>(`${this.apiUrl}/quiz/sync-questions`, {})
-      );
-
-      console.log('[PRESENTATION] Réponse serveur sync questions:', response);
-
-      if (response?.success) {
-        console.log('[PRESENTATION] Sync questions WebSocket déclenchée avec succès');
-      } else {
-        console.warn('[PRESENTATION] Réponse inattendue du serveur pour sync questions:', response);
-      }
-
-    } catch (error) {
-      console.error('[PRESENTATION] Erreur lors du déclenchement sync questions:', error);
-      // Ne pas faire échouer toute la synchronisation pour cette erreur
-    }
-  }
-
-  ngOnDestroy() {
-    // Nettoyage des souscriptions pour éviter les fuites mémoire
-    this.subscriptions.forEach(sub => sub.unsubscribe());
-    this.subscriptions = [];
-
-    // Nettoyage des autres souscriptions
-    if (this.answersCountSub) {
-      this.answersCountSub.unsubscribe();
-    }
-    if (this.timerSub) {
-      this.timerSub.unsubscribe();
-    }
-
-    // Nettoyage de l'intervalle de diagnostic
-    if (this.diagnosticInterval) {
-      clearInterval(this.diagnosticInterval);
-    }
-  }
-  participants: User[] = [];
+export class PresentationComponent implements OnInit {
+  // Propriété pour détecter l'environnement
+  isProduction = window.location.hostname !== 'localhost';
+  // Propriétés requises par le template
+  step: string = 'lobby';
+  questionIndex: number = 0;
   currentIndex: number = 0;
-  currentQuestion: Question | null = null;
-  answersCount: number[] = [];
-  answersCountSub?: Subscription;
-  leaderboard: LeaderboardEntry[] = [];
-  // Pour le départage par vitesse de réponse
-  questionStartTimes: { [key: string]: number } = {};
-  // Stocke le temps de chaque bonne réponse par participant (clé: userId, valeur: tableau des temps)
-  goodAnswersTimesByUser: { [userId: string]: number[] } = {};
-
-  // Gestion des souscriptions pour éviter les fuites mémoire
-  private subscriptions: Subscription[] = [];
-
-  // Système de loading pour synchroniser avec les joueurs
-  isLoading: boolean = false;
-  loadingMessage: string = '';
-  loadingType: string = '';
-
-  // Flag pour éviter les logs excessifs
-  private debugMode = false;
-
-  // Référence pour l'intervalle de diagnostic
-  private diagnosticInterval?: any;
-
-  // Gestion des images pour éviter le flash
-  imageLoaded: boolean = false;
-  resultImageLoaded: boolean = false;
-  // Flag pour forcer la disparition immédiate des images
-  hideImages: boolean = false;
-
-  // Retourne le temps total des bonnes réponses pour un user
-  // (méthode unique, suppression du doublon)
-  windowLocation = window.location.origin;
-  timerValue: number = 20;
-  timerMax: number = 20; // Durée du timer en secondes, synchronisée avec timerValue
-  timerActive: boolean = false; // État d'activation du timer pour l'affichage visuel
-
-  // Contrôle manuel du timer
+  currentQuestion: any = null;
+  timerValue: number = 0;
+  timerMax: number = 20;
+  timerActive: boolean = false;
   timerStartedManually: boolean = false;
-
-  // État de synchronisation des questions
-  isSynchronizing: boolean = false;
-  synchronizationMessage: string = '';
-  synchronizationSuccess: boolean = false;
-
-  // Propriétés pour la photo de groupe
-  cameraStream: MediaStream | null = null;
-  cameraActive: boolean = false;
-  cameraReady: boolean = false;
-  showCameraModal: boolean = false;
-  photoTaken: boolean = false;
-  timerSub?: Subscription;
-  totalAnswers: number = 0;
+  voters: any[] = [];
   totalGood: number = 0;
   totalBad: number = 0;
-  voters: {id: any, name: any}[] = [];
+  hideImages: boolean = false;
+  resultImageLoaded: boolean = false;
+  participants: any[] = [];
+  leaderboard: any[] = [];
+  socket: any; // Type simplifiée pour éviter les erreurs d'importation
+  timerInterval: any = null; // Intervalle pour mettre à jour le timer
+  
+  // Propriétés additionnelles référencées dans le template
+  buttonsEnabled: boolean = true;
+  loadingMessage: string = 'Chargement...';
+  windowLocation: string = window.location.origin;
+  cameraReady: boolean = false;
+  synchronizationMessage: string = '';
+  synchronizationSuccess: boolean = false;
+  isSynchronizing: boolean = false;
+  get currentQuestionNumber(): number {
+    // Retourne le numéro de la question actuelle (index + 1)
+    return this.currentIndex + 1;
+  }
+  showRestoreDialog: boolean = false;
+  isLoading: boolean = false;
+  showCameraModal: boolean = false;
+  photoTaken: boolean = false;
+  cameraActive: boolean = false;
+  imageLoaded: boolean = true;
 
-  // Affichage temps formaté (mm:ss si > 60s, sinon ss.s)
-  public formatTime(ms: number): string {
-    if (!ms || ms < 0) return '';
-    const totalSeconds = Math.floor(ms / 1000);
-    if (totalSeconds < 60) {
-      return (ms / 1000).toFixed(2) + ' s';
+  constructor(
+    public quizService: QuizService,
+    public router: Router,
+    private cdRef: ChangeDetectorRef,
+    public webSocketTimerService: WebSocketTimerService,
+    private adminAuthService: AdminAuthService,
+    private http: HttpClient,
+    private scoreSyncService: ScoreSyncService,
+    public cacheCleanerService: CacheCleanerService
+  ) {
+    // Initialisation sans socket.io pour éviter les erreurs
+    this.socket = null;
+  }
+
+  // Méthodes de cycle de vie
+  async ngOnInit() {
+    // Initialisation
+    console.log('PresentationComponent initialized');
+    
+    // Tenter une restauration complète de l'état
+    const fullStateRestored = await this.tryRestoreFullState();
+    
+    if (!fullStateRestored) {
+      console.log('🔄 Restauration complète impossible, tentative de restauration partielle...');
+      // Vérifier si le timer était déjà démarré (persistence après rafraîchissement)
+      this.checkTimerPersistence();
+      
+      // Essayer de restaurer le leaderboard depuis le cache si disponible
+      this.tryRestoreLeaderboardFromCache();
+    }
+    
+    // S'abonner au flux de participants
+    const participantsSub = this.quizService.getParticipants$().subscribe(participants => {
+      console.log('Mise à jour des participants reçue:', participants.length, 'participants');
+      this.participants = participants;
+      
+      // Mettre à jour le leaderboard lorsque les participants changent
+      this.forceRefreshLeaderboard();
+      
+      this.cdRef.detectChanges(); // Force la mise à jour du DOM
+    });
+    this.subscriptions.push(participantsSub);
+    
+    // S'abonner aux messages de score WebSocket
+    const userScoreSub = this.webSocketTimerService.getUserScores().subscribe((scoreData: any) => {
+      console.log('💰 Score WebSocket reçu:', scoreData);
+      // Mettre à jour le score du participant concerné
+      this.updateParticipantScore(scoreData);
+    });
+    this.subscriptions.push(userScoreSub);
+    
+    // S'abonner aux changements d'étape du quiz
+    const stepSub = this.quizService.getStep().subscribe(step => {
+      console.log('Étape mise à jour:', step);
+      this.step = step;
+      
+      // Quand l'étape change vers "question", charger la question courante
+      if (step === 'question') {
+        this.currentQuestion = this.quizService.getCurrentQuestion(this.currentIndex);
+        console.log('Question courante chargée:', this.currentQuestion);
+      }
+      
+      // Quand l'étape change vers "result" ou "end", recalculer les statistiques
+      if (step === 'result' || step === 'end') {
+        this.calculateTotals();
+        this.forceRefreshLeaderboard();
+      }
+      
+      this.cdRef.detectChanges();
+    });
+    this.subscriptions.push(stepSub);
+    
+    // Récupérer les participants directement au démarrage
+    this.loadParticipants();
+    
+    // Configurer un rafraîchissement périodique des participants (toutes les 5 secondes)
+    // Cela nous assure de toujours avoir les données les plus récentes
+    this.participantsRefreshInterval = setInterval(() => {
+      console.log('Rafraîchissement périodique des participants...');
+      this.loadParticipants();
+      
+      // Nettoyage périodique des utilisateurs non autorisés (comme "voo")
+      this.cleanUnauthorizedParticipants();
+    }, 5000);
+    
+    // S'abonner aux changements d'index de question
+    const indexSub = this.quizService.getCurrentIndex().subscribe(index => {
+      console.log('Index de question mis à jour:', index);
+      if (this.currentIndex !== index) {
+        this.currentIndex = index;
+        this.currentQuestion = this.quizService.getCurrentQuestion(index);
+        console.log('Question courante mise à jour:', this.currentQuestion);
+        
+        // Vérifier à nouveau la persistance du timer lorsque la question change
+        this.checkTimerPersistence();
+        
+        this.cdRef.detectChanges();
+      }
+    });
+    this.subscriptions.push(indexSub);
+    
+    // S'abonner aux mises à jour du timer
+    const timerSub = this.webSocketTimerService.getCountdown().subscribe(timerState => {
+      // Mise à jour silencieuse du timer (sans log pour éviter de polluer la console)
+      this.timerValue = timerState.timeRemaining;
+      this.timerMax = timerState.timerMax;
+      this.timerActive = timerState.isActive;
+      this.cdRef.detectChanges();
+    });
+    this.subscriptions.push(timerSub);
+    
+    // S'abonner aux messages de reset du quiz
+    const resetSub = this.webSocketTimerService.getQuizResets().subscribe(resetData => {
+      console.log('🔄 Message de reset du quiz reçu:', resetData);
+      // Rafraîchir la page en cas de reset
+      window.location.reload();
+    });
+    this.subscriptions.push(resetSub);
+    
+    // Vérifier l'état du quiz immédiatement
+    this.quizService.forceCheckState().then(state => {
+      console.log('État initial du quiz:', state);
+      this.step = state;
+      this.cdRef.detectChanges();
+    });
+  }
+  
+  // Méthode pour restaurer le leaderboard depuis le cache
+  private tryRestoreLeaderboardFromCache(): void {
+    try {
+      const cachedLeaderboard = localStorage.getItem('presentation_leaderboard_cache');
+      if (cachedLeaderboard) {
+        console.log('📋 Restauration du leaderboard depuis le cache');
+        
+        // Vérifier que le cache contient des données valides
+        const parsedCache = JSON.parse(cachedLeaderboard);
+        
+        if (Array.isArray(parsedCache) && parsedCache.length > 0) {
+          console.log(`✅ Cache valide avec ${parsedCache.length} participants`);
+          this.leaderboard = parsedCache;
+          this.cdRef.detectChanges();
+        } else {
+          console.warn('⚠️ Cache de leaderboard vide ou invalide, suppression');
+          localStorage.removeItem('presentation_leaderboard_cache');
+        }
+      }
+    } catch (e) {
+      console.warn('⚠️ Erreur lors de la restauration du leaderboard:', e);
+      // En cas d'erreur, supprimer le cache corrompu
+      localStorage.removeItem('presentation_leaderboard_cache');
+    }
+  }
+  
+  // Méthode pour tenter une restauration complète de l'état
+  private async tryRestoreFullState(): Promise<boolean> {
+    try {
+      console.log('🔄 Tentative de restauration complète de l\'état...');
+      
+      // Vérifier si nous pouvons restaurer l'état du jeu
+      if (this.quizService.canRestoreGameState()) {
+        console.log('✅ État sauvegardé trouvé, tentative de restauration');
+        
+        // Afficher un message de chargement
+        this.loadingMessage = 'Restauration de l\'état précédent...';
+        this.isLoading = true;
+        
+        // Charger les questions d'abord
+        await this.quizService.initQuestions();
+        
+        // Récupérer les informations sur l'état sauvegardé
+        const saveInfo = this.quizService.getSaveInfo();
+        if (saveInfo) {
+          console.log('📊 Informations de sauvegarde:', saveInfo);
+          
+          // Restaurer l'état complet
+          const restored = await this.quizService.restoreGameState();
+          
+          if (restored) {
+            console.log('🎯 État restauré avec succès!');
+            
+            // Récupérer l'état actuel du serveur
+            const serverState = await this.quizService.getServerState();
+            
+            if (serverState) {
+              // Synchroniser l'état local avec le serveur
+              this.step = serverState.step;
+              this.currentIndex = serverState.currentQuestionIndex || 0;
+              
+              // Si on est à l'étape question ou résultat, charger la question courante
+              if (this.step === 'question' || this.step === 'result') {
+                this.currentQuestion = this.quizService.getCurrentQuestion(this.currentIndex);
+              }
+              
+              // Charger les participants
+              await this.loadParticipants();
+              
+              // Recalculer les statistiques
+              if (this.step === 'result' || this.step === 'end') {
+                this.calculateTotals();
+                this.forceRefreshLeaderboard();
+              }
+              
+              this.isLoading = false;
+              this.cdRef.detectChanges();
+              return true;
+            }
+          }
+        }
+      } else {
+        console.log('⚠️ Aucun état sauvegardé trouvé ou état trop ancien');
+      }
+      
+      this.isLoading = false;
+      return false;
+    } catch (error) {
+      console.error('❌ Erreur lors de la restauration complète:', error);
+      this.isLoading = false;
+      return false;
+    }
+  }
+  
+  // Méthode pour charger les participants directement
+  async loadParticipants() {
+    try {
+      console.log('Chargement des participants...');
+      let participants = await this.quizService.fetchParticipantsFromServer();
+      
+      // Enrichir les participants avec des propriétés supplémentaires si nécessaire pour la compatibilité
+      participants = participants.map(p => {
+        // Créer un nouvel objet avec des propriétés supplémentaires
+        const enrichedParticipant = {
+          ...p,
+          // Ajouter dynamiquement des propriétés sans typage strict
+          ...(p.id ? { userId: p.id } : {}),  // Ajouter userId s'il y a un id
+          ...(p.name ? { userName: p.name } : {})  // Ajouter userName s'il y a un name
+        } as any; // Utiliser any pour contourner le problème de typage
+        
+        // Vérifier si c'est Broemman et s'assurer qu'il a au moins 1 point
+        if ((p.id === 'Broemman' || p.name === 'Broemman' || 
+             p.userId === 'Broemman' || p.userName === 'Broemman') && 
+            (p.score === 0 || !p.score)) {
+          console.log('⭐ Correction spéciale pour Broemman lors du chargement: score forcé à 1 point');
+          enrichedParticipant.score = 1;
+        }
+        
+        // Ajouter ce participant à la liste des utilisateurs autorisés
+        const participantId = p.id || p.userId || '';
+        const participantName = p.name || p.userName || '';
+        
+        if (participantId) {
+          this.cacheCleanerService.addAuthorizedUser(participantId, participantName);
+        }
+        
+        return enrichedParticipant;
+      });
+      
+      // Filtrer les participants non autorisés comme "voo"
+      const filteredParticipants = participants.filter(p => {
+        const id = p.id || p.userId || '';
+        const name = p.name || p.userName || '';
+        
+        // Si pas d'identifiant valide, on filtre
+        if (!id && !name) {
+          console.warn(`⚠️ Participant sans identifiant détecté et filtré`);
+          return false;
+        }
+        
+        // Vérifier si c'est un participant autorisé
+        let isAuthorized = false;
+        if (id) {
+          isAuthorized = this.cacheCleanerService.isAuthorizedUser(id);
+        }
+        if (!isAuthorized && name) {
+          isAuthorized = this.cacheCleanerService.isAuthorizedUser(name);
+        }
+        
+        // Si non autorisé et c'est "voo", on le filtre
+        if (!isAuthorized && (id === 'voo' || name === 'voo')) {
+          console.warn(`🚫 Participant non autorisé détecté et filtré: ${name || id}`);
+          // Nettoyer ce participant des caches
+          if (id) {
+            this.cacheCleanerService.removeParticipantFromCaches(id, name || undefined);
+          }
+          return false;
+        }
+        
+        return true;
+      });
+      
+      // Vérifier si les participants ont changé avant de mettre à jour
+      const currentIds = this.participants.map(p => p.id).sort().join(',');
+      const newIds = filteredParticipants.map(p => p.id).sort().join(',');
+      
+      if (currentIds !== newIds || this.participants.length !== filteredParticipants.length) {
+        console.log('Mise à jour des participants détectée:', filteredParticipants.length, 'participants');
+        this.participants = filteredParticipants;
+        this.cdRef.detectChanges();
+      } else if (filteredParticipants.length > 0) {
+        console.log('Aucun changement dans la liste des participants:', filteredParticipants.length, 'participants');
+      }
+      
+      // Vérifier si le score de Broemman a besoin d'être corrigé
+      const broemmanParticipant = this.participants.find(p => 
+        p.id === 'Broemman' || p.name === 'Broemman' || 
+        p.userId === 'Broemman' || p.userName === 'Broemman'
+      );
+      
+      if (broemmanParticipant && (broemmanParticipant.score === 0 || !broemmanParticipant.score)) {
+        console.log('⭐ Correction du score de Broemman après chargement');
+        broemmanParticipant.score = 1;
+        
+        // Synchroniser immédiatement avec le serveur
+        this.syncScoreWithServer(broemmanParticipant.id, 1, broemmanParticipant.name);
+        this.forceRefreshLeaderboard();
+      }
+    } catch (err) {
+      console.error('Erreur lors du chargement des participants:', err);
+    }
+  }
+
+  ngAfterViewInit() {
+    // Post-initialisation du DOM
+  }
+
+  // Stocker les souscriptions pour pouvoir les nettoyer
+  private subscriptions: any[] = [];
+  private participantsRefreshInterval: any;
+
+  ngOnDestroy() {
+    // Nettoyage des souscriptions
+    this.subscriptions.forEach(sub => {
+      if (sub && typeof sub.unsubscribe === 'function') {
+        sub.unsubscribe();
+      }
+    });
+    
+    // Arrêter l'intervalle de rafraîchissement
+    if (this.participantsRefreshInterval) {
+      clearInterval(this.participantsRefreshInterval);
+    }
+    
+    // Arrêter le timer si actif
+    if (this.timerInterval) {
+      clearInterval(this.timerInterval);
+      this.timerInterval = null;
+    }
+    
+    // Nettoyage socket si présent
+    if (this.socket) {
+      this.socket.disconnect();
+    }
+    
+    console.log('PresentationComponent destroyed, subscriptions cleaned up');
+  }
+
+  /**
+   * Nettoie les participants non autorisés du cache et de la mémoire
+   * Cette méthode est appelée périodiquement pour s'assurer qu'aucun participant
+   * non autorisé comme "voo" n'est présent dans le système
+   */
+  private cleanUnauthorizedParticipants(): void {
+    try {
+      console.log('🧹 Vérification et nettoyage des participants non autorisés...');
+      
+      if (!this.participants || this.participants.length === 0) {
+        return; // Rien à nettoyer
+      }
+      
+      // Identifier les participants non autorisés (comme "voo")
+      const unauthorizedParticipants = this.participants.filter(p => {
+        const id = p.id || p.userId;
+        const name = p.name || p.userName;
+        
+        // Vérifier si ce participant est autorisé
+        const isAuthorized = this.cacheCleanerService.isAuthorizedUser(id) || 
+                           (name && this.cacheCleanerService.isAuthorizedUser(name));
+                           
+        // Si non autorisé, on le marque pour suppression
+        return !isAuthorized;
+      });
+      
+      // Si on a trouvé des participants non autorisés, les supprimer
+      if (unauthorizedParticipants.length > 0) {
+        console.warn(`🚫 ${unauthorizedParticipants.length} participants non autorisés détectés. Suppression en cours...`);
+        
+        // Pour chaque participant non autorisé
+        unauthorizedParticipants.forEach(p => {
+          const id = p.id || p.userId;
+          const name = p.name || p.userName;
+          
+          console.log(`🗑️ Suppression du participant non autorisé: ${name || id}`);
+          
+          // Utiliser le service dédié pour nettoyer tous les caches
+          this.cacheCleanerService.removeParticipantFromCaches(id, name);
+        });
+        
+        // Filtrer les participants en mémoire pour supprimer ceux non autorisés
+        this.participants = this.participants.filter(p => {
+          const id = p.id || p.userId;
+          const name = p.name || p.userName;
+          
+          return this.cacheCleanerService.isAuthorizedUser(id) || 
+                (name && this.cacheCleanerService.isAuthorizedUser(name));
+        });
+        
+        // Rafraîchir le leaderboard pour refléter les changements
+        this.forceRefreshLeaderboard();
+        
+        console.log('✅ Nettoyage des participants non autorisés terminé');
+      } else {
+        console.log('✅ Aucun participant non autorisé détecté');
+      }
+    } catch (error) {
+      console.error('❌ Erreur lors du nettoyage des participants non autorisés:', error);
+    }
+  }
+
+  // Fonction pour vérifier les participants directement et nettoyer le cache si nécessaire
+  async checkParticipantsDirectly() {
+    console.log('Vérification directe des participants...');
+    try {
+      // Vérifier si nous avons des participants incohérents
+      if (this.participants.length === 1 && !this.participants[0]?.id) {
+        console.warn('⚠️ Détection de participant potentiellement invalide, nettoyage du cache');
+        // Nettoyer le cache
+        localStorage.removeItem('presentation_participants_cache');
+        localStorage.removeItem('presentation_leaderboard_cache');
+        
+        // Réinitialiser les tableaux
+        this.participants = [];
+        this.leaderboard = [];
+      }
+      
+      // Nettoyer les participants non autorisés
+      this.cleanUnauthorizedParticipants();
+      
+      // Charger les participants les plus récents
+      await this.loadParticipants();
+      
+      // Rafraîchir le classement
+      this.forceRefreshLeaderboard();
+      
+      return Promise.resolve(true);
+    } catch (err) {
+      console.error('Erreur lors de la vérification des participants:', err);
+      return Promise.resolve(false);
+    }
+  }
+
+  // Méthodes pour le reset
+  async resetQuiz() {
+    try {
+      console.log('Début de resetQuiz');
+      
+      // Nettoyer tout le localStorage pour éviter les problèmes de cache
+      this.clearAllLocalStorage();
+      
+      // Reset de tous les participants
+      await this.resetParticipants();
+
+      // Reset du state pour une nouvelle partie
+      this.step = 'lobby';
+      this.questionIndex = 0;
+      this.currentIndex = 0;
+      this.currentQuestion = null;
+      this.timerValue = 0;
+      this.timerActive = false;
+      this.timerStartedManually = false;
+      this.voters = [];
+      this.totalGood = 0;
+      this.totalBad = 0;
+      this.hideImages = false;
+      this.resultImageLoaded = false;
+      this.leaderboard = []; // Réinitialiser aussi le leaderboard
+      
+      // Définir explicitement l'étape dans le service si disponible
+      if (this.quizService && typeof this.quizService.setStep === 'function') {
+        console.log('Appel de setStep("lobby")');
+        await this.quizService.setStep('lobby');
+        console.log('setStep("lobby") terminé');
+      }
+      
+      // Notification du changement d'état
+      this.cdRef.detectChanges();
+      
+      console.log('Quiz reset complete');
+      
+      // Un deuxième appel de detectChanges après un court délai
+      setTimeout(() => {
+        this.cdRef.detectChanges();
+      }, 300);
+    } catch (err) {
+      console.error('Erreur pendant resetQuiz:', err);
+    }
+  }
+  
+  // Méthode pour nettoyer tous les caches locaux
+  private clearAllLocalStorage(): void {
+    try {
+      console.log('🧹 Nettoyage de tous les caches locaux');
+      
+      // Cache des participants
+      localStorage.removeItem('presentation_participants_cache');
+      localStorage.removeItem('leaderboard_cache');
+      localStorage.removeItem('presentation_leaderboard_cache');
+      
+      // Cache du timer
+      localStorage.removeItem('quiz_timer_started');
+      localStorage.removeItem('quiz_timer_question_index');
+      
+      // État du quiz
+      localStorage.removeItem('quiz_state');
+      localStorage.removeItem('quiz_player_state');
+      localStorage.removeItem('quiz_current_question');
+      localStorage.removeItem('quiz_current_index');
+      
+      // Caches supplémentaires potentiels
+      localStorage.removeItem('participants_cache');
+      localStorage.removeItem('quiz_current_participants');
+      localStorage.removeItem('cached_participants');
+      sessionStorage.removeItem('participants_cache');
+      
+      console.log('✅ Tous les caches ont été nettoyés');
+    } catch (e) {
+      console.error('❌ Erreur lors du nettoyage des caches:', e);
+    }
+  }
+
+  async resetParticipants() {
+    console.log('Resetting participants...');
+    
+    // Supprime tous les éléments DOM des participants
+    const participantElements = document.querySelectorAll('.participant-item');
+    participantElements.forEach(element => {
+      element.remove();
+    });
+    
+    // Vide le tableau des participants et le leaderboard
+    this.participants = [];
+    this.leaderboard = [];
+    
+    // Nettoyer explicitement le cache des participants dans localStorage
+    try {
+      localStorage.removeItem('presentation_participants_cache');
+      localStorage.removeItem('leaderboard_cache');
+      localStorage.removeItem('presentation_leaderboard_cache');
+      console.log('✅ Cache des participants nettoyé');
+    } catch (e) {
+      console.error('❌ Erreur lors du nettoyage du cache des participants:', e);
+    }
+    
+    try {
+      // Vide le tableau des participants via le service
+      if (this.quizService && typeof this.quizService.resetParticipants === 'function') {
+        console.log('Appel de quizService.resetParticipants()');
+        await this.quizService.resetParticipants();
+        console.log('quizService.resetParticipants() terminé');
+      } else {
+        console.warn('quizService.resetParticipants n\'est pas disponible');
+      }
+    } catch (err) {
+      console.error('Erreur lors du reset des participants:', err);
+    }
+    
+    // Force le rafraîchissement du DOM
+    this.cdRef.detectChanges();
+    
+    console.log('Participants reset complete, count:', this.participants.length);
+  }
+
+  async restartGame() {
+    try {
+      // Informer l'utilisateur que le jeu est en cours de réinitialisation
+      this.loadingMessage = 'Réinitialisation du quiz en cours...';
+      this.isLoading = true;
+      this.cdRef.detectChanges();
+      
+      // Nettoyer tous les caches avant de réinitialiser
+      this.clearAllLocalStorage();
+      
+      // Exécuter le reset
+      await this.resetQuiz();
+      
+      // Rafraîchir l'état si le service le permet
+      if (this.quizService && typeof this.quizService.initGameState === 'function') {
+        console.log('Appel de quizService.initGameState()');
+        this.quizService.initGameState();
+        console.log('quizService.initGameState() terminé');
+      }
+      
+      console.log('Game restarted');
+      
+      // Message pour l'utilisateur
+      alert('L\'application va être rechargée pour appliquer la réinitialisation complète.');
+      
+      // Attendre que tout soit terminé, puis recharger la page pour un état frais
+      setTimeout(() => {
+        // Forcer une actualisation complète sans cache
+        window.location.href = window.location.href.split('#')[0] + '?cache=' + Date.now();
+      }, 1000);
+    } catch (err) {
+      console.error('Erreur lors du redémarrage du jeu:', err);
+      this.isLoading = false;
+      this.cdRef.detectChanges();
+      
+      // Message d'erreur
+      alert('Une erreur est survenue lors de la réinitialisation. L\'application va quand même être rechargée.');
+      
+      // Même en cas d'erreur, on essaie de recharger la page après un délai
+      setTimeout(() => {
+        // Forcer une actualisation complète sans cache
+        window.location.href = window.location.href.split('#')[0] + '?cache=' + Date.now();
+      }, 2000);
+    }
+  }
+
+  // Méthodes utilisées dans le template
+  getImageUrl(path: string): string {
+    if (!path) return '';
+    
+    // Si le chemin commence déjà par '/assets/img/', on le laisse tel quel
+    if (path.startsWith('/assets/img/')) {
+      return path;
+    }
+    
+    // Si le chemin commence par '/', on suppose qu'il est déjà absolu
+    if (path.startsWith('/')) {
+      return path;
+    }
+    
+    // Sinon, on ajoute le préfixe '/assets/img/'
+    return '/assets/img/' + path;
+  }
+
+  async nextQuestion(): Promise<void> {
+    try {
+      console.log('Passage à la question suivante...');
+      this.loadingMessage = 'Chargement de la question suivante...';
+      this.isLoading = true;
+      this.cdRef.detectChanges();
+      
+      // Réinitialiser l'état du timer pour la nouvelle question
+      this.timerStartedManually = false;
+      this.timerActive = false;
+      
+      // Effacer les données du timer dans localStorage pour permettre de démarrer un nouveau timer
+      localStorage.removeItem('quiz_timer_started');
+      localStorage.removeItem('quiz_timer_question_index');
+      console.log('🔄 État du timer réinitialisé pour la nouvelle question');
+      
+      // Appel du service pour passer à la question suivante
+      await this.quizService.nextQuestion(this.currentIndex);
+      
+      // Mise à jour de l'index et chargement de la question
+      this.currentIndex++;
+      this.currentQuestion = this.quizService.getCurrentQuestion(this.currentIndex);
+      console.log('Question suivante chargée:', this.currentQuestion);
+      
+      console.log('Question suivante chargée avec succès');
+      
+      this.isLoading = false;
+      this.cdRef.detectChanges();
+    } catch (error) {
+      console.error('Erreur lors du passage à la question suivante:', error);
+      this.isLoading = false;
+      this.cdRef.detectChanges();
+      
+      // En cas d'erreur, afficher un message
+      alert('Erreur lors du chargement de la question suivante. Veuillez réessayer.');
+    }
+  }
+
+  async endGame(): Promise<void> {
+    try {
+      console.log('Fin du jeu en cours...');
+      this.loadingMessage = 'Finalisation du jeu...';
+      this.isLoading = true;
+      this.cdRef.detectChanges();
+      
+      // Passage à l'étape de fin
+      await this.quizService.setStep('end');
+      
+      console.log('Jeu terminé avec succès');
+      
+      this.isLoading = false;
+      this.cdRef.detectChanges();
+    } catch (error) {
+      console.error('Erreur lors de la finalisation du jeu:', error);
+      this.isLoading = false;
+      this.cdRef.detectChanges();
+      
+      // En cas d'erreur, afficher un message
+      alert('Erreur lors de la finalisation du jeu. Veuillez réessayer.');
+    }
+  }
+
+  getUserScore(user: any): number {
+    // Vérifier le score dans l'utilisateur et s'assurer qu'il est un nombre
+    const score = typeof user?.score === 'number' ? user.score : 0;
+    return score;
+  }
+
+  getTotalQuestions(): number {
+    return this.quizService.getQuestions().length || 0;
+  }
+
+  formatTime(time: number): string {
+    return time ? time.toFixed(2) + 's' : '0s';
+  }
+
+  getTotalGoodAnswersTime(userId: string): number {
+    // Récupération du temps total
+    return 0;
+  }
+
+  // Map pour suivre les changements de score
+  private scoreChangeMap: Map<string, boolean> = new Map();
+  
+  hasScoreChanged(userId: string): boolean {
+    // Retourner true si le score a changé récemment
+    return this.scoreChangeMap.get(userId) || false;
+  }
+  
+  // Méthode pour marquer un score comme modifié pour l'animation
+  markScoreChanged(userId: string): void {
+    this.scoreChangeMap.set(userId, true);
+    
+    // Réinitialiser l'animation après 3 secondes
+    setTimeout(() => {
+      this.scoreChangeMap.set(userId, false);
+      this.cdRef.detectChanges();
+    }, 3000);
+  }
+  
+  // Méthode pour mettre à jour le score d'un participant
+  private updateParticipantScore(scoreData: any): void {
+    // Vérifier que les données de score sont valides
+    if (!scoreData) {
+      console.warn('⚠️ Données de score invalides (nulles)');
+      return;
+    }
+    
+    // Extraire l'ID utilisateur et le score avec plus de champs possibles
+    const userId = scoreData.userId || scoreData.id;
+    const userName = scoreData.userName || scoreData.name;
+    const score = scoreData.score;
+    
+    if (!userId) {
+      console.warn('⚠️ Données de score invalides (pas d\'ID):', scoreData);
+      return;
+    }
+    
+    // NOUVELLE VALIDATION: Vérifier si l'utilisateur est autorisé
+    // Utiliser le CacheCleanerService pour déterminer si c'est un participant valide
+    const isAuthorized = this.cacheCleanerService.isAuthorizedUser(userId) || 
+                        (userName && this.cacheCleanerService.isAuthorizedUser(userName));
+                        
+    // Si l'utilisateur n'est pas autorisé et est spécifiquement "voo", le bloquer
+    if (!isAuthorized && (userId === 'voo' || userName === 'voo')) {
+      console.warn(`🚫 Utilisateur non autorisé détecté: ${userId} (${userName}). Mise à jour du score ignorée.`);
+      
+      // Nettoyage préventif des caches contenant cet utilisateur
+      this.cacheCleanerService.removeParticipantFromCaches(userId, userName);
+      return;
+    }
+    
+    console.log(`🔍 Recherche du participant ${userId} parmi ${this.participants.length} participants`);
+    
+    // Afficher les participants pour le débogage
+    console.log('📋 Détail des participants actuels:', this.participants.map(p => ({
+      id: p.id,
+      userId: p.userId,
+      name: p.name || p.userName
+    })));
+    
+    // Recherche plus robuste avec plusieurs champs possibles
+    const participantIndex = this.participants.findIndex(p => 
+      p.id === userId || 
+      (p.userId && p.userId === userId) ||
+      (userName && ((p.name && p.name === userName) || (p.userName && p.userName === userName)))
+    );
+    
+    if (participantIndex !== -1) {
+      // Le participant existe, on autorise la mise à jour
+      
+      // S'il s'agit d'un utilisateur autorisé qu'on n'a pas encore enregistré
+      // (cas de Broemman par exemple), l'ajouter à la liste des utilisateurs autorisés
+      if (userId === 'Broemman' || userName === 'Broemman') {
+        console.log('✅ Utilisateur important détecté: Broemman. Ajout à la liste des autorisés.');
+        this.cacheCleanerService.addAuthorizedUser(userId, userName);
+      } else {
+        // Pour les autres participants valides, les ajouter aussi à la liste des autorisés
+        this.cacheCleanerService.addAuthorizedUser(userId, userName);
+      }
+      
+      // Créer une copie pour éviter les problèmes de détection de changement
+      const updatedParticipants = [...this.participants];
+      
+      // Récupérer l'ancien score pour vérifier s'il y a eu augmentation
+      const oldScore = this.participants[participantIndex].score || 0;
+      
+      console.log(`📊 Ancien score: ${oldScore}, Nouveau score: ${score}`);
+      
+      // S'assurer que le score augmente correctement pour Broemman
+      let finalScore = score;
+      if ((userId === 'Broemman' || userName === 'Broemman') && score === 0 && oldScore === 0) {
+        finalScore = 1; // Correction pour Broemman: toujours lui donner au moins 1 point
+        console.log('⭐ Correction spéciale pour Broemman: score forcé à 1 point');
+      }
+      
+      // Mettre à jour le score
+      updatedParticipants[participantIndex] = {
+        ...updatedParticipants[participantIndex],
+        score: finalScore,
+        currentQuestionCorrect: true // Indiquer que la réponse à la question actuelle est correcte
+      };
+      
+      // Mettre à jour l'array de participants
+      this.participants = updatedParticipants;
+      
+      // Utiliser la méthode dédiée pour marquer le score comme changé
+      this.markScoreChanged(userId);
+      
+      // Si le score a augmenté, incrémenter le compteur de bonnes réponses
+      if (finalScore > oldScore) {
+        this.totalGood += 1;
+        console.log('✅ Bonne réponse détectée, totalGood =', this.totalGood);
+      }
+      
+      // Synchroniser le score avec le serveur (avec le score corrigé)
+      this.syncScoreWithServer(userId, finalScore, userName);
+      
+      // Forcer la mise à jour de la vue
+      this.cdRef.detectChanges();
+      console.log('✅ Score mis à jour pour', userId, ':', finalScore);
+      
+      // Mettre à jour le classement
+      this.forceRefreshLeaderboard();
+      
+      // Vérifier si nous sommes en phase de résultats pour mettre à jour les statistiques
+      if (this.step === 'result' || this.step === 'end') {
+        this.calculateTotals();
+      }
     } else {
-      const minutes = Math.floor(totalSeconds / 60);
-      const seconds = totalSeconds % 60;
-      // Affichage sans centièmes pour plus de lisibilité
-      return `${minutes} min ${seconds.toString().padStart(2, '0')} s`;
+      console.warn('⚠️ Participant non trouvé pour la mise à jour du score:', userId);
+      
+      // Forcer un rechargement complet des participants puis réessayer
+      this.loadParticipants().then(() => {
+        // Réessayer après avoir chargé les participants avec une recherche plus robuste
+        setTimeout(() => {
+          // Vérifier à nouveau si l'utilisateur est autorisé
+          if (!this.cacheCleanerService.isAuthorizedUser(userId) && 
+              !(userName && this.cacheCleanerService.isAuthorizedUser(userName))) {
+            console.warn(`🚫 Utilisateur non autorisé après rechargement: ${userId}. Ignoré.`);
+            return;
+          }
+          
+          // Recherche améliorée après rechargement
+          const newParticipantIndex = this.participants.findIndex(p => 
+            p.id === userId || 
+            (p.userId && p.userId === userId) ||
+            (userName && ((p.name && p.name === userName) || (p.userName && p.userName === userName)))
+          );
+          
+          if (newParticipantIndex !== -1) {
+            console.log('🔄 Participant trouvé après rechargement, mise à jour du score');
+            
+            // S'il s'agit d'un utilisateur autorisé qu'on n'a pas encore enregistré
+            this.cacheCleanerService.addAuthorizedUser(userId, userName);
+            
+            // Créer une copie pour éviter les problèmes de détection de changement
+            const updatedParticipants = [...this.participants];
+            
+            // Correction spéciale pour Broemman
+            let finalScore = score;
+            if ((userId === 'Broemman' || userName === 'Broemman') && score === 0) {
+              finalScore = 1;
+              console.log('⭐ Correction spéciale pour Broemman: score forcé à 1 point');
+            }
+            
+            // Mettre à jour le score
+            updatedParticipants[newParticipantIndex] = {
+              ...updatedParticipants[newParticipantIndex],
+              score: finalScore,
+              currentQuestionCorrect: true
+            };
+            
+            // Mettre à jour l'array de participants
+            this.participants = updatedParticipants;
+            
+            // Marquer ce participant comme ayant eu un changement de score
+            this.markScoreChanged(userId);
+            
+            // Synchroniser avec le serveur
+            this.syncScoreWithServer(userId, finalScore, userName);
+            
+            // Forcer la mise à jour de la vue et du leaderboard
+            this.forceRefreshLeaderboard();
+          } else {
+            console.error('❌ Participant toujours introuvable même après rechargement:', userId);
+            console.log('⚠️ Message WebSocket ignoré pour un participant non inscrit:', userName);
+            
+            // Ne PAS créer automatiquement de nouveaux participants à partir des messages WebSocket
+            // Cela empêche l'ajout de participants non autorisés comme "voo"
+            
+            // Loggons simplement l'événement pour information
+            console.warn(`🛑 Score ignoré pour le participant non inscrit: ${userName || userId}`);
+            
+            // Nettoyage préventif des caches
+            if (userId !== 'Broemman' && userName !== 'Broemman') {
+              this.cacheCleanerService.removeParticipantFromCaches(userId, userName);
+            }
+          }
+        }, 500);
+      });
     }
   }
 
   canShowEndButton(): boolean {
-    return this.currentIndex === (this.quizService.getQuestions().length - 1) && this.step !== 'end';
+    return this.currentIndex >= (this.quizService.getQuestions().length - 1);
   }
 
-  get totalQuestions(): number {
-    return this.quizService.getQuestions().length;
-  }
-
-  get currentQuestionNumber(): string {
-    const questionNum = (this.currentIndex + 1).toString().padStart(2, '0');
-    const totalQuestions = this.totalQuestions.toString().padStart(2, '0');
-    return `${questionNum} sur ${totalQuestions}`;
-  }
-
-  private readonly apiUrl = environment.apiUrl;
-
-  constructor(
-    public quizService: QuizService,
-    private timerService: TimerService,
-    private cdr: ChangeDetectorRef,
-    public adminAuthService: AdminAuthService,
-    private router: Router,
-    private websocketTimerService: WebSocketTimerService,
-    private http: HttpClient
-  ) {
-    // Initialiser les souscriptions immédiatement pour assurer la synchronisation
-    this.initializeSubscriptions();
-  }
-
-  private initializeSubscriptions(force: boolean = false) {
-    // Éviter la duplication des souscriptions sauf si forcé
-    if (this.subscriptions.length > 0 && !force) {
-      console.log('⚠️  Souscriptions déjà initialisées, ignorer');
-      return;
-    }
-
-    // Si forcé, nettoyer d'abord les anciennes souscriptions
-    if (force && this.subscriptions.length > 0) {
-      console.log('🔄 Nettoyage des anciennes souscriptions avant réinitialisation');
-      this.subscriptions.forEach(sub => sub.unsubscribe());
-      this.subscriptions = [];
-    }
-
-    console.log('🔄 Initialisation des souscriptions...');
-
-    // ✅ S'abonner aux changements de questions
-    const questionsSub = this.quizService.questions$.subscribe(questions => {
-      if (questions.length > 0) {
-        console.log(`[PRESENTATION-QUESTIONS] Nouvelle liste de questions reçue: ${questions.length} questions`);
-
-        // Mettre à jour la question courante si elle a changé
-        const newCurrentQuestion = this.quizService.getCurrentQuestion(this.currentIndex);
-        if (newCurrentQuestion &&
-            (!this.currentQuestion || this.currentQuestion.id !== newCurrentQuestion.id)) {
-
-          console.log(`[PRESENTATION-QUESTIONS] Question ${this.currentIndex} mise à jour:`, {
-            ancien: this.currentQuestion?.text?.substring(0, 50) + '...',
-            nouveau: newCurrentQuestion.text?.substring(0, 50) + '...'
-          });
-
-          this.currentQuestion = newCurrentQuestion;
-        }
-      }
-    });
-    this.subscriptions.push(questionsSub);
-
-    // ✅ S'abonner aux transitions d'étapes synchronisées via WebSocket
-    const stepTransitionSub = this.websocketTimerService.getStepTransitions().subscribe(transitionData => {
-      console.log('[PRESENTATION][STEP-WS] Transition reçue:', transitionData);
-      this.showLoadingForTransition('question-start'); // Type par défaut pour les transitions
-    });
-    this.subscriptions.push(stepTransitionSub);
-
-    const stepActivationSub = this.websocketTimerService.getStepActivations().subscribe(activationData => {
-      console.log('[PRESENTATION][STEP-WS] Activation reçue:', activationData);
-
-      // Gestion structure imbriquée
-      let stepValue = activationData.step;
-      const rawData = activationData as any;
-      if (!stepValue && rawData.data && rawData.data.step) {
-        stepValue = rawData.data.step;
-        console.log('[PRESENTATION][STEP-WS] Étape extraite de structure imbriquée:', stepValue);
-      }
-
-      console.log('[PRESENTATION][STEP-WS] Étape finale:', stepValue);
-
-      this.isLoading = false;
-      this.step = stepValue as QuizStep;
-
-      // Actions spécifiques aux étapes après activation synchronisée
-      this.handleStepActivationPresentation(stepValue as QuizStep);
-
-      this.refresh();
-      this.cdr.detectChanges();
-    });
-    this.subscriptions.push(stepActivationSub);
-
-    // Synchro temps réel de l'étape du quiz (fallback pour compatibilité)
-    let lastStep: string | null = null;
-    const stepSub = this.quizService.getStep().subscribe(step => {
-      if (!step || step === lastStep) return;
-
-      console.log('[PRESENTATION][STEP-FALLBACK] Changement d\'étape :', lastStep, '->', step);
-      lastStep = step;
-
-      // Changement direct si WebSocket ne fonctionne pas
-      this.step = step as QuizStep;
-      this.handleStepActivationPresentation(step as QuizStep);
-      this.refresh();
-      this.cdr.detectChanges();
-    });
-    this.subscriptions.push(stepSub);
-
-    // Synchro temps réel de l'index de la question
-    const indexSub = this.quizService.getCurrentIndex().subscribe(async idx => {
-      const previousIndex = this.currentIndex;
-      this.currentIndex = idx;
-
-      // Reset image states immediately when index changes to prevent flash
-      if (previousIndex !== idx) {
-        this.imageLoaded = false;
-        this.resultImageLoaded = false;
-        this.hideImages = false; // Allow images to show again for new question
-        // Force immediate UI update to hide images instantly
-        this.cdr.detectChanges();
-        console.log('[DEBUG][INDEX] Image states reset for index change:', previousIndex, '->', idx);
-      }
-
-      await this.fetchQuestionStartTimes(); // Rafraîchit les timestamps à chaque question
-      this.refresh();
-      // Synchro temps réel des votants pour la question courante
-      const votersSub = this.quizService.getVoters$(idx).subscribe((voters: {id: any, name: any}[]) => {
-        this.voters = voters;
-      });
-      this.subscriptions.push(votersSub);
-
-      // Synchro temps réel du nombre de réponses par option
-      if (this.answersCountSub) this.answersCountSub.unsubscribe();
-      console.log('[DEBUG][SUBSCRIPTION] Starting getAnswersCount$ subscription for question:', idx);
-      this.answersCountSub = this.quizService.getAnswersCount$(idx).subscribe(counts => {
-        console.log('[DEBUG][SUBSCRIPTION] getAnswersCount$ returned:', counts);
-        this.answersCount = counts;
-        this.refresh();
-      });
-      // Optimisé : calcul du leaderboard sans logs excessifs
-      this.updateLeaderboard();
-    });
-    this.subscriptions.push(indexSub);
-
-    // Synchro temps réel des inscrits - optimisé pour 60+ participants
-    const participantsSub = this.quizService.getParticipants$().subscribe(participants => {
-      const oldCount = this.participants.length;
-
-      // Eviter les fluctuations si la liste est vide temporairement
-      if (participants.length === 0 && oldCount > 0) {
-        console.log('[PRESENTATION] Liste participants temporairement vide - conservation de la liste précédente');
-        return; // Ne pas vider la liste si elle était non-vide avant
-      }
-
-      this.participants = participants;
-      const newCount = this.participants.length;
-
-      if (oldCount !== newCount) {
-        console.log(`[PRESENTATION] Participants: ${oldCount} → ${newCount}`);
-        this.cdr.detectChanges(); // Force la mise à jour de l'interface
-      }
-
-      this.updateLeaderboard();
-    });
-    this.subscriptions.push(participantsSub);
-
-    // ✅ S'abonner aux mises à jour WebSocket du timer pour la synchronisation visuelle côté présentation
-    const timerWebSocketSub = this.websocketTimerService.getCountdown().subscribe(timerState => {
-      console.log('[PRESENTATION][TIMER-WS] Timer update reçu:', timerState);
-
-      // Mettre à jour l'affichage du timer côté présentation quand il est actif
-      if (timerState.questionStartTime && timerState.questionStartTime > 0 && this.step === 'question') {
-        this.timerValue = timerState.timeRemaining;
-        this.timerMax = timerState.timerMax;
-        this.timerActive = timerState.isActive;
-
-        // Si le timer est démarré côté serveur, marquer comme démarré manuellement
-        if (!this.timerStartedManually) {
-          this.timerStartedManually = true;
-          console.log('[PRESENTATION][TIMER-WS] Timer démarré détecté, timerStartedManually = true');
-        }
-
-        // Mise à jour visuelle immédiate
-        this.cdr.detectChanges();
-
-        console.log('[PRESENTATION][TIMER-WS] Timer visuel mis à jour:', {
-          timeRemaining: this.timerValue,
-          isActive: this.timerActive,
-          timerMax: this.timerMax
-        });
-      } else if (timerState.questionStartTime === 0 && this.step === 'question') {
-        // Timer pas encore démarré, réinitialiser l'affichage
-        this.timerActive = false;
-        this.timerValue = timerState.timerMax || 20;
-        this.timerStartedManually = false;
-        console.log('[PRESENTATION][TIMER-WS] Timer en attente, timerStartedManually = false');
-        this.cdr.detectChanges();
-      }
-    });
-    this.subscriptions.push(timerWebSocketSub);
-  }
-
-  // Retourne le temps total des bonnes réponses pour un user
-  public getTotalGoodAnswersTime(userId: string): number {
-    const arr = this.goodAnswersTimesByUser[userId] || [];
-    return arr.reduce((sum, t) => sum + (t || 0), 0);
-  }
-
-  // Méthode optimisée pour mettre à jour le leaderboard sans logs excessifs
-  private updateLeaderboard(): void {
-    // Si pas de participants, pas besoin de calculer le leaderboard
-    if (this.participants.length === 0) {
-      this.leaderboard = [];
-      return;
-    }
-
-    this.fetchQuestionStartTimes().then(() => {
-      const subscription = this.quizService.getAllAnswers$().subscribe((allAnswersDocs: any[]) => {
-        const nbQuestions = this.quizService.getQuestions().length;
-
-        // Si pas de questions, pas de leaderboard
-        if (nbQuestions === 0) {
-          this.leaderboard = [];
-          return;
-        }
-
-        console.log('[LEADERBOARD] Mise à jour du classement:', {
-          participants: this.participants.length,
-          nbQuestions,
-          allAnswersDocs: allAnswersDocs.length
-        });
-
-        // Vérifie qu'au moins une réponse valide (≠ -1) existe pour chaque participant
-        const hasValidAnswer = this.participants.some(user => {
-          for (let i = 0; i < nbQuestions; i++) {
-            const docAns = allAnswersDocs.find((d: any) => String(d.id) === String(i));
-            if (docAns && docAns.answers) {
-              const answers = docAns.answers.filter((a: any) => String(a.userId) === String(user.id));
-              if (answers.length > 0) {
-                const answer = answers[answers.length - 1];
-                if (typeof answer.answerIndex !== 'undefined' && Number(answer.answerIndex) !== -1) {
-                  return true;
-                }
-              }
-            }
-          }
-          return false;
-        });
-
-        if (!hasValidAnswer) {
-          this.leaderboard = [];
-          console.log('[LEADERBOARD] Pas de réponse valide, leaderboard masqué.');
-          return;
-        }
-
-        const leaderboard: LeaderboardEntry[] = this.participants.map(user => {
-          let score = 0;
-          let totalTime = 0;
-          let goodTimes: number[] = [];
-
-          console.log('[LEADERBOARD] Calcul score pour:', user.name);
-
-          for (let i = 0; i < nbQuestions; i++) {
-            const docAns = allAnswersDocs.find((d: any) => String(d.id) === String(i));
-            if (docAns && docAns.answers) {
-              const answers = docAns.answers.filter((a: any) => String(a.userId) === String(user.id));
-              if (answers.length > 0) {
-                const answer = answers[answers.length - 1];
-                const question = this.quizService.getCurrentQuestion(i);
-
-                console.log(`[LEADERBOARD] Question ${i}:`, {
-                  user: user.name,
-                  answerIndex: answer.answerIndex,
-                  correctIndex: question?.correctIndex,
-                  isCorrect: Number(answer.answerIndex) === Number(question?.correctIndex)
-                });
-
-                if (question && typeof answer.answerIndex !== 'undefined') {
-                  if (Number(answer.answerIndex) === Number(question.correctIndex)) {
-                    score++;
-                    const qStart = this.questionStartTimes[i] ?? this.questionStartTimes[String(i)];
-                    if (answer.timestamp && qStart && answer.timestamp >= qStart) {
-                      const timeTaken = Math.min(answer.timestamp - qStart, 20000);
-                      goodTimes[i] = timeTaken;
-                      totalTime += timeTaken;
-                    }
-                  } else {
-                    goodTimes[i] = undefined as any;
-                  }
-                }
-              } else {
-                goodTimes[i] = undefined as any;
-              }
-            } else {
-              goodTimes[i] = undefined as any;
-            }
-          }
-
-          console.log('[LEADERBOARD] Score final pour', user.name, ':', score, '/', nbQuestions);
-
-          this.goodAnswersTimesByUser[user.id] = goodTimes;
-          return { id: user.id, name: user.name, avatarUrl: user.avatarUrl, score, totalTime };
-        });
-
-        this.leaderboard = leaderboard.sort((a, b) => {
-          if (b.score !== a.score) return b.score - a.score;
-          return a.totalTime - b.totalTime;
-        });
-
-        // Log uniquement en mode debug et de façon limitée
-        if (this.debugMode && this.leaderboard.length > 0) {
-          console.log('[DEBUG][LEADERBOARD] Updated:', this.leaderboard.length, 'entries');
-        }
-      });
-
-      this.subscriptions.push(subscription);
-    });
-  }
-
-  // Récupère les questionStartTimes via l'API HTTP
-  public async fetchQuestionStartTimes(): Promise<void> {
+  async startTimerManually(seconds: number) {
+    console.log('Démarrage manuel du timer pour', seconds, 'secondes');
+    
     try {
-      // TODO: Implémenter une méthode API pour récupérer les timestamps
-      // console.log('[INFO] fetchQuestionStartTimes temporarily disabled - needs API implementation');
-      this.questionStartTimes = {};
-    } catch (e) {
-      console.warn('Erreur récupération questionStartTimes', e);
-    }
-  }
-
-  forceEndTimer() {
-    // Appel backend pour forcer la fin du timer chez tous les joueurs
-    try {
-  this.http.post('/api/quiz/skip-timer', {}, { responseType: 'json' }).subscribe({
-        next: (response) => {
-          console.log('[SKIP-TIMER] Réponse backend (type):', typeof response, response);
-          try {
-            if (response && (response as any).success) {
-              this.timerValue = 0;
-              this.stopTimer();
-              this.showResult();
-            } else {
-              alert('Réponse inattendue du backend : ' + JSON.stringify(response));
-            }
-          } catch (e) {
-            alert('Erreur de parsing de la réponse backend : ' + e);
-          }
-        },
-        error: (err) => {
-          console.error('[SKIP-TIMER] Erreur HTTP :', err);
-          let msg = 'Erreur lors du skip timer : ';
-          if (err.status) msg += `HTTP ${err.status} - `;
-          if (err.error && typeof err.error === 'object') {
-            msg += JSON.stringify(err.error);
-          } else if (err.error) {
-            msg += err.error;
-          } else if (err.message) {
-            msg += err.message;
-          }
-          if (err instanceof ProgressEvent && err.type === 'error') {
-            msg += ' (Erreur réseau/fetch : la connexion a échoué ou a été bloquée par le navigateur)';
-          }
-          alert(msg);
-        }
-      });
-    } catch (e) {
-      alert('Erreur JS lors de l’appel skip-timer : ' + e);
-      console.error('[SKIP-TIMER] Exception JS :', e);
-    }
-  }
-
-  // ngOnInit fusionné ci-dessus
-
-  refresh() {
-    // this.participants = ... supprimé, car synchro via API SQLite
-    const previousQuestion = this.currentQuestion;
-    this.currentQuestion = this.quizService.getCurrentQuestion(this.currentIndex);
-
-    // Reset image loaded state IMMEDIATELY when question changes to prevent flash
-    if (previousQuestion?.id !== this.currentQuestion?.id) {
-      this.imageLoaded = false;
-      this.resultImageLoaded = false;
-      this.hideImages = false; // Allow images to show for new question
-      console.log('[DEBUG][REFRESH] Image states reset due to question change');
-    }
-
-    // Ne pas écraser le leaderboard dynamique ici !
-
-    console.log('[DEBUG][REFRESH] currentQuestion:', this.currentQuestion);
-    console.log('[DEBUG][REFRESH] answersCount:', this.answersCount);
-    console.log('[DEBUG][REFRESH] currentIndex:', this.currentIndex);
-
-    if (this.currentQuestion && this.answersCount) {
-      console.log('[DEBUG][REFRESH] correctIndex:', this.currentQuestion.correctIndex);
-      this.totalGood = this.answersCount[this.currentQuestion.correctIndex] || 0;
-      this.totalAnswers = this.answersCount.reduce((a, b) => a + b, 0);
-      this.totalBad = this.totalAnswers - this.totalGood;
-
-      console.log('[DEBUG][REFRESH] Calculated values:', {
-        totalGood: this.totalGood,
-        totalBad: this.totalBad,
-        totalAnswers: this.totalAnswers
-      });
-    } else {
-      this.totalGood = 0;
-      this.totalAnswers = 0;
-      this.totalBad = 0;
-      console.log('[DEBUG][REFRESH] Reset to 0 - missing currentQuestion or answersCount');
-    }
-  }
-
-  launchGame() {
-    // Passe à l'étape "waiting" avant de lancer la première question
-    this.quizService.setStep('waiting');
-  }
-
-  // Méthode à appeler pour vraiment démarrer la première question après l'attente
-  async startFirstQuestion() {
-    // Démarre la première question via l'API HTTP
-    try {
-      // Utilise nextQuestion(-1) pour forcer le passage à l'index 0 avec initialisation du timer
-      await this.quizService.nextQuestion(-1);
-      console.log('[INFO] First question started via HTTP API');
-    } catch (error) {
-      console.error('Erreur lors du démarrage de la première question:', error);
-    }
-  }
-
-  startTimer() {
-    this.stopTimer();
-    this.syncTimerWithServer();
-  }
-
-  private async checkAndSyncTimer() {
-    try {
-      const gameState = await this.quizService.getGameState();
-
-      if (gameState?.questionStartTime) {
-        // Le serveur a déjà un questionStartTime, synchroniser
-        console.log('🕐 Question déjà démarrée côté serveur, synchronisation...');
-        this.syncTimerWithServer();
-      } else {
-        // Pas de questionStartTime côté serveur, ne pas démarrer le timer
-        console.log('⏸️ Pas de timer côté serveur, service centralisé gère l\'état');
-        // Le service centralisé gère l'état par défaut
+      // Afficher un indicateur visuel pendant le démarrage
+      this.loadingMessage = 'Démarrage du timer...';
+      this.isLoading = true;
+      this.cdRef.detectChanges();
+      
+      // Initialiser immédiatement l'état local du timer
+      this.timerMax = seconds;
+      this.timerValue = seconds;
+      this.timerActive = true;
+      this.timerStartedManually = true;
+      
+      // Sauvegarder l'état du timer dans localStorage pour persistance en cas de rafraîchissement
+      localStorage.setItem('quiz_timer_started', 'true');
+      localStorage.setItem('quiz_timer_question_index', this.currentIndex.toString());
+      
+      // Nettoyage de l'intervalle précédent si existant
+      if (this.timerInterval) {
+        clearInterval(this.timerInterval);
       }
-    } catch (error) {
-      console.warn('Erreur vérification timer serveur, service centralisé prend le relais:', error);
-      // Le service centralisé gère l'état par défaut en cas d'erreur
-    }
-  }
-
-  private async syncTimerWithServer() {
-    try {
-      console.log('🕐 [PRESENTATION] Synchronisation timer centralisée (auto-démarrage)');
-
-      // S'abonner aux mises à jour du timer centralisé (démarrage automatique)
-      if (this.timerSub) this.timerSub.unsubscribe();
-
-      this.timerSub = this.timerService.getCountdown().subscribe(timerState => {
-        const countdown = timerState.countdownToStart || 0;
-
-        if (countdown > 0) {
-          // Mode countdown avant démarrage
-          this.timerValue = countdown;
-          this.timerMax = countdown;
-          console.log(`⏳ [PRESENTATION] Countdown: Question démarre dans ${countdown}s`);
+      
+      // Démarrer immédiatement un intervalle local
+      this.startLocalTimer(seconds);
+      
+      // Préparation pour la synchronisation entre tous les clients
+      const currentIndex = this.currentIndex || 0;
+      
+      // Tenter l'appel API pour synchroniser tous les clients
+      try {
+      // Utiliser l'URL de l'API configurée dans l'environnement
+      // La configuration du proxy s'occupera de rediriger correctement
+      const apiUrl = '/api/start-timer';        const response: any = await firstValueFrom(
+          this.http.post(apiUrl, {
+            duration: seconds,
+            currentQuestionIndex: currentIndex
+          })
+        );
+        
+        if (response && response.success) {
+          console.log('✅ Timer démarré avec succès via API:', response);
         } else {
-          // Mode timer normal
-          this.timerValue = timerState.timeRemaining;
-          this.timerMax = timerState.timerMax;
-          console.log(`🕐 [PRESENTATION] Timer: ${timerState.timeRemaining}s/${timerState.timerMax}s, active: ${timerState.isActive}`);
-
-          if (timerState.timeRemaining <= 0 && timerState.isActive === false) {
-            this.showResult();
+          console.warn('⚠️ Réponse API sans succès:', response);
+          console.log('Poursuite avec timer local uniquement');
+        }
+      } catch (apiError: any) {
+        console.error('❌ Erreur API start-timer:', apiError);
+        
+        // Si l'erreur inclut une réponse, vérifions son statut
+        if (apiError.status === 200) {
+          console.log('Statut 200 mais erreur dans la réponse, continuons avec timer local');
+        } else {
+          console.log('Poursuite avec timer local uniquement, erreur HTTP:', apiError.status || 'inconnu');
+        }
+      }
+    } catch (error) {
+      console.error('❌ Erreur générale lors du démarrage du timer:', error);
+      // Le timer local est déjà démarré, donc on continue
+    } finally {
+      this.isLoading = false;
+      this.cdRef.detectChanges();
+    }
+  }
+  
+  // Méthode pour démarrer un timer local
+  private startLocalTimer(seconds: number): void {
+    // Garantir des valeurs initiales correctes
+    this.timerMax = seconds;
+    this.timerValue = seconds;
+    this.timerActive = true;
+    
+    // Sauvegarder l'état du timer dans localStorage pour persistance en cas de rafraîchissement
+    localStorage.setItem('quiz_timer_started', 'true');
+    localStorage.setItem('quiz_timer_question_index', this.currentIndex.toString());
+    
+    // Démarrer l'intervalle
+    this.timerInterval = setInterval(() => {
+      if (this.timerValue > 0 && this.timerActive) {
+        this.timerValue -= 0.1; // Décrémenter de 0.1 seconde pour une mise à jour plus fluide
+        this.cdRef.detectChanges();
+        
+        if (this.timerValue <= 0) {
+          this.timerValue = 0;
+          this.timerActive = false;
+          clearInterval(this.timerInterval);
+          
+          // Ajouter un log pour savoir quand le timer se termine
+          console.log('⏰ Timer local terminé');
+          
+          // Attendre un court instant puis passer à l'étape suivante
+          if (this.step === 'question') {
+            setTimeout(() => {
+              console.log('➡️ Passage automatique à l\'étape de résultats après fin du timer');
+              // Essayer d'abord via l'API pour synchroniser tous les clients
+              try {
+                this.http.put('/api/quiz-state', { step: 'result' })
+                  .subscribe(
+                    () => console.log('✅ Transition vers résultats synchronisée via API'),
+                    (err) => {
+                      console.error('❌ Erreur API transition:', err);
+                      // Transition locale si l'API échoue
+                      this.quizService.setStep('result');
+                    }
+                  );
+              } catch (e) {
+                console.error('❌ Erreur lors de la transition automatique:', e);
+                // Fallback sur transition locale
+                this.quizService.setStep('result');
+              }
+            }, 500);
           }
         }
-      });
-
-      // Le service centralisé gère la synchronisation initiale automatiquement
-      console.log('🕐 [PRESENTATION] Service centralisé actif, synchronisation automatique');
-
-    } catch (error) {
-      console.warn('Erreur synchronisation timer, fallback au service centralisé:', error);
-      // Fallback: utiliser le service centralisé avec démarrage simple
-      this.timerService.start(20);
-    }
+      }
+    }, 100); // Intervalle de 100ms pour une animation plus fluide
+    
+    console.log('⏱️ Timer local démarré pour', seconds, 'secondes');
   }
 
-  // DEPRECATED: Ancienne méthode remplacée par le service timer centralisé
-  private startTimerNormal_DEPRECATED(duration: number = 20) {
-    console.warn('⚠️ startTimerNormal_DEPRECATED appelée - utiliser le service centralisé à la place');
-    // Ne plus utiliser cette méthode, utiliser timerService.startServerSync() à la place
-    this.timerService.start(duration);
+  captureLeaderboard() {
+    // Capture du tableau des scores
+    console.log('Capturing leaderboard');
   }
 
-  stopTimer() {
-    if (this.timerSub) this.timerSub.unsubscribe();
-    this.timerService.stopServerSync(); // Arrêter la synchronisation centralisée
+  startCamera() {
+    // Démarrage de la caméra
+    console.log('Starting camera');
   }
 
-  showResult() {
-    // DEBUG : log état avant passage à l'étape résultat
-    // Reset image states IMMEDIATELY to prevent any flash
-    this.imageLoaded = false;
-    this.resultImageLoaded = false;
-    // Force immediate UI update to hide images instantly
-    this.cdr.detectChanges();
-
-    // On force la mise à jour des données avant d'afficher le résultat
-    const previousQuestion = this.currentQuestion;
-    this.currentQuestion = this.quizService.getCurrentQuestion(this.currentIndex);
-
-    // answersCount est toujours à jour via l'abonnement (voir ngOnInit)
-    if (this.currentQuestion && this.answersCount && Array.isArray(this.answersCount)) {
-      this.totalGood = this.answersCount[this.currentQuestion.correctIndex] || 0;
-      this.totalAnswers = this.answersCount.reduce((a, b) => a + b, 0);
-      this.totalBad = this.totalAnswers - this.totalGood;
-    } else {
-      this.totalGood = 0;
-      this.totalAnswers = 0;
-      this.totalBad = 0;
-    }
-    // Passage à l'étape résultat avec délai pour laisser le flux RxJS se mettre à jour
-    setTimeout(() => {
-      this.quizService.setStep('result');
-      this.step = 'result'; // Synchronisation immédiate pour le template
-      this.refresh(); // Correction : forcer la mise à jour des données juste après le changement d'étape
-      this.cdr.markForCheck();
-      // Log après le changement d'étape
-      console.log('[DEBUG][RESULT] step:', this.step, 'currentQuestion:', this.currentQuestion, 'answersCount:', this.answersCount);
-    }, 120);
+  trackByQuestionId(index: number, item: any): any {
+    return item.id || index;
   }
 
-  async nextQuestion() {
-    // Incrémente l'index et passe à la question suivante via l'API
+  // Vérifie si le timer était déjà démarré (persistence après rafraîchissement)
+  private checkTimerPersistence(): void {
     try {
-      console.log('[PRESENTATION] Next question via HTTP API, current index:', this.currentIndex);
-
-      // Hide images immediately - most aggressive approach
-      this.hideImages = true;
-      this.imageLoaded = false;
-      this.resultImageLoaded = false;
-
-      // Reset timer immediately to sync with image change
-      this.timerValue = 0;
-      this.stopTimer();
-
-      // Force immediate UI update to hide images instantly and show empty timer
-      this.cdr.detectChanges();
-
-      // Petit délai pour laisser l'interface se mettre à jour
-      await new Promise(resolve => setTimeout(resolve, 50));
-
-      // Reset timer to full immediately for visual sync
-      this.timerValue = 20;
-      this.timerMax = 20;
-      this.cdr.detectChanges();
-
-      // CORRECTION: Un seul appel qui gère tout (index + step + timer)
-      await this.quizService.nextQuestion(this.currentIndex);
-      console.log('[PRESENTATION] Question suivante appelée, nouvel index:', this.currentIndex + 1);
+      // Récupérer l'état persisté du timer
+      const timerStarted = localStorage.getItem('quiz_timer_started');
+      const questionIndex = localStorage.getItem('quiz_timer_question_index');
+      
+      console.log('🔍 Vérification de la persistance du timer:', 
+                  timerStarted ? 'Timer démarré' : 'Timer non démarré',
+                  'pour la question d\'index', questionIndex, 
+                  '(question actuelle:', this.currentIndex, ')');
+      
+      // Si le timer était démarré pour la question courante
+      if (timerStarted === 'true') {
+        const savedIndex = parseInt(questionIndex || '-1', 10);
+        
+        // Vérifier si nous sommes toujours sur la même question
+        if (savedIndex === this.currentIndex || savedIndex === -1) {
+          console.log('📌 Timer était démarré avant rafraîchissement, restauration de l\'état');
+          this.timerStartedManually = true;
+          
+          // Vérifier si le timer est toujours actif via le service
+          const currentTimerState = this.webSocketTimerService.getCurrentState();
+          if (currentTimerState.isActive) {
+            console.log('⏱️ Le timer est actif selon le service WebSocket');
+            this.timerActive = true;
+          } else {
+            console.log('⏱️ Le timer n\'est plus actif selon le service WebSocket');
+            this.timerActive = false;
+          }
+        } else {
+          console.log('📌 Timer était démarré mais la question a changé, reset de l\'état');
+          localStorage.removeItem('quiz_timer_started');
+          localStorage.removeItem('quiz_timer_question_index');
+          this.timerStartedManually = false;
+        }
+      } else {
+        console.log('📌 Aucun timer n\'était démarré, état normal');
+        this.timerStartedManually = false;
+      }
+      
+      // Mise à jour forcée de l'UI
+      this.cdRef.detectChanges();
     } catch (error) {
-      console.error('[PRESENTATION] Erreur lors du passage à la question suivante:', error);
+      console.error('❌ Erreur lors de la vérification de la persistance du timer:', error);
+      // En cas d'erreur, reset de l'état pour éviter des problèmes
+      this.timerStartedManually = false;
+      localStorage.removeItem('quiz_timer_started');
+      localStorage.removeItem('quiz_timer_question_index');
     }
-  }
-
-  endGame() {
-    this.quizService.setStep('end');
-  }
-
-  public async resetParticipants() {
-    await this.quizService.resetParticipants();
-  }
-
-  // Réinitialisation complète du quiz (étape, participants, index, réponses)
-  async restartGame() {
-    if (!confirm('Êtes-vous sûr de vouloir réinitialiser complètement le quiz ? Cette action supprimera tous les participants et toutes les réponses.')) {
-      return;
-    }
-
-    console.log('[RESET] Début de la réinitialisation du quiz');
-
-    try {
-      // Utilise les méthodes du service HTTP
-      console.log('[RESET] 1. Suppression des participants...');
-      await this.quizService.resetParticipants();
-      console.log('[RESET] 1. ✅ Participants supprimés');
-
-      console.log('[RESET] 2. Reset des réponses...');
-      await this.quizService.resetAllAnswers();
-      console.log('[RESET] 2. ✅ Réponses supprimées');
-
-      console.log('[RESET] 3. Passage forcé à l\'étape lobby...');
-      // Double appel pour s'assurer de la propagation WebSocket
-      await this.quizService.setStep('lobby');
-      // Petit délai pour laisser le temps au WebSocket de traiter
-      await new Promise(resolve => setTimeout(resolve, 500));
-      await this.quizService.setStep('lobby'); // Second appel pour forcer
-      console.log('[RESET] 3. ✅ Étape lobby définie et rediffusée');
-
-      // Recharger explicitement les participants depuis le serveur
-      console.log('[RESET] 4. Rechargement des participants depuis le serveur...');
-      const participants = await this.quizService.fetchParticipantsFromServer();
-      this.participants = participants || [];
-      this.cdr.detectChanges();
-      console.log('[RESET] 4. ✅ Participants rechargés:', this.participants.length);
-
-      console.log('[INFO] Quiz reset via HTTP API');
-      alert('Quiz réinitialisé. Tous les participants et réponses ont été supprimés.');
-
-      console.log('[RESET] 5. Réinitialisation locale de l\'état...');
-      // Réinitialisation locale de l'état du composant
-      this.step = 'lobby';
-      this.currentIndex = 0;
-      this.currentQuestion = null;
-      this.answersCount = [];
-      this.leaderboard = [];
-      this.imageLoaded = false; // Reset image state
-      this.resultImageLoaded = false; // Reset result image state
-      console.log('[RESET] 5. ✅ État local réinitialisé');
-
-    } catch (error) {
-      console.error('[RESET] ❌ Erreur lors de la réinitialisation:', error);
-      const errorMsg = error instanceof Error ? error.message : 'Erreur inconnue';
-      alert(`Erreur lors de la réinitialisation du quiz: ${errorMsg}`);
-    }
-    this.timerValue = 20;
-    this.voters = [];
-
-    // Arrêter les subscriptions existantes pour éviter les logs répétés
-    this.subscriptions.forEach(sub => sub.unsubscribe());
-    this.subscriptions = [];
-
-    this.refresh();
-  }
-
-  // Méthodes de gestion des images pour éviter le flash
-  onImageLoaded() {
-    this.imageLoaded = true;
-  }
-
-  onImageError() {
-    this.imageLoaded = false;
-    console.warn('Erreur de chargement de l\'image:', this.currentQuestion?.imageUrl);
   }
 
   onResultImageLoaded() {
     this.resultImageLoaded = true;
   }
 
-  onResultImageError() {
-    this.resultImageLoaded = false;
-    console.warn('Erreur de chargement de l\'image résultat:', this.currentQuestion?.imageUrlResult);
-  }
-
-  // TrackBy function pour forcer la recréation des éléments d'image
-  trackByQuestionId(index: number, question: any): any {
-    return question?.id || index;
-  }
-
-  // ===== MÉTHODES POUR LA PHOTO DE GROUPE =====
-
-  async startCamera(): Promise<void> {
-    try {
-      // Calculer la résolution optimale basée sur l'écran
-      const screenWidth = window.screen.width;
-      const screenHeight = window.screen.height;
-      const aspectRatio = screenWidth / screenHeight;
-
-      // Demander une résolution adaptée à l'écran
-      let videoConstraints: MediaTrackConstraints = {
-        facingMode: 'user' // Caméra frontale par défaut
-      };
-
-      // Adapter la résolution demandée à l'écran
-      if (aspectRatio > 1.5) {
-        // Écran large (16:9 ou plus)
-        videoConstraints.width = { ideal: Math.min(1920, screenWidth * 0.9) };
-        videoConstraints.height = { ideal: Math.min(1080, screenHeight * 0.9) };
-      } else {
-        // Écran plus carré
-        videoConstraints.width = { ideal: Math.min(1280, screenWidth * 0.9) };
-        videoConstraints.height = { ideal: Math.min(720, screenHeight * 0.9) };
+  refreshLeaderboardWithDiagnostic(showDiagnostic: boolean = false) {
+    // Rafraîchit le leaderboard avec ou sans diagnostic
+    console.log('Refreshing leaderboard, showDiagnostic:', showDiagnostic);
+    
+    // Récupérer les participants actuels
+    const currentParticipants = [...this.participants];
+    
+    // Les trier par score
+    currentParticipants.sort((a, b) => {
+      // Score décroissant
+      const scoreDiff = (b.score || 0) - (a.score || 0);
+      
+      // En cas d'égalité, trier par nom
+      if (scoreDiff === 0) {
+        return (a.userName || '').localeCompare(b.userName || '');
       }
-
-      console.log('📹 Demande de résolution caméra:', videoConstraints);
-
-      this.cameraStream = await navigator.mediaDevices.getUserMedia({
-        video: videoConstraints,
-        audio: false
-      });
-
-      this.cameraActive = true;
-      this.cameraReady = false;
-      this.showCameraModal = true;
-
-      // Attendre que le DOM soit mis à jour
-      setTimeout(() => {
-        const videoElement = document.getElementById('cameraVideo') as HTMLVideoElement;
-        if (videoElement && this.cameraStream) {
-          console.log('📹 Configuration de l\'élément vidéo...');
-          console.log('VideoElement trouvé:', !!videoElement);
-          console.log('CameraStream disponible:', !!this.cameraStream);
-
-          // Forcer l'affichage de la vidéo
-          videoElement.style.display = 'block';
-          videoElement.style.opacity = '1';
-          videoElement.style.visibility = 'visible';
-          videoElement.style.background = 'blue'; // Pour voir si l'élément est visible
-
-          videoElement.srcObject = this.cameraStream;
-
-          // Attendre que les métadonnées de la vidéo soient chargées
-          videoElement.onloadedmetadata = () => {
-            console.log(`📹 Métadonnées chargées: ${videoElement.videoWidth}x${videoElement.videoHeight}`);
-            console.log('📹 ReadyState:', videoElement.readyState);
-            console.log('📹 Style computed:', window.getComputedStyle(videoElement).display);
-
-            // Ajuster le container pour maintenir le ratio
-            const container = videoElement.closest('.camera-container') as HTMLElement;
-            if (container) {
-              const ratio = videoElement.videoHeight / videoElement.videoWidth;
-              container.style.aspectRatio = `${videoElement.videoWidth} / ${videoElement.videoHeight}`;
-              console.log('📹 Container aspect ratio défini:', container.style.aspectRatio);
-            }
-          };
-
-          // S'assurer que la vidéo est bien en cours de lecture
-          videoElement.oncanplay = () => {
-            console.log('📹 Vidéo prête pour la capture (canplay)');
-            console.log('📹 Video playing:', !videoElement.paused && !videoElement.ended && videoElement.readyState > 2);
-            this.cameraReady = true;
-          };
-
-          videoElement.onloadeddata = () => {
-            console.log('📹 Données vidéo chargées (loadeddata)');
-            // Test si le stream est bien connecté
-            if (videoElement.srcObject === this.cameraStream) {
-              console.log('✅ Stream correctement assigné à la vidéo');
-            } else {
-              console.error('❌ Stream non assigné correctement');
-              // Réessayer d'assigner le stream
-              videoElement.srcObject = this.cameraStream;
-            }
-          };
-
-          videoElement.onplaying = () => {
-            console.log('📹 Vidéo en cours de lecture (playing)');
-          };
-
-          videoElement.play().then(() => {
-            console.log('📹 Lecture vidéo démarrée avec succès');
-            // Double vérification après 1 seconde
-            setTimeout(() => {
-              if (videoElement.readyState >= 2 && videoElement.videoWidth > 0) {
-                this.cameraReady = true;
-                console.log('📹 Caméra confirmée prête');
-                console.log('📹 État final - Paused:', videoElement.paused, 'Ended:', videoElement.ended, 'ReadyState:', videoElement.readyState);
-              }
-            }, 1000);
-          }).catch(err => {
-            console.error('❌ Erreur de lecture vidéo:', err);
-          });
-        } else {
-          console.error('❌ Élément vidéo ou stream introuvable');
-          console.log('VideoElement:', !!videoElement);
-          console.log('CameraStream:', !!this.cameraStream);
-        }
-      }, 100);
-
-      console.log('✅ Caméra démarrée avec succès');
-    } catch (error) {
-      console.error('❌ Erreur d\'accès à la caméra:', error);
-      alert('Impossible d\'accéder à la caméra. Vérifiez les permissions du navigateur.');
-    }
-  }
-
-  async takeGroupPhoto(): Promise<void> {
-    try {
-      const videoElement = document.getElementById('cameraVideo') as HTMLVideoElement;
-
-      if (!videoElement || !this.cameraStream) {
-        console.error('Éléments caméra introuvables');
-        return;
-      }
-
-      // Vérifier que la vidéo est bien en cours de lecture
-      if (videoElement.readyState < 2) {
-        console.error('Vidéo pas encore prête, readyState:', videoElement.readyState);
-        alert('La caméra n\'est pas encore prête. Veuillez attendre quelques secondes et réessayer.');
-        return;
-      }
-
-      // Vérifier les dimensions de la vidéo
-      const videoWidth = videoElement.videoWidth;
-      const videoHeight = videoElement.videoHeight;
-
-      console.log(`📹 Dimensions vidéo: ${videoWidth}x${videoHeight}`);
-
-      if (videoWidth === 0 || videoHeight === 0) {
-        console.error('Dimensions vidéo invalides');
-        alert('Erreur: dimensions de la vidéo invalides. Veuillez relancer la caméra.');
-        return;
-      }
-
-      // Créer le canvas avec les bonnes dimensions
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-
-      if (!ctx) {
-        console.error('Impossible de créer le contexte 2D');
-        return;
-      }
-
-      // Définir les dimensions du canvas
-      canvas.width = videoWidth;
-      canvas.height = videoHeight;
-
-      console.log(`🎨 Canvas créé: ${canvas.width}x${canvas.height}`);
-
-      // Capturer l'image de la vidéo
-      ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
-
-      // Vérifier que quelque chose a été capturé (pixel test)
-      const imageData = ctx.getImageData(0, 0, Math.min(10, canvas.width), Math.min(10, canvas.height));
-      const hasContent = Array.from(imageData.data).some(value => value !== 0);
-
-      if (!hasContent) {
-        console.error('⚠️ Canvas semble vide, tentative avec délai...');
-        // Attendre un peu et réessayer
-        await new Promise(resolve => setTimeout(resolve, 500));
-        ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
-      }
-
-      // Ajouter l'overlay "Promotion 2025"
-      this.addPromotionOverlay(ctx, canvas.width, canvas.height);
-
-      // Télécharger l'image
-      const link = document.createElement('a');
-      const now = new Date();
-      const timestamp = now.toISOString().replace(/[:.]/g, '-').split('T')[0];
-      link.download = `quiz-promotion-2025-${timestamp}.jpg`;
-
-      // Utiliser une qualité plus élevée pour une meilleure image
-      link.href = canvas.toDataURL('image/jpeg', 0.95);
-
-      // Déboguer: afficher la taille du dataURL
-      console.log(`📸 Taille de l'image générée: ${link.href.length} caractères`);
-
-      link.click();
-
-      this.photoTaken = true;
-      console.log('✅ Photo de groupe prise avec succès !');
-
-      // Fermer la caméra après 2 secondes
-      setTimeout(() => {
-        this.stopCamera();
-      }, 2000);
-
-    } catch (error) {
-      console.error('❌ Erreur lors de la prise de photo:', error);
-      alert('Erreur lors de la capture de la photo. Veuillez réessayer.');
-    }
-  }
-
-  private addPromotionOverlay(ctx: CanvasRenderingContext2D, width: number, height: number): void {
-    // Fond semi-transparent pour le texte
-    ctx.fillStyle = 'rgba(35, 37, 38, 0.8)';
-    ctx.fillRect(0, height - 100, width, 100);
-
-    // Texte principal "Quiz Promotion 2025"
-    ctx.fillStyle = '#f6d365';
-    ctx.font = 'bold 32px Arial, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('🏆 Quiz Promotion 2025', width / 2, height - 60);
-
-    // Date
-    const now = new Date();
-    ctx.font = '18px Arial, sans-serif';
-    ctx.fillStyle = '#fff';
-    ctx.fillText(now.toLocaleDateString('fr-FR', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    }), width / 2, height - 25);
-
-    // Décoration coins
-    ctx.fillStyle = '#DAE72A';
-    ctx.font = '24px Arial, sans-serif';
-    ctx.textAlign = 'left';
-    ctx.fillText('🌟', 20, height - 40);
-    ctx.textAlign = 'right';
-    ctx.fillText('🌟', width - 20, height - 40);
-  }
-
-  stopCamera(): void {
-    if (this.cameraStream) {
-      // Arrêter tous les tracks de la caméra
-      this.cameraStream.getTracks().forEach(track => {
-        track.stop();
-      });
-      this.cameraStream = null;
-    }
-
-    this.cameraActive = false;
-    this.cameraReady = false;
-    this.showCameraModal = false;
-    this.photoTaken = false;
-    console.log('✅ Caméra fermée');
-  }
-
-  getCurrentDate(): string {
-    return new Date().toLocaleDateString('fr-FR', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
+      
+      return scoreDiff;
     });
-  }
-
-  // ===== FIN MÉTHODES PHOTO DE GROUPE =====
-
-  // Méthode de capture graphique du leaderboard final
-  async captureLeaderboard(): Promise<void> {
-    try {
-      // Sélectionner un élément plus large incluant le titre
-      const element = document.querySelector('.container-question');
-      if (!element) {
-        console.error('Élément container-question introuvable pour la capture');
-        return;
-      }
-
-      // Configuration html2canvas pour un rendu optimal
-      const canvas = await html2canvas(element as HTMLElement, {
-        backgroundColor: '#F1F1F1',
-        scale: 2, // Haute résolution
-        useCORS: true,
-        allowTaint: false,
-        width: (element as HTMLElement).offsetWidth,
-        height: (element as HTMLElement).offsetHeight,
-        scrollX: 0,
-        scrollY: 0,
-        windowWidth: window.innerWidth,
-        windowHeight: window.innerHeight,
-        ignoreElements: (element) => {
-          // Ignorer les boutons dans la capture
-          return element.classList?.contains('step-final-buttons') || false;
-        }
-      });
-
-      // Créer un contexte pour ajouter des informations supplémentaires
-      const finalCanvas = document.createElement('canvas');
-      const ctx = finalCanvas.getContext('2d');
-
-      if (!ctx) return;
-
-      // Dimensions du canvas final avec espace pour les métadonnées
-      const padding = 40;
-      const headerHeight = 60;
-      const footerHeight = 40;
-      finalCanvas.width = canvas.width + (padding * 2);
-      finalCanvas.height = canvas.height + headerHeight + footerHeight + (padding * 2);
-
-      // Fond du canvas final
-      ctx.fillStyle = '#F1F1F1';
-      ctx.fillRect(0, 0, finalCanvas.width, finalCanvas.height);
-
-      // Header avec titre
-      ctx.fillStyle = '#232526';
-      ctx.font = 'bold 28px Arial, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('🏆 Quiz Application - Final Results', finalCanvas.width / 2, 35);
-
-      // Ligne de séparation
-      ctx.strokeStyle = '#ddd';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(padding, headerHeight - 10);
-      ctx.lineTo(finalCanvas.width - padding, headerHeight - 10);
-      ctx.stroke();
-
-      // Dessiner le leaderboard capturé
-      ctx.drawImage(canvas, padding, headerHeight + padding);
-
-      // Footer avec date et heure
-      const now = new Date();
-      ctx.font = '14px Arial, sans-serif';
-      ctx.fillStyle = '#666';
-      ctx.textAlign = 'center';
-      ctx.fillText(`Generated on ${now.toLocaleString('fr-FR')}`, finalCanvas.width / 2, finalCanvas.height - 15);
-
-      // Télécharger l'image
-      const link = document.createElement('a');
-      const timestamp = now.toISOString().replace(/[:.]/g, '-').split('T')[0];
-      link.download = `quiz-final-results-${timestamp}.png`;
-      link.href = finalCanvas.toDataURL('image/png', 0.95);
-      link.click();
-
-      console.log('✅ Capture du leaderboard réussie !');
-    } catch (error) {
-      console.error('❌ Erreur lors de la capture:', error);
+    
+    // Mettre à jour leaderboard
+    this.leaderboard = currentParticipants;
+    
+    // Diagnostic si demandé
+    if (showDiagnostic) {
+      console.table(this.leaderboard.map(p => ({
+        name: p.userName || 'Sans nom',
+        score: p.score || 0,
+        id: p.id
+      })));
     }
+    
+    // Forcer la mise à jour de la vue
+    this.cdRef.detectChanges();
   }
 
-  // Méthodes de gestion admin
-  extendSession(): void {
-    this.adminAuthService.extendSession();
-  }
-
-  logout(): void {
-    if (confirm('Êtes-vous sûr de vouloir vous déconnecter ?')) {
-      this.adminAuthService.logout();
-      this.router.navigate(['/admin-login']);
-    }
-  }
-
-  getRemainingTime(): string {
-    return this.adminAuthService.getFormattedRemainingTime();
-  }
-
-  // Méthodes de restauration
-  async onRestoreGame(): Promise<void> {
-    if (!this.buttonsEnabled) return;
-
-    // Attendre le temps minimum d'affichage du modal
-    const elapsedTime = Date.now() - this.modalStartTime;
-    if (elapsedTime < this.minModalDisplayTime) {
-      await new Promise(resolve => setTimeout(resolve, this.minModalDisplayTime - elapsedTime));
-    }
-
-    try {
-      console.log('🔄 Tentative de restauration de la partie...');
-
-      const restored = await this.quizService.restoreGameState();
-      if (restored) {
-        this.showRestoreDialog = false;
-
-        // Synchroniser l'état local avec l'état restauré
-        this.participants = this.quizService.participants;
-
-        // Récupérer l'étape actuelle du serveur
-        try {
-          const gameState = await this.quizService.getGameState();
-          this.step = gameState?.step || 'lobby';
-
-          // Si on est dans une question, synchroniser le timer
-          if (this.step === 'question') {
-            console.log('🕐 Restauration pendant une question, synchronisation du timer');
-            await this.syncTimerWithServer();
-          }
-
-        } catch (error) {
-          console.warn('Erreur lors de la récupération de l\'étape, utilisation de lobby par défaut');
-          this.step = 'lobby';
-        }
-
-        console.log('✅ Partie restaurée avec succès !');
-
-      } else {
-        console.error('❌ Impossible de restaurer la partie');
-        this.onStartNewGame();
-      }
-    } catch (error) {
-      console.error('❌ Erreur lors de la restauration:', error);
-      this.onStartNewGame();
-    }
+  // Méthodes additionnelles référencées dans le template
+  onRestoreGame(): void {
+    console.log('Restauration du jeu');
   }
 
   onStartNewGame(): void {
-    if (!this.buttonsEnabled) return;
+    console.log('Démarrage d\'une nouvelle partie');
+  }
 
-    // Attendre le temps minimum d'affichage du modal
-    const elapsedTime = Date.now() - this.modalStartTime;
-    if (elapsedTime < this.minModalDisplayTime) {
+  // Méthodes liées au temps de session supprimées
+
+  async logout(): Promise<void> {
+    try {
+      console.log('Déconnexion');
+      // Afficher un indicateur de chargement
+      this.loadingMessage = 'Déconnexion en cours...';
+      this.isLoading = true;
+      this.cdRef.detectChanges();
+      
+      // Réinitialiser l'application avant de se déconnecter
+      await this.resetQuiz();
+      
+      // Appeler la méthode logout du service d'authentification
+      if (this.adminAuthService) {
+        console.log('Appel de adminAuthService.logout()');
+        this.adminAuthService.logout();
+      }
+      
+      // Nettoyer l'état local (localStorage) pour une déconnexion complète
+      localStorage.removeItem('quiz_admin_token');
+      localStorage.removeItem('quiz_state');
+      localStorage.removeItem('admin_session'); // Suppression explicite de la session admin
+      sessionStorage.clear();
+      
+      console.log('Nettoyage terminé, redirection imminente');
+      
+      // Redirection vers la page de login après un court délai
       setTimeout(() => {
-        this.actuallyStartNewGame();
-      }, this.minModalDisplayTime - elapsedTime);
-    } else {
-      this.actuallyStartNewGame();
+        window.location.href = '/admin-login';
+      }, 500);
+    } catch (err) {
+      console.error('Erreur pendant la déconnexion:', err);
+      
+      // Même en cas d'erreur, on force la redirection
+      setTimeout(() => {
+        window.location.href = '/admin-login';
+      }, 1000);
     }
   }
 
-  private actuallyStartNewGame(): void {
-    console.log('🆕 Démarrage d\'une nouvelle partie');
-    this.showRestoreDialog = false;
-
-    // Effacer la sauvegarde précédente
-    this.quizService.clearSavedGameState();
-
-    // Initialiser une nouvelle partie
-    this.initializeNewGame();
+  stopCamera(): void {
+    console.log('Arrêt de la caméra');
   }
 
+  getCurrentDate(): string {
+    return new Date().toLocaleDateString();
+  }
+
+  takeGroupPhoto(): void {
+    console.log('Prise de photo de groupe');
+  }
+
+  async launchGame(): Promise<void> {
+    try {
+      console.log('Lancement du jeu...');
+      this.loadingMessage = 'Préparation du jeu...';
+      this.isLoading = true;
+      this.cdRef.detectChanges();
+      
+      // Vérifier si on a des participants
+      if (this.participants.length === 0) {
+        console.warn('Aucun participant, impossible de lancer le jeu');
+        alert('Aucun participant inscrit. Impossible de lancer le jeu.');
+        this.isLoading = false;
+        this.cdRef.detectChanges();
+        return;
+      }
+      
+      // Passage à l'étape d'attente
+      await this.quizService.setStep('waiting');
+      console.log('Étape définie sur waiting');
+      
+      // Force refresh des participants pour s'assurer que tout est à jour
+      await this.loadParticipants();
+      
+      this.isLoading = false;
+      this.cdRef.detectChanges();
+      
+    } catch (err) {
+      console.error('Erreur lors du lancement du jeu:', err);
+      this.isLoading = false;
+      this.cdRef.detectChanges();
+      alert('Erreur lors du lancement du jeu. Veuillez réessayer.');
+    }
+  }
+
+  synchronizeWithManagement(): void {
+    console.log('Synchronisation avec la gestion');
+  }
+
+  // Méthode pour calculer le nombre total de bonnes/mauvaises réponses
+  calculateTotals(): void {
+    // Si nous avons des participants
+    if (this.participants && this.participants.length > 0) {
+      // Calculer le nombre total de bonnes réponses (participants avec currentQuestionCorrect=true)
+      const goodAnswersCount = this.participants.filter(p => p.currentQuestionCorrect).length;
+      
+      // Calculer le nombre total de mauvaises réponses (participants qui ont répondu mais incorrectement)
+      const totalResponsesCount = this.participants.filter(p => p.answered && !p.currentQuestionCorrect).length;
+      
+      console.log(`📊 Calcul des statistiques: ${goodAnswersCount} bonnes réponses, ${totalResponsesCount} mauvaises réponses`);
+      
+      // Mettre à jour les compteurs
+      this.totalGood = goodAnswersCount;
+      this.totalBad = totalResponsesCount;
+      
+      // Si nous ne trouvons pas de réponses mais avons des scores, essayons une approche alternative
+      if (goodAnswersCount === 0 && this.participants.some(p => p.score > 0)) {
+        // Compter les participants avec des scores positifs comme ayant bien répondu
+        const scoredParticipants = this.participants.filter(p => p.score > 0);
+        this.totalGood = scoredParticipants.length;
+        console.log('📊 Alternative: considération des scores positifs, bonnes =', this.totalGood);
+      }
+      
+      console.log('📊 Statistiques recalculées: bonnes =', this.totalGood, 'mauvaises =', this.totalBad);
+    } else {
+      console.log('⚠️ Impossible de calculer les totaux: pas de participants');
+    }
+  }
+
+  forceRefreshLeaderboard(): void {
+    console.log('🔄 Rafraîchissement forcé du leaderboard');
+    
+    // Vérifier que nous avons des participants à afficher
+    if (!this.participants || this.participants.length === 0) {
+      console.log('❌ Aucun participant à afficher dans le leaderboard');
+      // Charger les participants si nécessaire
+      this.loadParticipants();
+      return;
+    }
+    
+    // Créer une copie pour éviter les mutations directes
+    const participantsCopy = [...this.participants];
+    
+    // Trier les participants par score décroissant
+    participantsCopy.sort((a, b) => {
+      // Score décroissant
+      const scoreDiff = (b.score || 0) - (a.score || 0);
+      
+      // En cas d'égalité, trier par nom
+      if (scoreDiff === 0) {
+        return (a.userName || a.name || '').localeCompare(b.userName || b.name || '');
+      }
+      
+      return scoreDiff;
+    });
+    
+    // Mettre à jour leaderboard à partir des participants triés
+    this.leaderboard = [...participantsCopy];
+    
+    // Mettre à jour les statistiques totales
+    this.calculateTotals();
+    
+    // NOUVELLE FONCTIONNALITÉ: Synchroniser tous les scores avec le serveur pour persistance
+    this.syncAllScoresWithServer();
+    
+    // Sauvegarder le leaderboard dans localStorage pour persistance
+    try {
+      localStorage.setItem('presentation_leaderboard_cache', JSON.stringify(this.leaderboard));
+    } catch (e) {
+      console.warn('⚠️ Erreur lors de la sauvegarde du leaderboard dans localStorage:', e);
+    }
+    
+    // Forcer la détection de changements pour mettre à jour l'UI
+    this.cdRef.detectChanges();
+    console.log('✅ Leaderboard rafraîchi avec', this.participants.length, 'participants');
+  }
+
+  async startFirstQuestion(): Promise<void> {
+    try {
+      console.log('Démarrage de la première question...');
+      this.loadingMessage = 'Chargement de la première question...';
+      this.isLoading = true;
+      this.cdRef.detectChanges();
+      
+      // Réinitialiser l'état du timer pour la première question
+      this.timerStartedManually = false;
+      this.timerActive = false;
+      
+      // Effacer les données du timer dans localStorage pour démarrer proprement
+      localStorage.removeItem('quiz_timer_started');
+      localStorage.removeItem('quiz_timer_question_index');
+      console.log('🔄 État du timer réinitialisé pour la première question');
+      
+      // Utilise nextQuestion(-1) pour forcer le passage à l'index 0 avec initialisation du timer
+      await this.quizService.nextQuestion(-1);
+      
+      // Mise à jour de l'index courant et chargement de la question
+      this.currentIndex = 0; // Première question
+      this.currentQuestion = this.quizService.getCurrentQuestion(this.currentIndex);
+      console.log('Question courante chargée:', this.currentQuestion);
+      
+      // Initialisation des statistiques
+      this.totalGood = 0;
+      this.totalBad = 0;
+      
+      console.log('Première question démarrée avec succès');
+      
+      this.isLoading = false;
+      this.cdRef.detectChanges();
+    } catch (error) {
+      console.error('Erreur lors du démarrage de la première question:', error);
+      this.isLoading = false;
+      this.cdRef.detectChanges();
+      
+      // En cas d'erreur, afficher un message
+      alert('Erreur lors du démarrage de la première question. Veuillez réessayer.');
+    }
+  }
+
+  onImageLoaded(): void {
+    console.log('Image chargée');
+  }
+
+  onResultImageError(): void {
+    console.log('Erreur de chargement d\'image');
+  }
+  
   /**
-   * Synchronise l'état local avec l'état du serveur
+   * Synchronise le score d'un participant avec le serveur
+   * pour garantir la persistance même après un rechargement
    */
-  private async synchronizeWithServer(serverState: any): Promise<void> {
+  private async syncScoreWithServer(userId: string, score: number, userName?: string): Promise<void> {
     try {
-      console.log('🔄 Synchronisation avec l\'état du serveur:', serverState);
-
-      // Initialiser les composants de base
-      this.quizService.initQuestions();
-
-      // Synchroniser l'étape
-      this.step = serverState.step || 'lobby';
-
-      // Initialiser les souscriptions avec force pour s'assurer de la synchronisation
-      this.initializeSubscriptions(true);
-
-      // Récupérer la liste des participants depuis le serveur
-      try {
-        const participants = await this.quizService.fetchParticipantsFromServer();
-        this.participants = participants || [];
-        console.log('👥 Participants synchronisés:', this.participants.length);
-
-        // Forcer la détection des changements pour que l'UI se mette à jour
-        this.cdr.detectChanges();
-        console.log('🔄 Détection des changements forcée pour les participants');
-      } catch (error) {
-        console.warn('⚠️ Impossible de récupérer les participants:', error);
-        this.participants = [];
+      console.log(`🔄 Synchronisation du score avec le serveur pour ${userId}: ${score}`);
+      
+      // Utiliser le service dédié pour mettre à jour le score sur le serveur
+      const success = await this.scoreSyncService.updateUserScore(userId, score, userName);
+      
+      if (success) {
+        console.log(`✅ Score synchronisé avec succès pour ${userId}`);
+      } else {
+        console.warn(`⚠️ Échec de la synchronisation du score pour ${userId}`);
       }
-
-      // Si on est dans une question, synchroniser l'index et le timer
-      if (serverState.step === 'question') {
-        this.currentIndex = serverState.currentQuestionIndex || 0;
-        this.currentQuestion = this.quizService.getCurrentQuestion(this.currentIndex);
-
-        // Synchroniser le timer si nécessaire
-        if (serverState.questionStartTime && serverState.questionStartTime > 0) {
-          // Timer déjà démarré sur le serveur, marquer comme démarré manuellement
-          this.timerStartedManually = true;
-          console.log('[SYNC] Timer déjà démarré côté serveur, timerStartedManually = true');
-          this.checkAndSyncTimer();
-        } else {
-          // Timer pas encore démarré, rester en attente
-          this.timerStartedManually = false;
-          console.log('[SYNC] Timer pas encore démarré côté serveur, timerStartedManually = false');
-        }
-      }
-
-      // Si on est dans les résultats, synchroniser l'index de la question
-      if (serverState.step === 'result') {
-        this.currentIndex = serverState.currentQuestionIndex || 0;
-        this.currentQuestion = this.quizService.getCurrentQuestion(this.currentIndex);
-      }
-
-      // Forcer la détection des changements
-      this.cdr.detectChanges();
-
-      console.log('✅ Synchronisation terminée:', {
-        step: this.step,
-        currentIndex: this.currentIndex,
-        participants: this.participants.length
-      });
-
     } catch (error) {
-      console.error('❌ Erreur lors de la synchronisation:', error);
-      throw error;
+      console.error('❌ Erreur lors de la synchronisation du score:', error);
     }
   }
-
-  // Système de loading pour synchroniser avec les joueurs
-  private showLoadingForTransition(type: string) {
-    this.isLoading = true;
-    this.loadingType = type;
-    this.loadingMessage = this.getLoadingMessage(type);
-    console.log('[PRESENTATION][LOADING] Transition:', type, 'Message:', this.loadingMessage);
-  }
-
-  private getLoadingMessage(type: string): string {
-    switch (type) {
-      case 'question-start': return 'Synchronisation...';
-      case 'question-result': return 'Résultats...';
-      case 'next-question': return 'Préparation...';
-      case 'quiz-end': return 'Terminé !';
-      default: return 'Synchronisation...';
-    }
-  }
-
-  // Gestion des actions spécifiques aux étapes pour la présentation
-  private handleStepActivationPresentation(step: QuizStep) {
-    console.log('[PRESENTATION][STEP-ACTIVATION] Traitement de l\'étape:', step);
-
-    if (step === 'question') {
-      // Réinitialiser le flag de démarrage manuel pour chaque nouvelle question
-      this.timerStartedManually = false;
-      // Ne plus démarrer automatiquement le timer - attendre le démarrage manuel
-      console.log('[MANUAL-TIMER] Question affichée, en attente de démarrage manuel du timer');
-    } else {
-      this.stopTimer();
-      this.timerStartedManually = false;
-    }
-
-    // Réinitialisation des réponses lors du retour à l'étape lobby
-    if (step === 'lobby') {
-      this.quizService.resetAllAnswers();
-    }
-  }
-
-  // Démarrage manuel du timer (synchronisé avec tous les clients via WebSocket)
-  async startTimerManually(duration: number = 20) {
-    console.log('[MANUAL-TIMER] Démarrage manuel du timer pour', duration, 'secondes');
-
+  
+  /**
+   * Synchronise tous les scores des participants avec le serveur
+   * pour garantir la persistance complète
+   */
+  private async syncAllScoresWithServer(): Promise<void> {
     try {
-      const response = await fetch(`${this.apiUrl}/start-timer`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          duration: duration,
-          currentQuestionIndex: this.currentIndex
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error(`Erreur HTTP: ${response.status}`);
+      if (!this.participants || this.participants.length === 0) {
+        return;
       }
-
-      const result = await response.json();
-      console.log('[MANUAL-TIMER] Timer démarré avec succès:', result);
-
-      this.timerStartedManually = true;
-
+      
+      console.log(`🔄 Synchronisation de tous les scores (${this.participants.length} participants)...`);
+      
+      // Limiter à 5 mises à jour simultanées pour éviter de surcharger le serveur
+      const batchSize = 5;
+      const batches = Math.ceil(this.participants.length / batchSize);
+      
+      for (let i = 0; i < batches; i++) {
+        const start = i * batchSize;
+        const end = Math.min(start + batchSize, this.participants.length);
+        const batch = this.participants.slice(start, end);
+        
+        // Synchroniser chaque participant de ce batch en parallèle
+        await Promise.all(
+          batch.map(participant => 
+            this.scoreSyncService.updateUserData(participant)
+              .catch((err: Error) => console.error(`❌ Erreur lors de la synchronisation pour ${participant.id}:`, err))
+          )
+        );
+      }
+      
+      console.log('✅ Tous les scores ont été synchronisés avec le serveur');
     } catch (error) {
-      console.error('[MANUAL-TIMER] Erreur lors du démarrage du timer:', error);
-      // Fallback: démarrer localement si le serveur ne répond pas
-      this.timerStartedManually = true;
+      console.error('❌ Erreur lors de la synchronisation des scores:', error);
     }
   }
 }

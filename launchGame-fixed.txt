@@ -1,0 +1,23 @@
+  async launchGame() {
+    // Passe à l'étape "waiting" avant de lancer la première question
+    console.log("[DEBUG] launchGame() appelé - Passage à l'étape 'waiting'");
+    try {
+      const success = await this.quizService.setStep('waiting');
+      console.log("[DEBUG] Étape 'waiting' définie avec succès =", success);
+      
+      // Force la vérification de l'état après un court délai pour s'assurer que la transition a eu lieu
+      setTimeout(async () => {
+        const currentStep = await this.quizService.forceCheckState();
+        console.log("[DEBUG] Vérification d'état après transition: step =", currentStep);
+        
+        if (currentStep !== 'waiting') {
+          console.error("[DEBUG] ERREUR: L'état n'est pas passé à 'waiting' comme prévu");
+          // Nouvelle tentative
+          console.log("[DEBUG] Nouvelle tentative de passage à l'étape 'waiting'");
+          await this.quizService.setStep('waiting');
+        }
+      }, 1000);
+    } catch (error) {
+      console.error("[ERROR] Erreur lors du passage à l'étape 'waiting':", error);
+    }
+  }

@@ -1,11 +1,13 @@
 import { Component, OnInit } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
+import { StateRestoreDialogComponent } from './presentation/state-restore-dialog.component';
 import { QuizService } from './services/quiz-secure.service';
+import { NotificationComponent } from './shared/notification.component';
 
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [RouterOutlet],
+  imports: [RouterOutlet, NotificationComponent, StateRestoreDialogComponent],
   templateUrl: './app.component.html',
   styleUrls: ['./app.component.css']
 })

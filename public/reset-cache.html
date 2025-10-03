@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nettoyage du cache Quiz</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #2196F3;
+            margin-top: 0;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+        }
+        button {
+            background-color: #2196F3;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-right: 10px;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #0d8bf2;
+        }
+        button.danger {
+            background-color: #f44336;
+        }
+        button.danger:hover {
+            background-color: #d32f2f;
+        }
+        button.success {
+            background-color: #4CAF50;
+        }
+        button.success:hover {
+            background-color: #388E3C;
+        }
+        .action-row {
+            display: flex;
+            margin-bottom: 20px;
+        }
+        .log-container {
+            background-color: #f8f9fa;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 15px;
+            height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+        }
+        .log-entry {
+            margin: 5px 0;
+            padding: 5px;
+            border-bottom: 1px solid #eee;
+        }
+        .log-success {
+            color: #388E3C;
+        }
+        .log-error {
+            color: #d32f2f;
+        }
+        .log-warning {
+            color: #FFA000;
+        }
+        .log-info {
+            color: #1976D2;
+        }
+        .status {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .status-success {
+            background-color: #e8f5e9;
+            color: #388E3C;
+        }
+        .status-error {
+            background-color: #ffebee;
+            color: #d32f2f;
+        }
+        .footer {
+            margin-top: 30px;
+            text-align: center;
+            font-size: 14px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Nettoyage du cache de l'application Quiz</h1>
+        
+        <p>Cette page permet de nettoyer tous les caches locaux de l'application Quiz pour résoudre les problèmes liés au cache. Utilisez-la si vous rencontrez des problèmes avec l'application.</p>
+        
+        <div class="action-row">
+            <button onclick="resetQuizCache()">Nettoyer le cache</button>
+            <button class="danger" onclick="confirmFullReset()">Tout réinitialiser (Danger)</button>
+            <button class="success" onclick="goToApp()">Retour à l'application</button>
+        </div>
+        
+        <div id="status" style="display:none;" class="status"></div>
+        
+        <h3>Journal d'opérations</h3>
+        <div id="logContainer" class="log-container"></div>
+        
+        <div class="footer">
+            <p>Outil de maintenance - Quiz App © 2025</p>
+            <p>Version 1.0 - Date: 2 octobre 2025</p>
+        </div>
+    </div>
+
+    <script src="reset-cache.js"></script>
+    <script>
+        // Fonction pour ajouter une entrée au journal
+        function addLog(message, type = 'info') {
+            const logContainer = document.getElementById('logContainer');
+            const logEntry = document.createElement('div');
+            logEntry.className = `log-entry log-${type}`;
+            logEntry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logContainer.appendChild(logEntry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+
+        // Surcharge de console.log pour afficher dans notre interface
+        const originalConsoleLog = console.log;
+        const originalConsoleError = console.error;
+        const originalConsoleWarn = console.warn;
+
+        console.log = function(message) {
+            addLog(message, 'info');
+            originalConsoleLog.apply(console, arguments);
+        };
+
+        console.error = function(message) {
+            addLog(message, 'error');
+            originalConsoleError.apply(console, arguments);
+        };
+
+        console.warn = function(message) {
+            addLog(message, 'warning');
+            originalConsoleWarn.apply(console, arguments);
+        };
+
+        // Fonction pour afficher un statut
+        function showStatus(message, isSuccess = true) {
+            const statusElement = document.getElementById('status');
+            statusElement.textContent = message;
+            statusElement.className = isSuccess ? 'status status-success' : 'status status-error';
+            statusElement.style.display = 'block';
+        }
+
+        // Fonction pour demander confirmation avant réinitialisation complète
+        function confirmFullReset() {
+            if (confirm('ATTENTION: Cette action va supprimer toutes les données de l\'application, y compris les participants et les scores. Êtes-vous sûr de vouloir continuer?')) {
+                fullReset();
+            }
+        }
+
+        // Fonction pour effectuer une réinitialisation complète
+        function fullReset() {
+            addLog('Début de la réinitialisation complète...', 'warning');
+            
+            // Nettoyer le localStorage
+            resetQuizCache();
+            
+            // Supprimer également les cookies
+            document.cookie.split(";").forEach(function(c) {
+                document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
+            });
+            
+            addLog('Cookies supprimés', 'info');
+            
+            // Supprimer les données IndexedDB si utilisées
+            const databases = window.indexedDB.databases ? window.indexedDB.databases() : Promise.resolve([]);
+            databases.then(dbs => {
+                dbs.forEach(db => {
+                    if (db.name && (db.name.includes('quiz') || db.name.includes('angular'))) {
+                        try {
+                            window.indexedDB.deleteDatabase(db.name);
+                            addLog(`Base de données IndexedDB supprimée: ${db.name}`, 'success');
+                        } catch (e) {
+                            addLog(`Erreur lors de la suppression de la base de données ${db.name}: ${e}`, 'error');
+                        }
+                    }
+                });
+            }).catch(err => {
+                addLog(`Erreur lors de la suppression des bases de données: ${err}`, 'error');
+            });
+            
+            showStatus('Réinitialisation complète terminée. L\'application va redémarrer dans 3 secondes...', true);
+            
+            // Rediriger vers l'application après 3 secondes
+            setTimeout(() => {
+                window.location.href = '/';
+            }, 3000);
+        }
+
+        // Fonction pour revenir à l'application
+        function goToApp() {
+            window.location.href = '/';
+        }
+
+        // Initialisation
+        window.onload = function() {
+            addLog('Page de nettoyage de cache chargée', 'info');
+            addLog('Prêt à nettoyer le cache de l\'application Quiz', 'info');
+        };
+    </script>
+</body>
+</html>
