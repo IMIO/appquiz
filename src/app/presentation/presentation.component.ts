@@ -1049,9 +1049,8 @@ export class PresentationComponent implements OnInit {
       
       // Tenter l'appel API pour synchroniser tous les clients
       try {
-      // Utiliser l'URL de l'API configurée dans l'environnement
-      // La configuration du proxy s'occupera de rediriger correctement
-      const apiUrl = '/api/start-timer';        const response: any = await firstValueFrom(
+      // Utiliser l'URL complète du backend en développement
+      const apiUrl = 'http://localhost:3000/api/start-timer';        const response: any = await firstValueFrom(
           this.http.post(apiUrl, {
             duration: seconds,
             currentQuestionIndex: currentIndex
@@ -1383,6 +1382,11 @@ export class PresentationComponent implements OnInit {
       this.loadParticipants();
       return;
     }
+
+    // Si nous sommes à l'étape des résultats, charger les réponses de la question actuelle
+    if (this.step === 'result') {
+      this.loadCurrentQuestionAnswers();
+    }
     
     // Créer une copie pour éviter les mutations directes
     const participantsCopy = [...this.participants];
@@ -1419,6 +1423,95 @@ export class PresentationComponent implements OnInit {
     // Forcer la détection de changements pour mettre à jour l'UI
     this.cdRef.detectChanges();
     console.log('✅ Leaderboard rafraîchi avec', this.participants.length, 'participants');
+  }
+
+  /**
+   * Charge les réponses de la question actuelle depuis la base de données
+   * et met à jour les statistiques d'affichage des résultats
+   */
+  private async loadCurrentQuestionAnswers(): Promise<void> {
+    if (this.currentIndex === null || this.currentIndex === undefined) {
+      console.log('⚠️ Impossible de charger les réponses: index de question non défini');
+      return;
+    }
+
+    try {
+      console.log(`🔍 Chargement des réponses pour la question ${this.currentIndex}...`);
+      const apiUrl = `http://localhost:3000/api/answers/${this.currentIndex}`;
+      
+      const response: any = await firstValueFrom(
+        this.http.get(apiUrl)
+      );
+
+      if (response && response.answers) {
+        console.log(`📊 ${response.answers.length} réponses trouvées pour la question ${this.currentIndex}`);
+        
+        // Mettre à jour les propriétés des participants basées sur leurs réponses
+        this.updateParticipantsWithAnswers(response.answers);
+        
+        // Recalculer les statistiques avec les données réelles
+        this.calculateTotalsFromAnswers(response.answers);
+        
+        // 🔄 Recharger les participants pour obtenir les scores mis à jour
+        this.loadParticipants();
+        
+        // Forcer le rafraîchissement de l'affichage
+        this.cdRef.detectChanges();
+      } else {
+        console.log(`⚠️ Aucune réponse trouvée pour la question ${this.currentIndex}`);
+        // Réinitialiser les statistiques si pas de réponses
+        this.totalGood = 0;
+        this.totalBad = 0;
+      }
+    } catch (error) {
+      console.error('❌ Erreur lors du chargement des réponses:', error);
+      // En cas d'erreur, garder les statistiques actuelles
+    }
+  }
+
+  /**
+   * Met à jour les propriétés des participants basées sur leurs réponses réelles
+   */
+  private updateParticipantsWithAnswers(answers: any[]): void {
+    if (!this.participants || !answers) return;
+
+    // Réinitialiser les propriétés de réponse de tous les participants
+    this.participants.forEach(participant => {
+      participant.answered = false;
+      participant.currentQuestionCorrect = false;
+    });
+
+    // Mettre à jour basé sur les réponses réelles
+    answers.forEach(answer => {
+      const participant = this.participants.find(p => p.id === answer.userId);
+      if (participant) {
+        participant.answered = true;
+        
+        // Vérifier si la réponse est correcte
+        if (this.currentQuestion && this.currentQuestion.correctIndex !== undefined) {
+          participant.currentQuestionCorrect = answer.answerIndex === this.currentQuestion.correctIndex;
+          console.log(`👤 ${participant.name}: réponse ${answer.answerIndex}, correct=${participant.currentQuestionCorrect}`);
+        }
+      }
+    });
+  }
+
+  /**
+   * Calcule les statistiques basées sur les réponses réelles de la base de données
+   */
+  private calculateTotalsFromAnswers(answers: any[]): void {
+    if (!this.currentQuestion || this.currentQuestion.correctIndex === undefined) {
+      console.log('⚠️ Impossible de calculer les totaux: question ou correctIndex manquant');
+      return;
+    }
+
+    const correctAnswers = answers.filter(answer => answer.answerIndex === this.currentQuestion!.correctIndex);
+    const wrongAnswers = answers.filter(answer => answer.answerIndex !== this.currentQuestion!.correctIndex);
+
+    this.totalGood = correctAnswers.length;
+    this.totalBad = wrongAnswers.length;
+
+    console.log(`📊 Statistiques mises à jour depuis la BDD: ${this.totalGood} bonnes, ${this.totalBad} mauvaises`);
   }
 
   async startFirstQuestion(): Promise<void> {

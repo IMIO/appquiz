@@ -26,11 +26,16 @@ export const routes: Routes = [
   },
   { 
     path: 'reset', 
-    loadComponent: () => import('./reset/reset.component').then(m => m.ResetComponent)
+    loadComponent: () => import('./reset/reset.component').then(m => m.ResetComponent),
+    canActivate: [AdminGuard] // Protection par guard admin
   },
   { 
     path: 'gestion', 
     loadComponent: () => import('./admin-questions/admin-questions.component').then(m => m.AdminQuestionsComponent)
+  },
+  { 
+    path: 'admin-dashboard', 
+    loadComponent: () => import('./admin-dashboard/admin-dashboard.component').then(m => m.AdminDashboardComponent)
   },
   {
     path: 'admin/fix-ids',
