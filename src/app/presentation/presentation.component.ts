@@ -1049,8 +1049,9 @@ export class PresentationComponent implements OnInit {
       
       // Tenter l'appel API pour synchroniser tous les clients
       try {
-      // Utiliser l'URL complète du backend en développement
-      const apiUrl = 'http://localhost:3000/api/start-timer';        const response: any = await firstValueFrom(
+      // Utiliser la configuration d'environnement pour l'URL du backend
+      const apiUrl = `${environment.apiUrl}/start-timer`;
+      const response: any = await firstValueFrom(
           this.http.post(apiUrl, {
             duration: seconds,
             currentQuestionIndex: currentIndex
@@ -1113,7 +1114,7 @@ export class PresentationComponent implements OnInit {
               console.log('➡️ Passage automatique à l\'étape de résultats après fin du timer');
               // Essayer d'abord via l'API pour synchroniser tous les clients
               try {
-                this.http.put('/api/quiz-state', { step: 'result' })
+                this.http.put(`${environment.apiUrl}/quiz-state`, { step: 'result' })
                   .subscribe(
                     () => console.log('✅ Transition vers résultats synchronisée via API'),
                     (err) => {
@@ -1437,7 +1438,7 @@ export class PresentationComponent implements OnInit {
 
     try {
       console.log(`🔍 Chargement des réponses pour la question ${this.currentIndex}...`);
-      const apiUrl = `http://localhost:3000/api/answers/${this.currentIndex}`;
+      const apiUrl = `${environment.apiUrl}/answers/${this.currentIndex}`;
       
       const response: any = await firstValueFrom(
         this.http.get(apiUrl)
