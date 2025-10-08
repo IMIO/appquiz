@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test API CRUD</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; }
+        button { padding: 10px 15px; margin: 5px; background: #007bff; color: white; border: none; cursor: pointer; }
+        pre { background: #f4f4f4; padding: 10px; }
+    </style>
+</head>
+<body>
+    <h1>Test API CRUD Quiz</h1>
+    
+    <div class="section">
+        <h2>Test Statistiques</h2>
+        <button onclick="testStats()">Tester Stats</button>
+        <pre id="statsResult"></pre>
+    </div>
+    
+    <div class="section">
+        <h2>Test Participants</h2>
+        <button onclick="testParticipants()">Tester Participants</button>
+        <pre id="participantsResult"></pre>
+    </div>
+    
+    <div class="section">
+        <h2>Test Quiz State</h2>
+        <button onclick="testQuizState()">Tester État Quiz</button>
+        <pre id="quizStateResult"></pre>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:3000/api';
+        const PASSWORD = 'admin123';
+
+        async function testStats() {
+            try {
+                const response = await fetch(`${API_URL}/admin/stats`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password: PASSWORD })
+                });
+                const data = await response.json();
+                document.getElementById('statsResult').textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                document.getElementById('statsResult').textContent = 'Erreur: ' + error.message;
+            }
+        }
+
+        async function testParticipants() {
+            try {
+                const response = await fetch(`${API_URL}/admin/participants`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password: PASSWORD })
+                });
+                const data = await response.json();
+                document.getElementById('participantsResult').textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                document.getElementById('participantsResult').textContent = 'Erreur: ' + error.message;
+            }
+        }
+
+        async function testQuizState() {
+            try {
+                const response = await fetch(`${API_URL}/admin/quiz-state`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password: PASSWORD })
+                });
+                const data = await response.json();
+                document.getElementById('quizStateResult').textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                document.getElementById('quizStateResult').textContent = 'Erreur: ' + error.message;
+            }
+        }
+    </script>
+</body>
+</html>

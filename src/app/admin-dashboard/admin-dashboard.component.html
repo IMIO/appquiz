@@ -1,0 +1,402 @@
+<div class="admin-dashboard">
+  <!-- Authentification -->
+  <div *ngIf="!isAuthenticated" class="auth-container">
+    <h2>🔐 Tableau de bord administrateur</h2>
+    <form (ngSubmit)="authenticate()" class="auth-form">
+      <div class="form-group">
+        <label for="password">Mot de passe administrateur :</label>
+        <input 
+          type="password" 
+          id="password"
+          [(ngModel)]="adminPassword" 
+          name="password"
+          required
+          [disabled]="loading">
+      </div>
+      <button type="submit" [disabled]="loading || !adminPassword">
+        {{ loading ? 'Connexion...' : 'Se connecter' }}
+      </button>
+    </form>
+    
+    <div *ngIf="error" class="error">{{ error }}</div>
+  </div>
+
+  <!-- Interface d'administration -->
+  <div *ngIf="isAuthenticated" class="admin-interface">
+    
+    <!-- En-tête -->
+    <header class="admin-header">
+      <h1>🎯 Administration du Quiz</h1>
+      <div class="header-actions">
+        <button (click)="goToQuestionsManager()" class="btn-secondary">
+          📝 Gérer les questions
+        </button>
+        <button (click)="logout()" class="btn-danger">
+          🚪 Déconnexion
+        </button>
+      </div>
+    </header>
+
+    <!-- Messages -->
+    <div *ngIf="success" class="success">{{ success }}</div>
+    <div *ngIf="error" class="error">{{ error }}</div>
+
+    <!-- Navigation par onglets -->
+    <nav class="tab-navigation">
+      <button 
+        [class.active]="activeTab === 'dashboard'"
+        (click)="setActiveTab('dashboard')">
+        📊 Tableau de bord
+      </button>
+      <button 
+        [class.active]="activeTab === 'questions'"
+        (click)="setActiveTab('questions')">
+        ❓ Questions ({{ questions.length || 0 }})
+      </button>
+      <button 
+        [class.active]="activeTab === 'participants'"
+        (click)="setActiveTab('participants')">
+        👥 Participants ({{ participants.length || 0 }})
+      </button>
+      <button 
+        [class.active]="activeTab === 'answers'"
+        (click)="setActiveTab('answers')">
+        ✅ Réponses ({{ answers.length || 0 }})
+      </button>
+      <button 
+        [class.active]="activeTab === 'quiz-state'"
+        (click)="setActiveTab('quiz-state')">
+        ⚙️ État du Quiz
+      </button>
+    </nav>
+
+    <!-- Contenu des onglets -->
+    <main class="tab-content">
+
+      <!-- TABLEAU DE BORD -->
+      <section *ngIf="activeTab === 'dashboard'" class="dashboard-tab">
+        <h2>📊 Vue d'ensemble</h2>
+        
+        <div class="stats-grid" *ngIf="stats">
+          <div class="stat-card">
+            <h3>❓ Questions</h3>
+            <span class="stat-number">{{ stats.questions }}</span>
+            <small>Local: {{ questions.length || 0 }}</small>
+          </div>
+          <div class="stat-card">
+            <h3>👥 Participants</h3>
+            <span class="stat-number">{{ stats.participants }}</span>
+            <small>Local: {{ participants.length || 0 }}</small>
+          </div>
+          <div class="stat-card">
+            <h3>✅ Réponses</h3>
+            <span class="stat-number">{{ stats.answers }}</span>
+            <small>Local: {{ answers.length || 0 }}</small>
+          </div>
+          <div class="stat-card">
+            <h3>🎯 Étape actuelle</h3>
+            <span class="stat-text">{{ stats.currentStep }}</span>
+          </div>
+        </div>
+
+        <!-- Debug info -->
+        <div *ngIf="stats" style="background: #f8f9fa; padding: 10px; margin: 10px 0; font-size: 12px;">
+          <strong>🔍 Debug:</strong><br>
+          Stats API: {{ stats | json }}<br>
+          Participants locaux: {{ participants.length }}<br>
+          Questions locales: {{ questions.length }}<br>
+          Réponses locales: {{ answers.length }}
+        </div>
+
+        <div class="quick-actions">
+          <h3>⚡ Actions rapides</h3>
+          <div class="action-buttons">
+            <button (click)="resetQuiz()" class="btn-danger" [disabled]="loading">
+              🔄 Réinitialiser le quiz
+            </button>
+            <button (click)="syncQuestions()" class="btn-primary" [disabled]="loading">
+              🔄 Synchroniser les questions
+            </button>
+            <button (click)="loadAllData()" class="btn-secondary" [disabled]="loading">
+              🔄 Actualiser les données
+            </button>
+            <button (click)="forceReloadEverything()" class="btn-secondary" [disabled]="loading">
+              💪 Rechargement forcé
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- QUESTIONS -->
+      <section *ngIf="activeTab === 'questions'" class="questions-tab">
+        <h2>❓ Gestion des Questions</h2>
+        
+        <div class="table-container">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Question</th>
+                <th>Options</th>
+                <th>Réponse correcte</th>
+                <th>Images</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr *ngFor="let question of questions">
+                <td>{{ question.id }}</td>
+                <td>
+                  <div *ngIf="editingQuestion?.id !== question.id">
+                    {{ question.text }}
+                  </div>
+                  <div *ngIf="editingQuestion?.id === question.id && editingQuestion">
+                    <textarea [(ngModel)]="editingQuestion.text" rows="2"></textarea>
+                  </div>
+                </td>
+                <td>
+                  <div *ngIf="editingQuestion?.id !== question.id">
+                    <ul class="options-list">
+                      <li *ngFor="let option of question.options; let i = index"
+                          [class.correct]="i === question.correctIndex">
+                        {{ option.text || option }}
+                      </li>
+                    </ul>
+                  </div>
+                  <div *ngIf="editingQuestion?.id === question.id && editingQuestion">
+                    <div *ngFor="let option of editingQuestion.options; let i = index" class="option-edit">
+                      <input 
+                        type="text" 
+                        [(ngModel)]="option.text"
+                        [placeholder]="'Option ' + (i + 1)">
+                      <input 
+                        type="radio" 
+                        [name]="'correct-' + question.id"
+                        [checked]="editingQuestion.correctIndex === i"
+                        (change)="editingQuestion.correctIndex = i">
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <span class="correct-answer">
+                    {{ getCharFromIndex(question.correctIndex) }}
+                  </span>
+                </td>
+                <td>
+                  <div class="image-info">
+                    <div *ngIf="question.imageUrl" class="image-item">
+                      📷 Question
+                    </div>
+                    <div *ngIf="question.imageUrlResult" class="image-item">
+                      📊 Résultat
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <div class="action-buttons">
+                    <div *ngIf="editingQuestion?.id !== question.id">
+                      <button (click)="startEditQuestion(question)" class="btn-edit">
+                        ✏️
+                      </button>
+                      <button (click)="deleteQuestion(question)" class="btn-delete">
+                        🗑️
+                      </button>
+                    </div>
+                    <div *ngIf="editingQuestion?.id === question.id">
+                      <button (click)="saveQuestion()" class="btn-save">
+                        ✅
+                      </button>
+                      <button (click)="cancelEditQuestion()" class="btn-cancel">
+                        ❌
+                      </button>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- PARTICIPANTS -->
+      <section *ngIf="activeTab === 'participants'" class="participants-tab">
+        <h2>👥 Gestion des Participants</h2>
+        
+        <div class="table-container">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Nom</th>
+                <th>Score</th>
+                <th>Avatar</th>
+                <th>Inscription</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr *ngFor="let participant of participants">
+                <td>{{ participant.id }}</td>
+                <td>
+                  <div *ngIf="editingParticipant?.id !== participant.id">
+                    {{ participant.name }}
+                  </div>
+                  <div *ngIf="editingParticipant?.id === participant.id && editingParticipant">
+                    <input 
+                      type="text" 
+                      [(ngModel)]="editingParticipant.name"
+                      placeholder="Nom du participant">
+                  </div>
+                </td>
+                <td>
+                  <div *ngIf="editingParticipant?.id !== participant.id">
+                    <span class="score">{{ participant.score }}</span>
+                  </div>
+                  <div *ngIf="editingParticipant?.id === participant.id && editingParticipant">
+                    <input 
+                      type="number" 
+                      [(ngModel)]="editingParticipant.score"
+                      placeholder="Score">
+                  </div>
+                </td>
+                <td>
+                  <div *ngIf="participant.avatarUrl" class="avatar">
+                    <img [src]="participant.avatarUrl" [alt]="participant.name" class="avatar-img">
+                  </div>
+                  <span *ngIf="!participant.avatarUrl" class="no-avatar">Aucun</span>
+                </td>
+                <td>{{ formatDate(participant.createdAt) }}</td>
+                <td>
+                  <div class="action-buttons">
+                    <div *ngIf="editingParticipant?.id !== participant.id">
+                      <button (click)="startEditParticipant(participant)" class="btn-edit">
+                        ✏️
+                      </button>
+                      <button (click)="deleteParticipant(participant)" class="btn-delete">
+                        🗑️
+                      </button>
+                    </div>
+                    <div *ngIf="editingParticipant?.id === participant.id">
+                      <button (click)="saveParticipant()" class="btn-save">
+                        ✅
+                      </button>
+                      <button (click)="cancelEditParticipant()" class="btn-cancel">
+                        ❌
+                      </button>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- RÉPONSES -->
+      <section *ngIf="activeTab === 'answers'" class="answers-tab">
+        <h2>✅ Gestion des Réponses</h2>
+        
+        <div class="table-container">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Question</th>
+                <th>Utilisateur</th>
+                <th>Réponse</th>
+                <th>Horodatage</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr *ngFor="let answer of answers">
+                <td>{{ answer.id }}</td>
+                <td>Question {{ answer.questionIndex + 1 }}</td>
+                <td>
+                  {{ answer.participantName || answer.userName }}
+                  <small>({{ answer.userId }})</small>
+                </td>
+                <td>
+                  <span class="answer-choice">
+                    {{ getCharFromIndex(answer.answerIndex) }}
+                  </span>
+                </td>
+                <td>{{ formatTimestamp(answer.timestamp) }}</td>
+                <td>
+                  <button (click)="deleteAnswer(answer)" class="btn-delete">
+                    🗑️
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ÉTAT DU QUIZ -->
+      <section *ngIf="activeTab === 'quiz-state'" class="quiz-state-tab">
+        <h2>⚙️ État du Quiz</h2>
+        
+        <div class="quiz-state-container" *ngIf="quizState">
+          <div class="state-form">
+            <div class="form-group">
+              <label>Étape actuelle :</label>
+              <select 
+                [(ngModel)]="quizState.step" 
+                [disabled]="!editingQuizState">
+                <option value="lobby">Lobby</option>
+                <option value="waiting">Attente</option>
+                <option value="question">Question</option>
+                <option value="result">Résultat</option>
+                <option value="end">Fin</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label>Index de la question courante :</label>
+              <input 
+                type="number" 
+                [(ngModel)]="quizState.currentQuestionIndex"
+                [disabled]="!editingQuizState"
+                min="0">
+            </div>
+
+            <div class="form-group">
+              <label>Timestamp de démarrage de la question :</label>
+              <input 
+                type="number" 
+                [(ngModel)]="quizState.questionStartTime"
+                [disabled]="!editingQuizState"
+                placeholder="Timestamp en millisecondes">
+            </div>
+
+            <div class="form-group">
+              <label>Dernière mise à jour :</label>
+              <input 
+                type="text" 
+                [value]="formatDate(quizState.updatedAt)"
+                disabled>
+            </div>
+
+            <div class="form-actions">
+              <div *ngIf="!editingQuizState">
+                <button (click)="startEditQuizState()" class="btn-primary">
+                  ✏️ Modifier
+                </button>
+              </div>
+              <div *ngIf="editingQuizState">
+                <button (click)="saveQuizState()" class="btn-save">
+                  ✅ Sauvegarder
+                </button>
+                <button (click)="cancelEditQuizState()" class="btn-cancel">
+                  ❌ Annuler
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+</div>
