@@ -112,7 +112,7 @@
   border: 1px solid #000;
   border-radius: 8px;
   padding: 1em;
-  margin: 1em 0;
+  margin: 0;
   text-align: center;
   display: flex;
   align-items: center;
@@ -159,10 +159,9 @@
 
 /* Timer container (style maître du jeu) */
 .timer, .step-timer {
-  background: #F1F1F1;
   color: #1976d2;
   border-radius: 8px;
-  padding: 0.7em 1em;
+  padding: 0 1em;
   margin: 1em 0;
   font-size: 1.1em;
   width: 100%;
@@ -182,7 +181,7 @@
 
 /* Timer actif avec animation */
 .timer-bar.timer-bar-active {
-  background: linear-gradient(90deg, #4CAF50 0%, #2196F3 50%, #FF5722 100%);
+  background: linear-gradient(90deg, #C5CB2F 0%, #6BBD97 50%, #08B0EC 100%);
   box-shadow: 0 0 8px rgba(33, 150, 243, 0.5);
 }
 
