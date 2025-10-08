@@ -44,7 +44,7 @@
 <!-- Barre d'administration admin simplifiée -->
 <div class="admin-bar">
   <div class="admin-info">
-    <span class="admin-title">Administration</span>
+    <span class="admin-title">Administration :</span>
   </div>
   <div class="admin-actions">
     <button 
@@ -53,7 +53,7 @@
       [disabled]="isLoading" 
       [class.disabled]="isLoading" 
       title="Rafraîchir les participants">
-      <span>🔄 Rafraîchir</span>
+      <span>Rafraîchir</span>
     </button>
     <button 
       class="admin-btn logout" 
@@ -121,8 +121,8 @@
   </div>
 </div>
 
-<!-- Bouton pour forcer la mise à jour du classement -->
-<button style="position:fixed;top:10px;right:10px;z-index:9999;background:#1976d2;color:#fff;padding:0.5em 1em;border-radius:6px;font-size:1em;" (click)="forceRefreshLeaderboard()">[DEBUG] Rafraîchir scores</button>
+<!-- Bouton pour forcer la mise à jour du classement
+<button style="position:fixed;top:10px;right:10px;z-index:9999;background:#1976d2;color:#fff;padding:0.5em 1em;border-radius:6px;font-size:1em;" (click)="forceRefreshLeaderboard()">[DEBUG] Rafraîchir scores</button>  -->
 
 <!-- DEBUG: Affichage d'urgence si aucune étape n'est reconnue
 <div *ngIf="!step || (step !== 'lobby' && step !== 'waiting' && step !== 'question' && step !== 'result' && step !== 'end')" style="background:#d32f2f;color:#fff;padding:2em;border-radius:16px;margin:2em;text-align:center;box-shadow:0 2px 24px #d32f2f88;z-index:99999;position:relative;">
@@ -174,31 +174,31 @@
     </li>
   </ul>
   <div class="button-group">
-    <button class="step-btn primary-btn" (click)="launchGame()" [disabled]="participants.length === 0">Next: Prepare to start</button>
+    <button class="step-btn primary-btn" (click)="launchGame()" [disabled]="participants.length === 0">Prepare to start</button>
     
     <div class="button-group-separator"></div>
     
     <!-- Boutons de gestion -->
     <div class="admin-buttons-group">
       <button 
-        class="step-btn admin-btn" 
+        class="step-btn admin-btn bottom-btn" 
         (click)="synchronizeWithManagement()" 
         [disabled]="isSynchronizing"
         title="Synchroniser avec les modifications côté gestion">
         <span *ngIf="!isSynchronizing">🔄 Sync Questions</span>
         <span *ngIf="isSynchronizing" class="sync-loading">⏳ Synchronisation...</span>
       </button>
-      <button class="step-btn admin-btn" (click)="router.navigate(['/admin/fix-ids'])" style="background-color: #ff9800; color: white;">
+      <button class="step-btn admin-btn bottom-btn" (click)="router.navigate(['/admin/fix-ids'])">
         🔧 Fix Question IDs
       </button>
-      <button class="step-btn admin-btn highlight-btn" (click)="router.navigate(['/admin'])" style="background-color: #4caf50; color: white;">
+      <button class="step-btn admin-btn highlight-btn bottom-btn" (click)="router.navigate(['/admin'])">
         ⚙️ Administration
       </button>
-      <button class="step-btn admin-btn highlight-btn" (click)="cacheCleanerService.cleanAllParticipantCaches(false)" style="background-color: #2196f3; color: white;">
+      <button class="step-btn admin-btn highlight-btn bottom-btn" (click)="cacheCleanerService.cleanAllParticipantCaches(false)">
         🧹 Rafraîchir Cache
       </button>
       <button 
-        class="step-btn admin-btn danger-btn" 
+        class="step-btn admin-btn danger-btn bottom-btn" 
         (click)="restartGame()" 
         [disabled]="isLoading"
         [class.disabled]="isLoading">
@@ -262,14 +262,14 @@
   
   <!-- Boutons de gestion -->
   <div class="admin-buttons-group">
-    <button class="step-btn admin-btn highlight-btn" (click)="router.navigate(['/admin'])" style="background-color: #4caf50; color: white;">
+    <button class="step-btn admin-btn highlight-btn bottom-btn" (click)="router.navigate(['/admin'])">
       ⚙️ Administration
     </button>
-    <button class="step-btn admin-btn highlight-btn" (click)="cacheCleanerService.cleanAllParticipantCaches(false)" style="background-color: #2196f3; color: white;">
+    <button class="step-btn admin-btn highlight-btn bottom-btn" (click)="cacheCleanerService.cleanAllParticipantCaches(false)">
       🧹 Rafraîchir Cache
     </button>
     <button 
-      class="step-btn admin-btn danger-btn" 
+      class="step-btn admin-btn danger-btn bottom-btn" 
       (click)="restartGame()" 
       [disabled]="isLoading"
       [class.disabled]="isLoading">
@@ -349,13 +349,12 @@
     </div>
     
     <!-- Boutons de contrôle du timer -->
-    <div class="timer-controls" style="display: flex; gap: 10px; margin-top: 10px;">
+    <div class="timer-controls">
       <button 
         *ngIf="!timerStartedManually" 
         class="step-btn start-timer-btn" 
-        (click)="startTimerManually(20)"
-        style="background: #28a745; color: white; font-weight: bold;">
-        ▶️ Démarrer Timer (20s)
+        (click)="startTimerManually(20)">
+        Start
       </button>
       
 
