@@ -3,11 +3,12 @@ import { CommonModule } from '@angular/common';
 import { TimerService } from '../services/timer.service';
 import { QuizService } from '../services/quiz-secure.service';
 import { Subscription } from 'rxjs';
+import { AdminCrudTestComponent } from '../admin-crud-test/admin-crud-test.component';
 
 @Component({
   selector: 'app-admin',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, AdminCrudTestComponent],
   templateUrl: './admin.component.html',
   styleUrls: ['./admin.component.css']
 })

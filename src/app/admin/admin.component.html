@@ -3,8 +3,11 @@
 <div class="admin-controls">
   <p>Question courante: {{ currentQuestionIndex + 1 }} / {{ totalQuestions }}</p>
   
-  <!-- Lien vers gestion des questions -->
+  <!-- Liens d'administration -->
   <div class="admin-navigation">
+    <a href="/admin-dashboard" class="btn-dashboard">
+      🎯 Tableau de bord CRUD
+    </a>
     <a href="/gestion" target="_blank" class="btn-manage">
       🔧 Gérer les questions
     </a>
@@ -41,3 +44,6 @@
     🔴 TEST Question suivante
   </button>
 </div>
+
+<!-- Test CRUD intégré pour diagnostic -->
+<app-admin-crud-test></app-admin-crud-test>

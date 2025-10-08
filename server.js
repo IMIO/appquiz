@@ -694,6 +694,49 @@ app.get('/api/answers/:questionIndex', (req, res) => {
     });
 });
 
+// Fonction utilitaire pour calculer et mettre à jour le score d'un participant
+function calculateAndUpdateScore(userId, userName, questionIndex, answerIndex, callback) {
+  // D'abord, charger la question pour vérifier si la réponse est correcte
+  db.get('SELECT correctIndex FROM questions WHERE id = ?', [questionIndex], (err, question) => {
+    if (err) {
+      return callback(err, null);
+    }
+    
+    if (!question) {
+      return callback(new Error('Question non trouvée'), null);
+    }
+    
+    const isCorrect = answerIndex === question.correctIndex;
+    console.log(`📊 Réponse ${answerIndex} pour question ${questionIndex}: ${isCorrect ? 'CORRECTE' : 'INCORRECTE'} (attendue: ${question.correctIndex})`);
+    
+    // Calculer le score total du participant en comptant toutes ses bonnes réponses
+    db.all(`SELECT a.questionIndex, a.answerIndex, q.correctIndex 
+            FROM answers a 
+            JOIN questions q ON a.questionIndex = q.id 
+            WHERE a.userId = ?`, [userId], (err, userAnswers) => {
+      if (err) {
+        return callback(err, null);
+      }
+      
+      // Compter les bonnes réponses
+      const correctAnswers = userAnswers.filter(answer => answer.answerIndex === answer.correctIndex);
+      const totalScore = correctAnswers.length;
+      
+      console.log(`🎯 ${userName} (${userId}): ${correctAnswers.length} bonnes réponses sur ${userAnswers.length} total`);
+      
+      // Mettre à jour le score dans la table participants
+      db.run('UPDATE participants SET score = ? WHERE id = ?', [totalScore, userId], function(updateErr) {
+        if (updateErr) {
+          return callback(updateErr, null);
+        }
+        
+        console.log(`💾 Score mis à jour dans la BDD: ${userName} (${userId}) → ${totalScore} points`);
+        callback(null, totalScore);
+      });
+    });
+  });
+}
+
 // Soumission d'une réponse
 app.post('/api/answers', (req, res) => {
   const { questionIndex, userId, userName, answerIndex } = req.body;
@@ -729,8 +772,23 @@ app.post('/api/answers', (req, res) => {
             res.status(500).json({ error: 'Erreur serveur' });
           } else {
             console.log(`✅ Vote accepté - Utilisateur ${userId} a voté ${answerIndex} pour la question ${questionIndex}`);
-            // console.log(`✅ Vote accepté - Utilisateur ${userId} a voté ${answerIndex} pour la question ${questionIndex}`);
-            res.json({ success: true, answerId: this.lastID });
+            
+            // ✨ NOUVEAU: Calculer et mettre à jour le score du participant
+            calculateAndUpdateScore(userId, userName, questionIndex, answerIndex, (scoreErr, newScore) => {
+              if (scoreErr) {
+                console.error('❌ Erreur calcul du score:', scoreErr);
+                // Répondre quand même avec succès pour l'insertion de la réponse
+                res.json({ success: true, answerId: this.lastID, scoreError: true });
+              } else {
+                console.log(`🏆 Score mis à jour: ${userName} (${userId}) → ${newScore} points`);
+                res.json({ 
+                  success: true, 
+                  answerId: this.lastID, 
+                  newScore: newScore,
+                  scoreUpdated: true 
+                });
+              }
+            });
           }
         });
     });
@@ -1165,8 +1223,9 @@ app.post('/api/admin/fix-question-ids', (req, res) => {
   });
 });
 
-// Reset complet du quiz
-app.post('/api/quiz/reset', (req, res) => {
+// Reset complet du quiz - SÉCURISÉ avec mot de passe admin
+app.post('/api/quiz/reset', requireAdminAuth, (req, res) => {
+  console.log('🔄 Demande de reset quiz avec authentification admin');
   db.serialize(() => {
     db.run('DELETE FROM participants');
     db.run('DELETE FROM answers');
@@ -1207,8 +1266,9 @@ app.post('/api/quiz/reset', (req, res) => {
   });
 });
 
-// Endpoint pour déclencher la synchronisation des questions
-app.post('/api/quiz/sync-questions', async (req, res) => {
+// Endpoint pour déclencher la synchronisation des questions - SÉCURISÉ
+app.post('/api/quiz/sync-questions', requireAdminAuth, async (req, res) => {
+  console.log('🔄 Demande de sync questions avec authentification admin');
   try {
     console.log('🔄 Déclenchement synchronisation questions via WebSocket');
     // Broadcaster la notification de synchronisation
@@ -1248,6 +1308,212 @@ app.get('/api/leaderboard', (req, res) => {
     } else {
       res.json(rows);
     }
+  });
+});
+
+// === ENDPOINTS ADMIN CRUD COMPLET ===
+
+// CRUD Participants
+app.post('/api/admin/participants', requireAdminAuth, (req, res) => {
+  db.all('SELECT * FROM participants ORDER BY createdAt DESC', (err, rows) => {
+    if (err) {
+      console.error('Erreur récupération participants:', err);
+      res.status(500).json({ error: 'Erreur serveur' });
+    } else {
+      const participants = rows.map(row => ({
+        ...row,
+        answers: JSON.parse(row.answers || '[]')
+      }));
+      res.json(participants);
+    }
+  });
+});
+
+app.put('/api/admin/participants/:id', requireAdminAuth, (req, res) => {
+  const { id } = req.params;
+  const { name, score, avatarUrl } = req.body;
+  
+  if (!name) {
+    return res.status(400).json({ error: 'Le nom est requis' });
+  }
+
+  db.run(
+    'UPDATE participants SET name = ?, score = ?, avatarUrl = ? WHERE id = ?',
+    [name, score || 0, avatarUrl || null, id],
+    function(err) {
+      if (err) {
+        console.error('Erreur modification participant:', err);
+        res.status(500).json({ error: 'Erreur serveur' });
+      } else if (this.changes === 0) {
+        res.status(404).json({ error: 'Participant non trouvé' });
+      } else {
+        res.json({ 
+          success: true,
+          message: 'Participant modifié avec succès'
+        });
+      }
+    }
+  );
+});
+
+app.delete('/api/admin/participants/:id', requireAdminAuth, (req, res) => {
+  const { id } = req.params;
+  const { password } = req.body;
+
+  if (password !== ADMIN_PASSWORD) {
+    return res.status(401).json({ error: 'Mot de passe administrateur incorrect' });
+  }
+
+  db.serialize(() => {
+    // Supprimer les réponses associées
+    db.run('DELETE FROM answers WHERE userId = ?', [id]);
+    // Supprimer le participant
+    db.run('DELETE FROM participants WHERE id = ?', [id], function(err) {
+      if (err) {
+        console.error('Erreur suppression participant:', err);
+        res.status(500).json({ error: 'Erreur serveur' });
+      } else if (this.changes === 0) {
+        res.status(404).json({ error: 'Participant non trouvé' });
+      } else {
+        res.json({ 
+          success: true,
+          message: 'Participant et ses réponses supprimés avec succès'
+        });
+      }
+    });
+  });
+});
+
+// CRUD Réponses
+app.post('/api/admin/answers', requireAdminAuth, (req, res) => {
+  db.all(`
+    SELECT a.*, p.name as participantName 
+    FROM answers a 
+    LEFT JOIN participants p ON a.userId = p.id 
+    ORDER BY a.timestamp DESC
+  `, (err, rows) => {
+    if (err) {
+      console.error('Erreur récupération réponses:', err);
+      res.status(500).json({ error: 'Erreur serveur' });
+    } else {
+      res.json(rows);
+    }
+  });
+});
+
+app.delete('/api/admin/answers/:id', requireAdminAuth, (req, res) => {
+  const { id } = req.params;
+  const { password } = req.body;
+
+  if (password !== ADMIN_PASSWORD) {
+    return res.status(401).json({ error: 'Mot de passe administrateur incorrect' });
+  }
+
+  db.run('DELETE FROM answers WHERE id = ?', [id], function(err) {
+    if (err) {
+      console.error('Erreur suppression réponse:', err);
+      res.status(500).json({ error: 'Erreur serveur' });
+    } else if (this.changes === 0) {
+      res.status(404).json({ error: 'Réponse non trouvée' });
+    } else {
+      res.json({ 
+        success: true,
+        message: 'Réponse supprimée avec succès'
+      });
+    }
+  });
+});
+
+// CRUD État du Quiz
+app.post('/api/admin/quiz-state', requireAdminAuth, (req, res) => {
+  db.get('SELECT * FROM quiz_state WHERE id = 1', (err, row) => {
+    if (err) {
+      console.error('Erreur récupération état quiz:', err);
+      res.status(500).json({ error: 'Erreur serveur' });
+    } else {
+      const state = {
+        ...row,
+        questionStartTimes: JSON.parse(row?.questionStartTimes || '{}')
+      };
+      res.json(state);
+    }
+  });
+});
+
+app.put('/api/admin/quiz-state/force', requireAdminAuth, (req, res) => {
+  const { step, currentQuestionIndex, questionStartTime } = req.body;
+  
+  let updateFields = [];
+  let updateValues = [];
+
+  if (step) {
+    updateFields.push('step = ?');
+    updateValues.push(step);
+  }
+  if (typeof currentQuestionIndex === 'number') {
+    updateFields.push('currentQuestionIndex = ?');
+    updateValues.push(currentQuestionIndex);
+  }
+  if (questionStartTime !== undefined) {
+    updateFields.push('questionStartTime = ?');
+    updateValues.push(questionStartTime);
+  }
+  
+  updateFields.push('updatedAt = CURRENT_TIMESTAMP');
+  updateValues.push(1);
+
+  const sql = `UPDATE quiz_state SET ${updateFields.join(', ')} WHERE id = ?`;
+  
+  db.run(sql, updateValues, function(err) {
+    if (err) {
+      console.error('Erreur modification forcée état quiz:', err);
+      res.status(500).json({ error: 'Erreur serveur' });
+    } else {
+      res.json({ 
+        success: true,
+        message: 'État du quiz modifié avec succès'
+      });
+    }
+  });
+});
+
+// Statistiques globales pour le dashboard admin
+app.post('/api/admin/stats', requireAdminAuth, (req, res) => {
+  const stats = {};
+  
+  // Compter les questions
+  db.get('SELECT COUNT(*) as count FROM questions', (err, questionsCount) => {
+    if (err) {
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
+    stats.questions = questionsCount.count;
+    
+    // Compter les participants
+    db.get('SELECT COUNT(*) as count FROM participants', (err, participantsCount) => {
+      if (err) {
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+      stats.participants = participantsCount.count;
+      
+      // Compter les réponses
+      db.get('SELECT COUNT(*) as count FROM answers', (err, answersCount) => {
+        if (err) {
+          return res.status(500).json({ error: 'Erreur serveur' });
+        }
+        stats.answers = answersCount.count;
+        
+        // État actuel du quiz
+        db.get('SELECT step, currentQuestionIndex FROM quiz_state WHERE id = 1', (err, quizState) => {
+          if (err) {
+            return res.status(500).json({ error: 'Erreur serveur' });
+          }
+          stats.currentStep = quizState?.step || 'lobby';
+          stats.currentQuestionIndex = quizState?.currentQuestionIndex || 0;
+          
+          res.json(stats);
+        });
+      });
+    });
   });
 });
 
