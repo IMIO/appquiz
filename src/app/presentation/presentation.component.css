@@ -1254,6 +1254,11 @@ ol { margin-top: 2rem; }
   display: flex;
   align-items: center;
   gap: 0.5em;
+  display: none !important;
+}
+
+.step-camera-btn {
+  display: none !important;
 }
 
 .step-capture-btn:hover {
