@@ -172,8 +172,7 @@
 
 /* Timer actif avec animation */
 .timer-bar.timer-bar-active {
-  background: linear-gradient(90deg, #4CAF50 0%, #2196F3 50%, #FF5722 100%);
-  box-shadow: 0 0 8px rgba(33, 150, 243, 0.5);
+    background: linear-gradient(90deg, #C5CB2F 0%, #6BBD97 50%, #08B0EC 100%);
 }
 
 /* Animations fluides pour les transitions d'étapes */
@@ -771,15 +770,16 @@ body, .presentation-root {
   border-radius: 8px;
   padding: 1em;
   text-align: center;
-  position: absolute;
-  margin: -20px auto 0;
-  display: flex;
+
 }
 .step-good b {
   color: #232526;
 }
+.step-total-good {
+  display: none !important;
+}
 .step-total-bad {
-  color: #d32f2f;
+  display: none !important;
 }
 .step-leaderboard-block {
   width: 100%;
